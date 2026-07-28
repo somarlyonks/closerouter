@@ -73,36 +73,20 @@ export function proxyRequest (
         }
 
         const contentLength = Buffer.byteLength(body).toString()
-
-        if (isHttps) {
-            const backendReq = https.request({
-                hostname, port, path: urlPath, method,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiKey}`,
-                    'Content-Length': contentLength,
-                },
-            }, (backendRes) => {
-                forwardResponse(backendRes, clientRes)
-            })
-            backendReq.on('error', (err: Error) => handleBackendError(err, clientRes))
-            backendReq.write(body)
-            backendReq.end()
-        } else {
-            const backendReq = http.request({
-                hostname, port, path: urlPath, method,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiKey}`,
-                    'Content-Length': contentLength,
-                },
-            }, (backendRes) => {
-                forwardResponse(backendRes, clientRes)
-            })
-            backendReq.on('error', (err: Error) => handleBackendError(err, clientRes))
-            backendReq.write(body)
-            backendReq.end()
-        }
+        const request = isHttps ? https.request : http.request
+        const backendReq = request({
+            hostname, port, path: urlPath, method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Length': contentLength,
+            },
+        }, (backendRes) => {
+            forwardResponse(backendRes, clientRes)
+        })
+        backendReq.on('error', (err: Error) => handleBackendError(err, clientRes))
+        backendReq.write(body)
+        backendReq.end()
     }
 
     if (preReadBody !== undefined) {
@@ -141,36 +125,20 @@ export function proxyGetRequest (
     const urlPath = targetUrl.pathname + targetUrl.search
 
     return new Promise((resolve, reject) => {
-        if (isHttps) {
-            const req = https.request({
-                hostname, port, path: urlPath, method: 'GET',
-                headers: {Authorization: `Bearer ${apiKey}`},
-            }, (res) => {
-                const chunks: Buffer[] = []
-                res.on('data', (chunk: Buffer) => chunks.push(chunk))
-                res.on('end', () => {
-                    const body = Buffer.concat(chunks).toString('utf-8')
-                    resolve({statusCode: res.statusCode ?? 500, body})
-                })
-                res.on('error', reject)
+        const request = isHttps ? https.request : http.request
+        const req = request({
+            hostname, port, path: urlPath, method: 'GET',
+            headers: {Authorization: `Bearer ${apiKey}`},
+        }, (res) => {
+            const chunks: Buffer[] = []
+            res.on('data', (chunk: Buffer) => chunks.push(chunk))
+            res.on('end', () => {
+                const body = Buffer.concat(chunks).toString('utf-8')
+                resolve({statusCode: res.statusCode ?? 500, body})
             })
-            req.on('error', reject)
-            req.end()
-        } else {
-            const req = http.request({
-                hostname, port, path: urlPath, method: 'GET',
-                headers: {Authorization: `Bearer ${apiKey}`},
-            }, (res) => {
-                const chunks: Buffer[] = []
-                res.on('data', (chunk: Buffer) => chunks.push(chunk))
-                res.on('end', () => {
-                    const body = Buffer.concat(chunks).toString('utf-8')
-                    resolve({statusCode: res.statusCode ?? 500, body})
-                })
-                res.on('error', reject)
-            })
-            req.on('error', reject)
-            req.end()
-        }
+            res.on('error', reject)
+        })
+        req.on('error', reject)
+        req.end()
     })
 }

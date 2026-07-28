@@ -43,11 +43,21 @@ export function handleChatCompletions (
             clientRes.writeHead(404, {'content-type': 'application/json'})
             clientRes.end(JSON.stringify({
                 error: {
-                    message: `Model "${model}" is not configured. Available models: ${router.listModels().join(', ')}`,
+                    message: `Model "${model}" is not configured. Available models: ${router.listModels().map(m => m.id).join(', ')}`,
                     type: 'model_not_found',
                 },
             }))
             return
+        }
+
+        const rewriteBody = (body: string): string => {
+            try {
+                const parsed = JSON.parse(body)
+                parsed.model = route.id
+                return JSON.stringify(parsed)
+            } catch {
+                return body
+            }
         }
 
         proxyRequest(
@@ -56,7 +66,7 @@ export function handleChatCompletions (
             route.config.base_url,
             route.config.api_key,
             '/chat/completions',
-            undefined,
+            rewriteBody,
             bodyStr,
         )
     })

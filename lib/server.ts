@@ -44,6 +44,12 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
 
 server.listen(config.port, () => {
     console.log(`closerouter running on http://localhost:${config.port}`)
-    console.log(`Providers: ${Object.keys(config.providers).join(', ')}`)
-    console.log(`Models: ${router.listModels().join(', ')}`)
+    console.log(`Providers:`)
+    for (const p of router.listProviders()) {
+        console.log(`  ${p.name}`)
+        for (let i = 0; i < p.models.length; i++) {
+            const prefix = i === p.models.length - 1 ? '    └── ' : '    ├── '
+            console.log(`${prefix}${p.models[i]}`)
+        }
+    }
 })

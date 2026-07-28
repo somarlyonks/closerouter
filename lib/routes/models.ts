@@ -1,21 +1,14 @@
 import {IncomingMessage, ServerResponse} from 'http'
-import {Router} from '../router.js'
+import {Router} from '../router'
 
 export function handleListModels (
     _clientReq: IncomingMessage,
     clientRes: ServerResponse,
     router: Router,
 ): void {
-    const models = router.listModels()
-
     const response = {
         object: 'list',
-        data: models.map(id => ({
-            id,
-            object: 'model',
-            created: Math.floor(Date.now() / 1000),
-            owned_by: 'closerouter',
-        })),
+        data: router.listModels(),
     }
 
     clientRes.writeHead(200, {
