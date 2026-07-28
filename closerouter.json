@@ -1,0 +1,13 @@
+{
+    "port": 3000,
+    "providers": {
+        "deepseek": {
+            "base_url": "https://api.deepseek.com/v1",
+            "api_key": "sk-your-deepseek-api-key",
+            "models": [
+                "deepseek-v4-flash",
+                "deepseek-v4-pro"
+            ]
+        }
+    }
+}

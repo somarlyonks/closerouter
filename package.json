@@ -1,0 +1,22 @@
+{
+    "name": "closerouter",
+    "version": "1.0.0",
+    "description": "",
+    "license": "MIT",
+    "author": "sy@somarl.com",
+    "type": "module",
+    "main": "dist/closerouter",
+    "directories": {
+        "lib": "lib"
+    },
+    "scripts": {
+        "start": "scriptc run lib/server.ts",
+        "build": "scriptc build lib/server.ts -o dist/closerouter"
+    },
+    "devDependencies": {
+        "@somarlyonks/eslint": "^1",
+        "@types/node": "^24",
+        "eslint": "^9",
+        "scriptc": "^0.0.17"
+    }
+}
