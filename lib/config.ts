@@ -19,6 +19,7 @@ export interface ProviderConfig {
 
 export interface Config {
     port: number
+    key?: string
     providers: Record<string, ProviderConfig>
 }
 
@@ -65,6 +66,7 @@ export function loadConfig (configPath?: string): Config {
 
     return {
         port: config.port ?? 6712,
+        key: config.key,
         providers: config.providers,
     }
 }

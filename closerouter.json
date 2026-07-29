@@ -1,5 +1,6 @@
 {
     "port": 6712,
+    "key": "sk-cr-kee9itsecr1t",
     "providers": {
         "deepseek": {
             "base_url": "https://api.deepseek.com/v1",

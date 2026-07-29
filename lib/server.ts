@@ -1,4 +1,5 @@
 import {createServer, IncomingMessage, ServerResponse} from 'http'
+import {randomUUID} from 'crypto'
 import {loadConfig} from './config.js'
 import {Router} from './router.js'
 import {handleChatCompletions} from './routes/chat.js'
@@ -7,6 +8,8 @@ import {handleListModels} from './routes/models.js'
 export function startServer (configPath: string): void {
     const config = loadConfig(configPath)
     const router = new Router(config)
+
+    const apiKey = config.key || `sk-cr-${randomUUID()}`
 
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         const method = req.method
@@ -22,6 +25,19 @@ export function startServer (configPath: string): void {
                 'access-control-max-age': '86400',
             })
             res.end()
+            return
+        }
+
+        const auth = req.headers.authorization
+        const expected = `Bearer ${apiKey}`
+        if (!auth || auth !== expected) {
+            res.writeHead(401, {'content-type': 'application/json'})
+            res.end(JSON.stringify({
+                error: {
+                    message: 'Invalid or missing API key. Use Authorization: Bearer <key>',
+                    type: 'authentication_error',
+                },
+            }))
             return
         }
 
@@ -44,6 +60,7 @@ export function startServer (configPath: string): void {
 
     server.listen(config.port, () => {
         console.log(`closerouter running on http://localhost:${config.port}`)
+        console.log(`API key: ${apiKey}`)
         console.log(`Providers:`)
         for (const p of router.listProviders()) {
             console.log(`  ${p.name}`)
