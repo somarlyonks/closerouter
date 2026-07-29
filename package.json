@@ -10,8 +10,8 @@
         "lib": "lib"
     },
     "scripts": {
-        "start": "scriptc run lib/server.ts",
-        "build": "scriptc build lib/server.ts -o dist/closerouter"
+        "start": "scriptc run lib/cli.ts",
+        "build": "scriptc build lib/cli.ts -o dist/closerouter"
     },
     "devDependencies": {
         "@somarlyonks/eslint": "^1",

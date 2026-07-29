@@ -16,7 +16,8 @@
 
 ```
 lib/
-  server.ts          # Main entrypoint — creates HTTP server, mounts routes
+  cli.ts             # Main entrypoint — routes commands
+  server.ts          # creates HTTP server, mounts routes
   config.ts          # Config loading & env interpolation
   router.ts          # Model → provider resolution
   proxy.ts           # HTTP/HTTPS request forwarding with streaming

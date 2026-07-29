@@ -1,7 +1,9 @@
 import {readFileSync, writeFileSync, existsSync} from 'fs'
 import {resolve} from 'path'
 import {createInterface} from 'readline'
+import {spawn} from 'child_process'
 import {proxyGetRequest} from './proxy.js'
+import {startServer} from './server.js'
 
 interface VagueConfig {
     port: number
@@ -201,32 +203,35 @@ function cmdListProviders (configPath: string): void {
 
 function printHelp (): void {
     console.log(`
-closerouter CLI
+closerouter — LLM proxy/router
 
 Usage:
+  closerouter [server] [-d|--detach]                 Start the proxy server
+  closerouter help                                   Show this help
   closerouter providers                              List configured providers
   closerouter models <provider>                      List provider's models to add
               models <provider> pick [<model>...]    Add specific model(s) to config
-  closerouter help                                   Show this help
 `)
 }
 
 async function handleModels (configPath: string): Promise<void> {
     const args = process.argv.slice(2)
 
-    if (!args[1]) {
+    if (args.length < 2) {
         console.error('Usage: closerouter models <provider-name>')
         process.exit(1)
     }
+    const providerName = args[1]
     if (args.length < 3) {
-        await cmdFetchModels(configPath, args[1])
+        await cmdFetchModels(configPath, providerName)
     } else {
-        switch (args[2]) {
+        const subcommand = args[2]
+        switch (subcommand) {
             case 'pick':
-                await cmdPickModel(configPath, args[1], args.slice(3))
+                await cmdPickModel(configPath, providerName, args.slice(3))
                 break
             default:
-                console.error(`Unknown command: ${args[2]}`)
+                console.error(`Unknown command: ${subcommand}`)
                 printHelp()
                 process.exit(1)
         }
@@ -237,9 +242,24 @@ async function main (): Promise<void> {
     const args = process.argv.slice(2)
     const configPath = resolve(process.cwd(), 'closerouter.json')
 
-    if (args.length === 0) {
-        printHelp()
-        process.exit(0)
+    const isServer = args.length === 0
+        || (args.length === 1 && args[0] === '-d')
+        || (args.length >= 1 && args[0] === 'server')
+
+    if (isServer) {
+        const detach = args.indexOf('-d') !== -1 || args.indexOf('--detach') !== -1
+        if (detach) {
+            const child = spawn(process.execPath, ['server'], {
+                detached: true,
+                stdio: ['ignore', 'ignore', 'inherit'],
+            })
+            child.unref()
+            console.log(`closerouter started in background (pid ${child.pid ?? 'unknown'})`)
+            process.exit(0)
+        }
+
+        startServer(configPath)
+        return
     }
 
     const cmd = args[0]
