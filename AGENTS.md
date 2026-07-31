@@ -17,15 +17,13 @@
 ```
 lib/
   cli.ts             # Main entrypoint — routes commands
-  server.ts          # creates HTTP server, mounts routes
   config.ts          # Config loading & env interpolation
-  router.ts          # Model → provider resolution
   proxy.ts           # HTTP/HTTPS request forwarding with streaming
-  routes/
-    chat.ts          # POST /v1/chat/completions
-    models.ts        # GET /v1/models
+  util.ts            # Shared types or functions
+  server/
+    index.ts         # creates HTTP server, mounts routes
+    v1/              # OpenAI compatible API
 closerouter.json     # Sample / default config
-plan.md              # Design plan
 ```
 
 ## Code Style

@@ -2,8 +2,8 @@ import {readFileSync, writeFileSync, existsSync} from 'fs'
 import {resolve} from 'path'
 import {createInterface} from 'readline'
 import {spawn} from 'child_process'
-import {proxyGetRequest} from './proxy.js'
-import {startServer} from './server.js'
+import {proxyGetRequest} from './proxy'
+import {startServer} from './server'
 
 interface VagueConfig {
     port: number

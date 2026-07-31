@@ -1,14 +1,12 @@
 import {IncomingMessage, ServerResponse} from 'http'
-import {Router} from '../router'
 
 export function handleListModels (
     _clientReq: IncomingMessage,
     clientRes: ServerResponse,
-    router: Router,
 ): void {
     const response = {
         object: 'list',
-        data: router.listModels(),
+        data: [],
     }
 
     clientRes.writeHead(200, {

@@ -1,15 +1,17 @@
-import {IncomingMessage, ServerResponse} from 'http'
-import {Router} from '../router.js'
-import {proxyRequest} from '../proxy.js'
+import {ServerResponse} from 'http'
+import {RequestContext} from '../../../util'
+import {proxyRequest} from '../../../proxy'
+import {Router} from '../../../router'
 
 export function handleChatCompletions (
-    clientReq: IncomingMessage,
-    clientRes: ServerResponse,
-    router: Router,
+    ctx: RequestContext,
+    res: ServerResponse,
 ): void {
     const chunks: Buffer[] = []
-    clientReq.on('data', (chunk: Buffer) => chunks.push(chunk))
-    clientReq.on('end', () => {
+    const router = new Router(ctx.env.config)
+    const req = ctx.req
+    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    req.on('end', () => {
         const bodyStr = Buffer.concat(chunks).toString('utf-8')
 
         let model: string | undefined
@@ -17,8 +19,8 @@ export function handleChatCompletions (
             const body = JSON.parse(bodyStr)
             model = body.model
         } catch {
-            clientRes.writeHead(400, {'content-type': 'application/json'})
-            clientRes.end(JSON.stringify({
+            res.writeHead(400, {'content-type': 'application/json'})
+            res.end(JSON.stringify({
                 error: {
                     message: 'Invalid JSON in request body',
                     type: 'invalid_request_error',
@@ -28,8 +30,8 @@ export function handleChatCompletions (
         }
 
         if (!model) {
-            clientRes.writeHead(400, {'content-type': 'application/json'})
-            clientRes.end(JSON.stringify({
+            res.writeHead(400, {'content-type': 'application/json'})
+            res.end(JSON.stringify({
                 error: {
                     message: 'Missing "model" field in request body',
                     type: 'invalid_request_error',
@@ -40,10 +42,10 @@ export function handleChatCompletions (
 
         const route = router.lookup(model)
         if (!route) {
-            clientRes.writeHead(404, {'content-type': 'application/json'})
-            clientRes.end(JSON.stringify({
+            res.writeHead(404, {'content-type': 'application/json'})
+            res.end(JSON.stringify({
                 error: {
-                    message: `Model "${model}" is not configured. Available models: ${router.listModels().map(m => m.id).join(', ')}`,
+                    message: `Model "${model}" is not available.}`,
                     type: 'model_not_found',
                 },
             }))
@@ -61,8 +63,8 @@ export function handleChatCompletions (
         }
 
         proxyRequest(
-            clientReq,
-            clientRes,
+            req,
+            res,
             route.config.base_url,
             route.config.api_key,
             '/chat/completions',
@@ -71,11 +73,11 @@ export function handleChatCompletions (
         )
     })
 
-    clientReq.on('error', (err) => {
+    req.on('error', (err) => {
         console.error('Error reading chat request body:', err)
-        if (!clientRes.headersSent) {
-            clientRes.writeHead(400, {'content-type': 'application/json'})
-            clientRes.end(JSON.stringify({
+        if (!res.headersSent) {
+            res.writeHead(400, {'content-type': 'application/json'})
+            res.end(JSON.stringify({
                 error: {
                     message: `Failed to read request: ${err.message}`,
                     type: 'client_error',
