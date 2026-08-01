@@ -28,8 +28,12 @@ closerouter.json     # Sample / default config
 
 ## Code Style
 
-- TypeScript, ESM (`"type": "module"`)
+- TypeScript, ESM
 - Prefer `async`/`await` over callbacks
-- Minimal abstractions — keep it simple
-- No classes unless they genuinely model stateful objects
+- Functional and no classes
 - Console logging is fine for observability (no logging library)
+
+## Engineering
+
+- Only comment when the code is abstract and needs explanation of implementation and decisions
+- Create a skill at `.agents/skills` after interupted and instructed to push forward

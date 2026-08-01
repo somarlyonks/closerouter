@@ -1,15 +1,7 @@
 import {readFileSync, existsSync} from 'fs'
 import {join, resolve} from 'path'
 
-export interface ModelEntry {
-    // id with provider prefix, e.g. "deepseek/deepseek-v4-flash"
-    id: string
-    object?: string
-    created?: number
-    owned_by?: string
-}
-
-export type ModelConfig = string | ModelEntry
+export type ModelConfig = string | {id: string}
 
 export interface ProviderConfig {
     base_url: string

@@ -34,8 +34,10 @@ export function startServer (configPath: string): void {
         )(ctx, res)
     })
 
-    server.listen(config.port, () => {
-        console.log(`closerouter running on http://localhost:${config.port || 6712}`)
+    const port = config.port || 6712
+
+    server.listen(port, () => {
+        console.log(`closerouter running on http://localhost:${port}`)
         console.log(`API key: ${apiKey}`)
         console.log(`Providers:`)
         for (const p of Object.keys(config.providers)) console.log(`  ${p}`)

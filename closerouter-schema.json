@@ -1,0 +1,91 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/somarlyonks/closerouter/refs/heads/master/closerouter-schema.json",
+    "title": "closerouter config",
+    "description": "Configuration for closerouter, a lightweight OpenAI-compatible LLM proxy/router.",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "$schema": {
+            "description": "Optional JSON Schema URI this config validates against.",
+            "type": "string",
+            "format": "uri"
+        },
+        "port": {
+            "description": "Port the proxy listens on. Defaults to 6712.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "default": 6712
+        },
+        "key": {
+            "description": "Optional API key clients must present to access the proxy.",
+            "type": "string",
+            "minLength": 1
+        },
+        "providers": {
+            "description": "Map of provider name to its configuration. Must contain at least one entry.",
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+                "$ref": "#/$defs/provider"
+            }
+        }
+    },
+    "required": [
+        "providers"
+    ],
+    "$defs": {
+        "provider": {
+            "description": "A backend provider that speaks the OpenAI API format.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "base_url": {
+                    "description": "Base URL of the provider's OpenAI-compatible API.",
+                    "type": "string",
+                    "minLength": 1,
+                    "format": "uri"
+                },
+                "api_key": {
+                    "description": "API key used to authenticate with the provider.",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "models": {
+                    "description": "Models exposed through this provider. Each entry may be a bare model id string or a full model entry object.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/model"
+                    }
+                }
+            },
+            "required": [
+                "base_url",
+                "api_key"
+            ]
+        },
+        "model": {
+            "description": "A model exposed by a provider. Either a bare id string (e.g. \"deepseek/deepseek-v4-flash\") or an object whose only required field is \"id\". Additional fields (e.g. \"owned_by\") are passed through to clients.",
+            "oneOf": [
+                {
+                    "type": "string",
+                    "minLength": 1
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "description": "Model id with provider prefix, e.g. \"deepseek/deepseek-v4-flash\".",
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    },
+                    "required": [
+                        "id"
+                    ]
+                }
+            ]
+        }
+    }
+}
