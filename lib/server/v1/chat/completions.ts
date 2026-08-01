@@ -1,14 +1,12 @@
 import {ServerResponse} from 'http'
 import {RequestContext} from '../../../util'
 import {proxyRequest} from '../../../proxy'
-import {Router} from '../../../router'
 
 export function handleChatCompletions (
     ctx: RequestContext,
     res: ServerResponse,
 ): void {
     const chunks: Buffer[] = []
-    const router = new Router(ctx.env.config)
     const req = ctx.req
     req.on('data', (chunk: Buffer) => chunks.push(chunk))
     req.on('end', () => {
@@ -40,12 +38,26 @@ export function handleChatCompletions (
             return
         }
 
-        const route = router.lookup(model)
-        if (!route) {
+        const slashIdx = model.indexOf('/')
+        const providerName = model.slice(0, slashIdx)
+        const realModel = model.slice(slashIdx + 1)
+        if (slashIdx <= 0 || !providerName || !realModel) {
             res.writeHead(404, {'content-type': 'application/json'})
             res.end(JSON.stringify({
                 error: {
-                    message: `Model "${model}" is not available.}`,
+                    message: `Model "${model}" is unavailable`,
+                    type: 'model_not_found',
+                },
+            }))
+            return
+        }
+
+        const provider = ctx.env.config.providers[providerName]
+        if (!provider) {
+            res.writeHead(404, {'content-type': 'application/json'})
+            res.end(JSON.stringify({
+                error: {
+                    message: `Provider "${providerName}" is not configured`,
                     type: 'model_not_found',
                 },
             }))
@@ -55,7 +67,7 @@ export function handleChatCompletions (
         const rewriteBody = (body: string): string => {
             try {
                 const parsed = JSON.parse(body)
-                parsed.model = route.id
+                parsed.model = realModel
                 return JSON.stringify(parsed)
             } catch {
                 return body
@@ -65,8 +77,8 @@ export function handleChatCompletions (
         proxyRequest(
             req,
             res,
-            route.config.base_url,
-            route.config.api_key,
+            provider.base_url,
+            provider.api_key,
             '/chat/completions',
             rewriteBody,
             bodyStr,
