@@ -15,7 +15,7 @@ export class Router {
     constructor (config: Config) {
         this.providers = [...Object.keys(config.providers)]
         for (const [provider, providerConfig] of Object.entries(config.providers)) {
-            for (const model of providerConfig.models) {
+            for (const model of providerConfig.models || []) {
                 const id = typeof model === 'string' ? model : model.id
                 const entry = normalizeModel(provider, model)
                 this.modelMap.set(entry.id, {

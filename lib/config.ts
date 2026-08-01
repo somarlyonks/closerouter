@@ -14,11 +14,11 @@ export type ModelConfig = string | ModelEntry
 export interface ProviderConfig {
     base_url: string
     api_key: string
-    models: ModelConfig[]
+    models?: ModelConfig[]
 }
 
 export interface Config {
-    port: number
+    port?: number
     key?: string
     providers: Record<string, ProviderConfig>
 }

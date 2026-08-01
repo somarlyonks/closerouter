@@ -35,7 +35,7 @@ export function startServer (configPath: string): void {
     })
 
     server.listen(config.port, () => {
-        console.log(`closerouter running on http://localhost:${config.port}`)
+        console.log(`closerouter running on http://localhost:${config.port || 6712}`)
         console.log(`API key: ${apiKey}`)
         console.log(`Providers:`)
         for (const p of Object.keys(config.providers)) console.log(`  ${p}`)
