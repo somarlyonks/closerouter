@@ -1,19 +1,17 @@
-import {createServer, IncomingMessage, ServerResponse} from 'http'
+import {createServer, type IncomingMessage, type Server, type ServerResponse} from 'http'
 import {randomUUID} from 'crypto'
 import {loadConfig} from '../config'
 import {v1Router as handleOpenAIRequest} from './v1'
-import {router, RequestContext} from '../util'
+import {router, type RequestContext} from '../util'
+import {handleLogs, logMiddleware} from './logs'
 
-export function startServer (configPath: string): void {
+export function startServer (configPath: string): Server {
     const config = loadConfig(configPath)
     const apiKey = config.key || `sk-cr-${randomUUID()}`
 
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-        const method = req.method
-        console.log(`${method} ${req.url}`)
-        if (!req.url) {
-            return
-        }
+        console.log(`${req.method} ${req.url}`)
+        if (!req.method || !req.url) return
 
         const ctx: RequestContext = {
             req,
@@ -22,14 +20,21 @@ export function startServer (configPath: string): void {
                 config,
                 apiKey,
             },
+            responseLog: {},
         }
+
+        logMiddleware(ctx, res)
 
         router(
             c => c.req.method === 'OPTIONS',
             handleOptions,
             router(
-                r => !!r.req.url?.startsWith('/v1/'),
-                handleOpenAIRequest,
+                c => c.req.url === '/logs',
+                handleLogs,
+                router(
+                    r => !!r.req.url?.startsWith('/v1/'),
+                    handleOpenAIRequest,
+                ),
             ),
         )(ctx, res)
     })
@@ -42,6 +47,8 @@ export function startServer (configPath: string): void {
         console.log(`Providers:`)
         for (const p of Object.keys(config.providers)) console.log(`  ${p}`)
     })
+
+    return server
 }
 
 function handleOptions (_ctx: RequestContext, res: ServerResponse) {

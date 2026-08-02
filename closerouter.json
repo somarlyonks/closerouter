@@ -1,5 +1,5 @@
 {
-    "$schema": "https://raw.githubusercontent.com/somarlyonks/closerouter/refs/heads/master/closerouter.json",
+    "$schema": "https://raw.githubusercontent.com/somarlyonks/closerouter/refs/heads/master/closerouter-schema.json",
     "port": 6712,
     "key": "sk-cr-kee9itsecr1t",
     "providers": {

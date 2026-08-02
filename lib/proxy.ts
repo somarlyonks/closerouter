@@ -1,6 +1,7 @@
 import * as http from 'http'
 import * as https from 'https'
 import {IncomingMessage, ServerResponse} from 'http'
+import {appendResponseBody, logResponse, type ResponseLog} from './util'
 
 function getPort (targetUrl: URL, isHttps: boolean): number {
     const host = targetUrl.host
@@ -16,7 +17,7 @@ function firstHeader (val: string | string[] | undefined): string | undefined {
     return Array.isArray(val) ? val[0] : val
 }
 
-function forwardResponse (backendRes: IncomingMessage, clientRes: ServerResponse): void {
+function forwardResponse (backendRes: IncomingMessage, clientRes: ServerResponse, responseLog: ResponseLog | undefined): void {
     const statusCode = backendRes.statusCode ?? 500
     const headers: Record<string, string> = {
         'access-control-allow-origin': '*',
@@ -24,9 +25,11 @@ function forwardResponse (backendRes: IncomingMessage, clientRes: ServerResponse
     const ct = firstHeader(backendRes.headers['content-type'])
     if (ct) headers['content-type'] = ct
 
+    logResponse(responseLog, {status: statusCode, headers})
     clientRes.writeHead(statusCode, headers)
 
     backendRes.on('data', (chunk: Buffer) => {
+        appendResponseBody(responseLog, chunk)
         clientRes.write(chunk)
     })
     backendRes.on('end', () => {
@@ -37,17 +40,21 @@ function forwardResponse (backendRes: IncomingMessage, clientRes: ServerResponse
     })
 }
 
-function handleBackendError (err: Error, clientRes: ServerResponse): void {
+function handleBackendError (err: Error, clientRes: ServerResponse, responseLog: ResponseLog | undefined): void {
     console.error('Backend request error:', err)
-    if (!clientRes.headersSent) {
-        clientRes.writeHead(502, {'content-type': 'application/json'})
-    }
-    clientRes.end(JSON.stringify({
+    const body = JSON.stringify({
         error: {
             message: `Backend request failed: ${err.message}`,
             type: 'proxy_error',
         },
-    }))
+    })
+    if (!clientRes.headersSent) {
+        logResponse(responseLog, {status: 502, headers: {'content-type': 'application/json'}, body})
+        clientRes.writeHead(502, {'content-type': 'application/json'})
+    } else {
+        appendResponseBody(responseLog, body)
+    }
+    clientRes.end(body)
 }
 
 export function proxyRequest (
@@ -58,6 +65,7 @@ export function proxyRequest (
     path: string,
     rewriteBody?: (body: string) => string,
     preReadBody?: string,
+    responseLog?: ResponseLog,
 ): void {
     const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
     const targetUrl = new URL(normalizedBaseUrl + path)
@@ -82,9 +90,9 @@ export function proxyRequest (
                 'Content-Length': contentLength,
             },
         }, (backendRes) => {
-            forwardResponse(backendRes, clientRes)
+            forwardResponse(backendRes, clientRes, responseLog)
         })
-        backendReq.on('error', (err: Error) => handleBackendError(err, clientRes))
+        backendReq.on('error', (err: Error) => handleBackendError(err, clientRes, responseLog))
         backendReq.write(body)
         backendReq.end()
     }
@@ -100,13 +108,15 @@ export function proxyRequest (
         clientReq.on('error', (err: Error) => {
             console.error('Client request error:', err)
             if (!clientRes.headersSent) {
-                clientRes.writeHead(400, {'content-type': 'application/json'})
-                clientRes.end(JSON.stringify({
+                const body = JSON.stringify({
                     error: {
                         message: `Bad request: ${err.message}`,
                         type: 'client_error',
                     },
-                }))
+                })
+                logResponse(responseLog, {status: 400, headers: {'content-type': 'application/json'}, body})
+                clientRes.writeHead(400, {'content-type': 'application/json'})
+                clientRes.end(body)
             }
         })
     }

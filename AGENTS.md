@@ -6,7 +6,7 @@
 
 ## Key Constraints
 
-- **Zero runtime dependencies** — use only Node.js built-in modules (`http`, `https`, `fs`, `path`, `url`, `stream`, `crypto`).
+- **Zero runtime dependencies** — use only Node.js built-in modules.
 - **Compiled via `scriptc`** — the project is built with `scriptc`, which compiles TypeScript to a native binary. Keep code compatible with whatever Node.js API surface `scriptc` supports.
 - **JSON config only** — no YAML, TOML, or other formats. Config file is `closerouter.json` by default.
 - **Streaming is critical** — `/v1/chat/completions` must support SSE streaming. Proxy responses should stream chunks back to the client without buffering the entire response.
@@ -23,6 +23,7 @@ lib/
   server/
     index.ts         # creates HTTP server, mounts routes
     v1/              # OpenAI compatible API
+    logs/            # Live logs stream
 closerouter.json     # Sample / default config
 ```
 
@@ -31,7 +32,7 @@ closerouter.json     # Sample / default config
 - TypeScript, ESM
 - Prefer `async`/`await` over callbacks
 - Functional and no classes
-- Console logging is fine for observability (no logging library)
+- Console logging is fine for observability
 
 ## Engineering
 

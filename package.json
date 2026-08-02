@@ -10,7 +10,9 @@
         "lib": "lib"
     },
     "scripts": {
+        "prestart": "node build.ts",
         "start": "scriptc run lib/cli.ts",
+        "prebuild": "node build.ts",
         "build": "scriptc build lib/cli.ts -o dist/closerouter"
     },
     "devDependencies": {

@@ -4,7 +4,7 @@ Simple and slim.
 
 ## Usage
 
-Always looking for `closerouter.json` as config at the same path to the executable.
+Always looking for `closerouter.json` as config at current working directory.
 
 ```
 closerouter — LLM proxy/router
@@ -18,6 +18,8 @@ Usage:
 ```
 
 API endpoint: `http://localhost:6712/v1`
+
+Live logs at: `http://localhost:6712/logs`
 
 ## Configuration
 

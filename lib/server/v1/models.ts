@@ -1,5 +1,5 @@
 import {ServerResponse} from 'http'
-import {RequestContext, normalizeModel} from '../../util'
+import {normalizeModel, type RequestContext} from '../../util'
 import {proxyGetRequest} from '../../proxy'
 
 export async function handleListModels (

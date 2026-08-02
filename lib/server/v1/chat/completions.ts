@@ -1,5 +1,5 @@
 import {ServerResponse} from 'http'
-import {RequestContext} from '../../../util'
+import type {RequestContext} from '../../../util'
 import {proxyRequest} from '../../../proxy'
 
 export function handleChatCompletions (
@@ -82,6 +82,7 @@ export function handleChatCompletions (
             '/chat/completions',
             rewriteBody,
             bodyStr,
+            ctx.responseLog,
         )
     })
 
