@@ -1,6 +1,6 @@
 import type {IncomingMessage, OutgoingHttpHeaders, ServerResponse} from 'http'
 import {randomUUID} from 'crypto'
-import {router, needsCookie, type RequestContext} from '../../util'
+import {router, needsCookie, withMethod, type RequestContext} from '../../util'
 import {indexHTML} from './index.html'
 
 export interface LogEntry {
@@ -25,8 +25,8 @@ export function publishLog (entry: LogEntry): void {
     for (const listener of listeners) listener(entry)
 }
 
-export const handleLogs = router(
-    r => r.req.method === 'GET' && r.req.headers['accept'] === 'text/event-stream',
+export const handleLogs = withMethod('GET')(router(
+    r => r.req.headers['accept'] === 'text/event-stream',
     needsCookie((_ctx, res) => {
         res.writeHead(200, {
             'content-type': 'text/event-stream',
@@ -50,30 +50,15 @@ export const handleLogs = router(
             listeners.splice(listeners.indexOf(listener), 1)
         })
     }),
-    router(
-        c => c.req.method !== 'GET',
-        (_ctx, res) => {
-            res.writeHead(405, {
-                'content-type': 'application/json',
-                'allow': 'GET',
-            })
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Method Not Allowed',
-                    type: 'method_not_allowed',
-                },
-            }))
-        },
-        (_ctx, res) => {
-            res.writeHead(200, {
-                'content-type': 'text/html; charset=utf-8',
-                'cache-control': 'no-cache',
-                'x-content-type-options': 'nosniff',
-            })
-            res.end(indexHTML)
-        },
-    ),
-)
+    (_ctx, res) => {
+        res.writeHead(200, {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'no-cache',
+            'x-content-type-options': 'nosniff',
+        })
+        res.end(indexHTML)
+    },
+))
 
 export function logMiddleware ({req, responseLog}: RequestContext, res: ServerResponse) {
     if (req.url === '/logs') return

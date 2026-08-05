@@ -1,28 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {resolve} from 'path'
-import {loadConfig, resolveConfigPath} from '../lib/config'
+import {loadConfig} from '../lib/config'
 import {captureExit, writeTempConfig, writeTempFile} from './helpers'
-
-test('resolveConfigPath defaults to closerouter.json in cwd', () => {
-    const orig = process.argv
-    process.argv = ['node', 'cli']
-    try {
-        assert.equal(resolveConfigPath(), resolve(process.cwd(), 'closerouter.json'))
-    } finally {
-        process.argv = orig
-    }
-})
-
-test('resolveConfigPath uses argv[2] when provided', () => {
-    const orig = process.argv
-    process.argv = ['node', 'cli', '/custom/path.json']
-    try {
-        assert.equal(resolveConfigPath(), resolve(process.cwd(), '/custom/path.json'))
-    } finally {
-        process.argv = orig
-    }
-})
 
 test('loadConfig returns config with default port when omitted', async () => {
     const {path, cleanup} = await writeTempConfig({

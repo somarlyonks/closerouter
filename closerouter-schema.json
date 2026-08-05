@@ -66,7 +66,7 @@
             ]
         },
         "model": {
-            "description": "A model exposed by a provider. Either a bare id string (e.g. \"deepseek/deepseek-v4-flash\") or an object whose only required field is \"id\". Additional fields (e.g. \"owned_by\") are passed through to clients.",
+            "description": "A model exposed by a provider. Either a bare id string (e.g. \"deepseek-v4-flash\") or an object whose only required field is \"id\". Additional fields (e.g. \"owned_by\") are passed through to clients.",
             "oneOf": [
                 {
                     "type": "string",
@@ -76,7 +76,7 @@
                     "type": "object",
                     "properties": {
                         "id": {
-                            "description": "Model id with provider prefix, e.g. \"deepseek/deepseek-v4-flash\".",
+                            "description": "Model id , e.g. \"deepseek-v4-flash\".",
                             "type": "string",
                             "minLength": 1
                         }

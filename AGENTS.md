@@ -17,7 +17,7 @@
 ```
 lib/
   cli.ts             # Main entrypoint — routes commands
-  config.ts          # Config loading & env interpolation
+  config.ts          # Config loading
   proxy.ts           # HTTP/HTTPS request forwarding with streaming
   util.ts            # Shared types or functions
   server/

@@ -32,6 +32,22 @@ export function router (
     return (ctx, res) => (predicate(ctx) ? handler : cont)(ctx, res)
 }
 
+export function withMethod (method: string) {
+    return (handler: RequestHandler) => router(
+        ctx => ctx.req.method !== method,
+        ({req}, res) => {
+            res.writeHead(405, {'content-type': 'application/json', 'allow': method})
+            res.end(JSON.stringify({
+                error: {
+                    message: `Method not allowed: ${req.method} ${req.url}`,
+                    type: 'method_not_allowed',
+                },
+            }))
+        },
+        handler,
+    )
+}
+
 export function needsAuth (handler: RequestHandler) {
     return router(
         ctx => ctx.req.headers.authorization === `Bearer ${ctx.env.apiKey}`,
@@ -89,7 +105,7 @@ export function normalizeModel (provider: string, model: unknown): unknown {
 
     if (typeof model !== 'object' || !model || !(model as Record<string, unknown>).id) throw new Error('Model config broken')
     const props = JSON.parse(JSON.stringify(model))
-    props.id = `${provider}/${typeof model === 'string' ? model : props.id}`
+    props.id = `${provider}/${props.id}`
     props.owned_by = props.owned_by || provider
     return props
 }

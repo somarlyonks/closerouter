@@ -1,5 +1,4 @@
 import {readFileSync, existsSync} from 'fs'
-import {join, resolve} from 'path'
 
 export type ModelConfig = string | {id: string}
 
@@ -15,15 +14,8 @@ export interface Config {
     providers: Record<string, ProviderConfig>
 }
 
-export function resolveConfigPath (): string {
-    const cliPath = process.argv.length > 2 ? process.argv[2] : undefined
-    if (cliPath) return resolve(process.cwd(), cliPath)
-
-    return join(process.cwd(), 'closerouter.json')
-}
-
-export function loadConfig (configPath?: string): Config {
-    const path = configPath ?? resolveConfigPath()
+export function loadConfig (configPath: string): Config {
+    const path = configPath
 
     if (!existsSync(path)) exitFor(`Config file not found: ${path}`)
 

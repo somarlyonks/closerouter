@@ -7,11 +7,9 @@ export async function handleListModels (
     res: ServerResponse,
 ): Promise<void> {
     const {config} = ctx.env
-    const data: unknown[] = []
 
-    for (const name of Object.keys(config.providers)) {
-        const provider = config.providers[name]
-        let models: unknown[] = []
+    const modelsByProvider = await Promise.all(Object.entries(config.providers).map(async ([name, provider]) => {
+        let models: unknown[]
         try {
             models = (await fetchProviderModels(provider.base_url, provider.api_key))
         } catch (err) {
@@ -20,9 +18,13 @@ export async function handleListModels (
                 err instanceof Error ? err.message : err,
             )
             models = provider.models || []
-        } finally {
-            for (const model of models) data.push(normalizeModel(name, model))
         }
+        return {name, models}
+    }))
+
+    const data: unknown[] = []
+    for (const {name, models} of modelsByProvider) {
+        for (const model of models) data.push(normalizeModel(name, model))
     }
 
     res.writeHead(200, {

@@ -53,6 +53,22 @@ export function startServer (configPath: string): Server {
         for (const p of Object.keys(config.providers)) console.log(`  ${p}`)
     })
 
+    const shutdown = (sig: string) => () => {
+        console.log(`received ${sig}, shutting down`)
+        // server.close stops accepting new connections and waits for in-flight
+        // responses to drain. SSE /logs streams and parked keep-alive clients are
+        // long-lived, though, so arm a grace-period force-quit so supervisors can
+        // recycle the process reliably instead of hanging indefinitely.
+        server.close(() => process.exit(0))
+        const force = setTimeout(() => {
+            console.log(`forcing shutdown after grace period`)
+            process.exit(1)
+        }, 10000)
+        force.unref()
+    }
+    process.on('SIGTERM', shutdown('SIGTERM'))
+    process.on('SIGINT', shutdown('SIGINT'))
+
     return server
 }
 

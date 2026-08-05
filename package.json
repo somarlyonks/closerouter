@@ -20,7 +20,7 @@
     "devDependencies": {
         "@somarlyonks/eslint": "^1",
         "@types/node": "^24",
-        "eslint": "^9",
+        "eslint": "^10",
         "scriptc": "^0.0.17"
     }
 }
