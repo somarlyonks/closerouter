@@ -10,6 +10,8 @@
         "lib": "lib"
     },
     "scripts": {
+        "pretest": "node build.ts",
+        "test": "node --import ./test/loader.mjs --test",
         "prestart": "node build.ts",
         "start": "scriptc run lib/cli.ts",
         "prebuild": "node build.ts",
