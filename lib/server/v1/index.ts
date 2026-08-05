@@ -1,5 +1,6 @@
 import {router, needsAuth} from '../../util'
 import {handleChatCompletions} from './chat/completions'
+import {handleResponses} from './responses'
 import {handleListModels} from './models'
 
 export const v1Router = needsAuth(router(
@@ -8,5 +9,9 @@ export const v1Router = needsAuth(router(
     router(
         ({req}) => req.method === 'POST' && req.url === '/v1/chat/completions',
         handleChatCompletions,
+        router(
+            ({req}) => req.method === 'POST' && req.url === '/v1/responses',
+            handleResponses,
+        ),
     ),
 ))
