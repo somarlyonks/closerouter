@@ -4,6 +4,7 @@ import {loadConfig} from '../config'
 import {v1Router as handleOpenAIRequest} from './v1'
 import {router, type RequestContext} from '../util'
 import {handleLogs, logMiddleware} from './logs'
+import {handleStatus} from './status'
 
 export function startServer (configPath: string): Server {
     const config = loadConfig(configPath)
@@ -29,11 +30,15 @@ export function startServer (configPath: string): Server {
             c => c.req.method === 'OPTIONS',
             handleOptions,
             router(
-                c => c.req.url === '/logs',
-                handleLogs,
+                c => !!c.req.url?.startsWith('/v1/'),
+                handleOpenAIRequest,
                 router(
-                    r => !!r.req.url?.startsWith('/v1/'),
-                    handleOpenAIRequest,
+                    c => c.req.url === '/status',
+                    handleStatus,
+                    router(
+                        c => c.req.url === '/logs',
+                        handleLogs,
+                    ),
                 ),
             ),
         )(ctx, res)
