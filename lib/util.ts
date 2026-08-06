@@ -9,7 +9,6 @@ export interface ResponseLog {
     status?: number
     headers?: OutgoingHttpHeaders
     body?: string
-    chunkCount?: number
 }
 
 export interface RequestContext {
@@ -118,8 +117,7 @@ export function normalizeModel (provider: string, model: unknown): unknown {
     return props
 }
 
-const MAX_CHUNKS = 4
-const MAX_BODY = 4096
+export const MAX_BODY = 1024 * 1024
 
 export function logResponse (log: ResponseLog | undefined, update: ResponseLog): void {
     if (!log) return
@@ -130,8 +128,7 @@ export function logResponse (log: ResponseLog | undefined, update: ResponseLog):
 
 export function appendResponseBody (log: ResponseLog | undefined, chunk: string | Buffer): void {
     if (!log) return
-    if ((log.chunkCount ?? 0) >= MAX_CHUNKS) return
-    log.chunkCount = (log.chunkCount ?? 0) + 1
+    if ((log.body?.length ?? 0) >= MAX_BODY) return
     log.body = (log.body ?? '') + (typeof chunk === 'string' ? chunk : chunk.toString('utf-8'))
     if (log.body.length > MAX_BODY) log.body = log.body.slice(0, MAX_BODY)
 }

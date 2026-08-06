@@ -1,6 +1,6 @@
 import type {IncomingMessage, OutgoingHttpHeaders, ServerResponse} from 'http'
 import {randomUUID} from 'crypto'
-import {router, needsCookie, withMethod, type RequestContext} from '../../util'
+import {router, needsCookie, withMethod, MAX_BODY, type RequestContext} from '../../util'
 import {indexHTML} from './index.html'
 
 export interface LogEntry {
@@ -66,8 +66,12 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
     const id = randomUUID()
     const startedAt = Date.now()
     const bodyChunks: Buffer[] = []
+    let bodyBytes = 0
     req.on('data', (chunk: Buffer) => {
-        if (bodyChunks.length < 4) bodyChunks.push(chunk)
+        if (bodyBytes < MAX_BODY) {
+            bodyChunks.push(chunk)
+            bodyBytes += chunk.length
+        }
     })
 
     let logged = false
@@ -80,7 +84,7 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
             time: new Date().toISOString(),
             method: req.method!,
             path: req.url!,
-            requestBody: bodyChunks.length > 0 ? Buffer.concat(bodyChunks).toString('utf-8').slice(0, 4096) : undefined,
+            requestBody: bodyChunks.length > 0 ? Buffer.concat(bodyChunks).toString('utf-8').slice(0, MAX_BODY) : undefined,
             requestHeaders: req.headers,
         })
     }
