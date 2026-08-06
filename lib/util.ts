@@ -1,10 +1,8 @@
 import type {IncomingMessage, ServerResponse, OutgoingHttpHeaders} from 'http'
-import type {Config} from './config'
+import type {RuntimeConfig} from './config'
 
 type Env = {
-    host: string
-    config: Config
-    apiKey: string
+    config: RuntimeConfig
 }
 
 export interface ResponseLog {
@@ -50,7 +48,7 @@ export function withMethod (method: string) {
 
 export function needsAuth (handler: RequestHandler) {
     return router(
-        ctx => ctx.req.headers.authorization === `Bearer ${ctx.env.apiKey}`,
+        ctx => ctx.req.headers.authorization === `Bearer ${ctx.env.config.key}`,
         handler,
         (_ctx, res) => {
             res.writeHead(401, {'content-type': 'application/json'})
@@ -66,7 +64,7 @@ export function needsAuth (handler: RequestHandler) {
 
 export function needsCookie (handler: RequestHandler) {
     return router(
-        ctx => cookieValue(ctx.req, 'cr-key') === ctx.env.apiKey,
+        ctx => cookieValue(ctx.req, 'cr-key') === ctx.env.config.key,
         handler,
         (_ctx, res) => {
             res.writeHead(401, {'content-type': 'application/json'})
@@ -90,12 +88,22 @@ export function needsCookie (handler: RequestHandler) {
     }
 }
 
-function handleNotFound ({req}: RequestContext, res: ServerResponse) {
+function handleNotFound ({req}: RequestContext, res: ServerResponse): void {
     res.writeHead(404, {'content-type': 'application/json'})
     res.end(JSON.stringify({
         error: {
             message: `Not found: ${req.method} ${req.url}`,
             type: 'not_found',
+        },
+    }))
+}
+
+export function handleBadRequest (res: ServerResponse, message: string): void {
+    res.writeHead(400, {'content-type': 'application/json'})
+    res.end(JSON.stringify({
+        error: {
+            message,
+            type: 'invalid_request_error',
         },
     }))
 }

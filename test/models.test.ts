@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import type {Config} from '../lib/config'
+import type {RuntimeConfig} from '../lib/config'
 import {handleListModels} from '../lib/server/v1/models'
 import {startMockBackend, startHandlerServer} from './helpers'
 
@@ -9,10 +9,11 @@ test('handleListModels fetches and normalizes models from each provider', async 
         res.writeHead(200, {'content-type': 'application/json'})
         res.end(JSON.stringify({data: [{id: 'm1'}, {id: 'm2', owned_by: 'vendor'}]}))
     })
-    const config: Config = {
+    const config: RuntimeConfig = {
+        path: '', port: 6712, key: 'k',
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
     }
-    const srv = await startHandlerServer(handleListModels, {config, apiKey: 'k'})
+    const srv = await startHandlerServer(handleListModels, {config})
     try {
         const res = await fetch(`http://127.0.0.1:${srv.port}/v1/models`, {
             headers: {authorization: 'Bearer k'},
@@ -38,10 +39,11 @@ test('handleListModels falls back to config models when the backend returns a no
         res.writeHead(500)
         res.end('err')
     })
-    const config: Config = {
+    const config: RuntimeConfig = {
+        path: '', port: 6712, key: 'k',
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: ['fallback-a', {id: 'fallback-b'}]}},
     }
-    const srv = await startHandlerServer(handleListModels, {config, apiKey: 'k'})
+    const srv = await startHandlerServer(handleListModels, {config})
     try {
         const res = await fetch(`http://127.0.0.1:${srv.port}/v1/models`, {
             headers: {authorization: 'Bearer k'},
@@ -63,10 +65,11 @@ test('handleListModels falls back to config models when the backend response is 
         res.writeHead(200, {'content-type': 'application/json'})
         res.end(JSON.stringify({notdata: 1}))
     })
-    const config: Config = {
+    const config: RuntimeConfig = {
+        path: '', port: 6712, key: 'k',
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: [{id: 'cfg-model'}]}},
     }
-    const srv = await startHandlerServer(handleListModels, {config, apiKey: 'k'})
+    const srv = await startHandlerServer(handleListModels, {config})
     try {
         const res = await fetch(`http://127.0.0.1:${srv.port}/v1/models`, {
             headers: {authorization: 'Bearer k'},

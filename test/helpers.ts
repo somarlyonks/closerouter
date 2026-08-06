@@ -4,7 +4,7 @@ import {once} from 'events'
 import {mkdtemp, writeFile, rm} from 'fs/promises'
 import {tmpdir} from 'os'
 import {join} from 'path'
-import type {Config} from '../lib/config'
+import type {RuntimeConfig} from '../lib/config'
 import type {RequestContext, RequestHandler} from '../lib/util'
 import {startServer} from '../lib/server'
 
@@ -116,13 +116,10 @@ export interface HandlerServer {
 
 export function startHandlerServer (
     handler: RequestHandler,
-    env: {config: Config, apiKey: string, host?: string},
+    env: RequestContext['env'],
 ): Promise<HandlerServer> {
     const server = createServer((req, res) => {
-        const ctx: RequestContext = {
-            req,
-            env: {host: env.host ?? 'localhost', config: env.config, apiKey: env.apiKey},
-        }
+        const ctx: RequestContext = {req, env}
         handler(ctx, res)
     })
     return new Promise((resolve, reject) => {
@@ -156,17 +153,18 @@ export async function writeTempConfig (cfg: unknown): Promise<{path: string, cle
     return writeTempFile(JSON.stringify(cfg, undefined, 4))
 }
 
-export async function startCrServer (configPath: string): Promise<{port: number, close: () => Promise<void>}> {
-    const server: Server = startServer(configPath)
+export async function startCrServer (config: RuntimeConfig): Promise<{port: number, close: () => Promise<void>}> {
+    const server: Server = startServer(config)
     await once(server, 'listening')
     const port = (server.address() as AddressInfo).port
     return {port, close: () => new Promise<void>(r => server.close(() => r()))}
 }
 
-export function sampleConfig (over: Partial<Config> = {}): Config {
+export function sampleConfig (over: Partial<RuntimeConfig> = {}): RuntimeConfig {
     return {
+        path: over.path ?? '',
         port: over.port ?? 6712,
-        key: over.key,
+        key: over.key ?? 'sk-test',
         providers: over.providers ?? {
             p: {base_url: 'http://127.0.0.1:1', api_key: 'p-key', models: [{id: 'm'}]},
         },

@@ -6,9 +6,9 @@ export async function handleListModels (
     ctx: RequestContext,
     res: ServerResponse,
 ): Promise<void> {
-    const {config} = ctx.env
+    const {providers} = ctx.env.config
 
-    const modelsByProvider = await Promise.all(Object.entries(config.providers).map(async ([name, provider]) => {
+    const modelsByProvider = await Promise.all(Object.entries(providers).map(async ([name, provider]) => {
         let models: unknown[]
         try {
             models = (await fetchProviderModels(provider.base_url, provider.api_key))

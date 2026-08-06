@@ -3,10 +3,11 @@ import assert from 'node:assert/strict'
 import * as http from 'http'
 import {once} from 'events'
 import {handleLogs, publishLog, type LogEntry} from '../lib/server/logs'
-import {getFreePort, startCrServer, startHandlerServer, startMockBackend, sampleConfig, writeTempConfig} from './helpers'
+import {getFreePort, startCrServer, startHandlerServer, startMockBackend, sampleConfig} from './helpers'
+import type {RuntimeConfig} from '../lib/config'
 
 test('GET /logs serves the HTML page without auth', async () => {
-    const srv = await startHandlerServer(handleLogs, {config: sampleConfig(), apiKey: 'logkey'})
+    const srv = await startHandlerServer(handleLogs, {config: sampleConfig({key: 'logkey'})})
     try {
         const res = await fetch(`http://127.0.0.1:${srv.port}/logs`)
         assert.equal(res.status, 200)
@@ -20,7 +21,7 @@ test('GET /logs serves the HTML page without auth', async () => {
 })
 
 test('GET /logs with SSE accept but no auth is rejected with 401', async () => {
-    const srv = await startHandlerServer(handleLogs, {config: sampleConfig(), apiKey: 'logkey'})
+    const srv = await startHandlerServer(handleLogs, {config: sampleConfig({key: 'logkey'})})
     try {
         const res = await fetch(`http://127.0.0.1:${srv.port}/logs`, {
             headers: {accept: 'text/event-stream'},
@@ -34,7 +35,7 @@ test('GET /logs with SSE accept but no auth is rejected with 401', async () => {
 })
 
 test('GET /logs SSE with wrong cookie is rejected with 401', async () => {
-    const srv = await startHandlerServer(handleLogs, {config: sampleConfig(), apiKey: 'logkey'})
+    const srv = await startHandlerServer(handleLogs, {config: sampleConfig({key: 'logkey'})})
     try {
         const res = await new Promise<http.IncomingMessage>((resolve, reject) => {
             const req = http.request(`http://127.0.0.1:${srv.port}/logs`, {
@@ -61,7 +62,7 @@ test('GET /logs SSE with wrong cookie is rejected with 401', async () => {
 })
 
 test('POST /logs is rejected with 405', async () => {
-    const srv = await startHandlerServer(handleLogs, {config: sampleConfig(), apiKey: 'logkey'})
+    const srv = await startHandlerServer(handleLogs, {config: sampleConfig({key: 'logkey'})})
     try {
         const res = await fetch(`http://127.0.0.1:${srv.port}/logs`, {method: 'POST'})
         assert.equal(res.status, 405)
@@ -74,7 +75,7 @@ test('POST /logs is rejected with 405', async () => {
 })
 
 test('GET /logs SSE stream delivers published log events', async () => {
-    const srv = await startHandlerServer(handleLogs, {config: sampleConfig(), apiKey: 'logkey'})
+    const srv = await startHandlerServer(handleLogs, {config: sampleConfig({key: 'logkey'})})
     try {
         const entry: LogEntry = {
             id: 'test',
@@ -146,14 +147,15 @@ test('server logs capture request and response bodies', async () => {
         }, 5)
     })
     const port = await getFreePort()
-    const {path, cleanup} = await writeTempConfig({
+    const config: RuntimeConfig = {
+        path: '',
         port,
         key: 'logkey',
         providers: {
             p: {base_url: backend.baseUrl, api_key: 'bk', models: [{id: 'm'}]},
         },
-    })
-    const srv = await startCrServer(path)
+    }
+    const srv = await startCrServer(config)
     try {
         let resolveEntries!: (entries: LogEntry[]) => void
         let rejectEntries!: (err: Error) => void
@@ -211,7 +213,6 @@ test('server logs capture request and response bodies', async () => {
         assert.equal(responseEntry.responseHeaders?.['content-type'], 'text/event-stream')
     } finally {
         await srv.close()
-        await cleanup()
         await backend.close()
     }
 })

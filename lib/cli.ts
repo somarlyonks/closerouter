@@ -1,37 +1,19 @@
-import {readFileSync, writeFileSync, existsSync} from 'fs'
+import {writeFileSync} from 'fs'
 import {resolve} from 'path'
 import {createInterface} from 'readline'
 import {spawn} from 'child_process'
 import {proxyGetRequest} from './proxy'
 import {startServer} from './server'
+import {loadConfig, printServerConfig, type RuntimeConfig} from './config'
 
-interface VagueConfig {
-    port: number
-    providers: Record<string, Record<string, unknown>>
-}
-
-function readRawConfig (configPath: string): VagueConfig {
-    if (!existsSync(configPath)) {
-        console.error(`Config file not found: ${configPath}`)
-        process.exit(1)
-    }
-    const raw = readFileSync(configPath, 'utf-8')
-    try {
-        return JSON.parse(raw)
-    } catch (e: unknown) {
-        console.error('Invalid JSON in config file:', e instanceof Error ? e.message : String(e))
-        process.exit(1)
-    }
-}
-
-function writeRawModelsToConfig (configPath: string, providerName: string, models: string[]): void {
-    const cfg = readRawConfig(configPath)
-    const providers = cfg.providers
+function writeRawModelsToConfig (config: RuntimeConfig, providerName: string, models: string[]): void {
+    const configPath = config.path
+    const providers = config.providers
     if (!providers || typeof providers !== 'object') {
         console.error('Config must contain a "providers" object')
         process.exit(1)
     }
-    const provider = providers[providerName]
+    const provider = providers[providerName] as unknown as Record<string, unknown>
     if (!provider) {
         console.error(`Provider "${providerName}" not found in config`)
         process.exit(1)
@@ -43,7 +25,7 @@ function writeRawModelsToConfig (configPath: string, providerName: string, model
 
     models.forEach(model => (provider.models as unknown[]).push(JSON.parse(model)))
 
-    writeFileSync(configPath, JSON.stringify(cfg, undefined, 4) + '\n')
+    writeFileSync(configPath, JSON.stringify(config, undefined, 4) + '\n')
     console.log(`\nUpdated ${configPath}`)
 }
 
@@ -87,24 +69,16 @@ async function fetchModelsFromProvider (baseUrl: string, apiKey: string): Promis
     return result
 }
 
-function getProviderInfo (configPath: string, providerName: string): {baseUrl: string, apiKey: string, existingModelIds: Set<string>} {
-    const cfg = readRawConfig(configPath)
-    const providers = cfg.providers as Record<string, unknown> | undefined
-    if (!providers || typeof providers !== 'object') {
-        console.error('Config must contain a "providers" object')
-        process.exit(1)
-    }
-    const provider = providers[providerName] as Record<string, unknown> | undefined
+function getProviderInfo (config: RuntimeConfig, providerName: string): {baseUrl: string, apiKey: string, existingModelIds: Set<string>} {
+    const providers = config.providers
+
+    const provider = providers[providerName]
     if (!provider) {
         console.error(`Provider "${providerName}" not found in config. Available: ${Object.keys(providers).join(', ')}`)
         process.exit(1)
     }
-    const baseUrl = provider.base_url as string | undefined
-    const apiKey = provider.api_key as string | undefined
-    if (!baseUrl || !apiKey) {
-        console.error(`Provider "${providerName}" is missing "base_url" or "api_key"`)
-        process.exit(1)
-    }
+    const baseUrl = provider.base_url
+    const apiKey = provider.api_key
     const models = provider.models as unknown[] | undefined
     const existingModelIds = new Set<string>()
     if (models) {
@@ -122,8 +96,8 @@ function getProviderInfo (configPath: string, providerName: string): {baseUrl: s
     return {baseUrl, apiKey, existingModelIds}
 }
 
-async function cmdFetchModels (configPath: string, providerName: string): Promise<FetchedModel[]> {
-    const info = getProviderInfo(configPath, providerName)
+async function cmdFetchModels (config: RuntimeConfig, providerName: string): Promise<FetchedModel[]> {
+    const info = getProviderInfo(config, providerName)
 
     console.log(`Fetching models from ${info.baseUrl} ...\n`)
 
@@ -150,7 +124,7 @@ async function cmdFetchModels (configPath: string, providerName: string): Promis
     return availableModels
 }
 
-async function cmdPickModel (configPath: string, providerName: string, models: string[]): Promise<void> {
+async function cmdPickModel (config: RuntimeConfig, providerName: string, models: string[]): Promise<void> {
     if (!models.length) {
         console.log('No models specified.')
 
@@ -164,12 +138,12 @@ async function cmdPickModel (configPath: string, providerName: string, models: s
         }
     }
 
-    await addModelsToProvider(configPath, providerName, models)
+    await addModelsToProvider(config, providerName, models)
 }
 
-async function addModelsToProvider (configPath: string, providerName: string, models: string[]): Promise<void> {
-    const info = getProviderInfo(configPath, providerName)
-    const availableModels = await cmdFetchModels(configPath, providerName)
+async function addModelsToProvider (config: RuntimeConfig, providerName: string, models: string[]): Promise<void> {
+    const info = getProviderInfo(config, providerName)
+    const availableModels = await cmdFetchModels(config, providerName)
 
     const modelIds = models.length ? models : availableModels.map(m => m.id)
     const collectedModels: string[] = []
@@ -190,13 +164,10 @@ async function addModelsToProvider (configPath: string, providerName: string, mo
         collectedModels.push(model.raw)
         console.log(`  Added: ${modelId}`)
     }
-    writeRawModelsToConfig(configPath, providerName, collectedModels)
+    writeRawModelsToConfig(config, providerName, collectedModels)
 }
 
-function cmdListProviders (configPath: string): void {
-    const cfg = readRawConfig(configPath)
-    const providers = cfg.providers as Record<string, unknown> | undefined
-    if (!providers || typeof providers !== 'object') return
+function cmdListProviders ({providers}: RuntimeConfig): void {
     console.log('Configured providers:')
     for (const name of Object.keys(providers)) console.log(`  ${name}`)
 }
@@ -214,7 +185,7 @@ Usage:
 `)
 }
 
-async function handleModels (configPath: string): Promise<void> {
+async function handleModels (config: RuntimeConfig): Promise<void> {
     const args = process.argv.slice(2)
 
     if (args.length < 2) {
@@ -223,12 +194,12 @@ async function handleModels (configPath: string): Promise<void> {
     }
     const providerName = args[1]
     if (args.length < 3) {
-        await cmdFetchModels(configPath, providerName)
+        await cmdFetchModels(config, providerName)
     } else {
         const subcommand = args[2]
         switch (subcommand) {
             case 'pick':
-                await cmdPickModel(configPath, providerName, args.slice(3))
+                await cmdPickModel(config, providerName, args.slice(3))
                 break
             default:
                 console.error(`Unknown command: ${subcommand}`)
@@ -241,6 +212,7 @@ async function handleModels (configPath: string): Promise<void> {
 async function main (): Promise<void> {
     const args = process.argv.slice(2)
     const configPath = resolve(process.cwd(), 'closerouter.json')
+    const config = loadConfig(configPath)
 
     const isServer = args.length === 0
         || (args.length === 1 && args[0] === '-d')
@@ -255,10 +227,11 @@ async function main (): Promise<void> {
             })
             child.unref()
             console.log(`closerouter started in background (pid ${child.pid ?? 'unknown'})`)
+            printServerConfig(config)
             process.exit(0)
         }
 
-        startServer(configPath)
+        startServer(config)
         return
     }
 
@@ -266,11 +239,11 @@ async function main (): Promise<void> {
 
     switch (cmd) {
         case 'providers':
-            cmdListProviders(configPath)
+            cmdListProviders(config)
             process.exit(0)
             break
         case 'models':
-            await handleModels(configPath)
+            await handleModels(config)
             process.exit(0)
             break
         case 'help':

@@ -7,7 +7,7 @@ import {mockReq, mockRes, sampleConfig} from './helpers'
 function ctx (opts: {method?: string, url?: string, headers?: Record<string, string>} = {}): RequestContext {
     return {
         req: mockReq(opts),
-        env: {host: 'localhost', config: sampleConfig(), apiKey: 'secret'},
+        env: {config: sampleConfig({key: 'secret'})},
     }
 }
 

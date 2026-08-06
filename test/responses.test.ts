@@ -1,11 +1,11 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import type {Config} from '../lib/config'
+import type {RuntimeConfig} from '../lib/config'
 import {handleResponses} from '../lib/server/v1/responses'
 import {startMockBackend, startHandlerServer} from './helpers'
 
-function configFor (baseUrl: string): Config {
-    return {providers: {p: {base_url: baseUrl, api_key: 'bk'}}}
+function configFor (baseUrl: string): RuntimeConfig {
+    return {path: '', port: 6712, key: 'k', providers: {p: {base_url: baseUrl, api_key: 'bk'}}}
 }
 
 async function post (port: number, body: string): Promise<Response> {
@@ -17,7 +17,7 @@ async function post (port: number, body: string): Promise<Response> {
 }
 
 test('responses rejects invalid JSON with 400', async () => {
-    const srv = await startHandlerServer(handleResponses, {config: configFor('http://x'), apiKey: 'k'})
+    const srv = await startHandlerServer(handleResponses, {config: configFor('http://x')})
     try {
         const res = await post(srv.port, '{bad json')
         assert.equal(res.status, 400)
@@ -30,7 +30,7 @@ test('responses rejects invalid JSON with 400', async () => {
 })
 
 test('responses rejects a missing model with 400', async () => {
-    const srv = await startHandlerServer(handleResponses, {config: configFor('http://x'), apiKey: 'k'})
+    const srv = await startHandlerServer(handleResponses, {config: configFor('http://x')})
     try {
         const res = await post(srv.port, JSON.stringify({input: 'hi'}))
         assert.equal(res.status, 400)
@@ -42,7 +42,7 @@ test('responses rejects a missing model with 400', async () => {
 })
 
 test('responses rejects a model without a provider prefix with 404', async () => {
-    const srv = await startHandlerServer(handleResponses, {config: configFor('http://x'), apiKey: 'k'})
+    const srv = await startHandlerServer(handleResponses, {config: configFor('http://x')})
     try {
         const res = await post(srv.port, JSON.stringify({model: 'foo'}))
         assert.equal(res.status, 404)
@@ -55,7 +55,7 @@ test('responses rejects a model without a provider prefix with 404', async () =>
 })
 
 test('responses rejects an unknown provider with 404', async () => {
-    const srv = await startHandlerServer(handleResponses, {config: configFor('http://x'), apiKey: 'k'})
+    const srv = await startHandlerServer(handleResponses, {config: configFor('http://x')})
     try {
         const res = await post(srv.port, JSON.stringify({model: 'unknown/x'}))
         assert.equal(res.status, 404)
@@ -73,7 +73,7 @@ test('responses proxies to the backend with the provider prefix stripped', async
         res.writeHead(200, {'content-type': 'application/json'})
         res.end(JSON.stringify({id: 'resp_1', object: 'response'}))
     })
-    const srv = await startHandlerServer(handleResponses, {config: configFor(backend.baseUrl), apiKey: 'k'})
+    const srv = await startHandlerServer(handleResponses, {config: configFor(backend.baseUrl)})
     try {
         const res = await post(srv.port, JSON.stringify({
             model: 'p/gpt',
@@ -102,7 +102,7 @@ test('responses streams backend chunks through to the client', async () => {
             res.end()
         }, 10)
     })
-    const srv = await startHandlerServer(handleResponses, {config: configFor(backend.baseUrl), apiKey: 'k'})
+    const srv = await startHandlerServer(handleResponses, {config: configFor(backend.baseUrl)})
     try {
         const res = await post(srv.port, JSON.stringify({
             model: 'p/gpt',

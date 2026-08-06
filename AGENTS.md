@@ -25,6 +25,7 @@ lib/
     v1/              # OpenAI compatible API
     logs/            # Live logs stream
     status.ts        # Alive check
+    config.ts        # Runtime config
 closerouter.json     # Sample / default config
 ```
 

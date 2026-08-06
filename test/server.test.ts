@@ -6,6 +6,7 @@ import {spawn, type ChildProcess} from 'child_process'
 import {once} from 'events'
 import {resolve, dirname} from 'path'
 import type {MockBackend} from './helpers'
+import type {RuntimeConfig} from '../lib/config'
 import {startMockBackend, writeTempConfig, startCrServer, getFreePort} from './helpers'
 
 const API_KEY = 'sk-test'
@@ -31,19 +32,19 @@ async function setup (): Promise<{
         }
     })
     const port = await getFreePort()
-    const {path, cleanup} = await writeTempConfig({
+    const config: RuntimeConfig = {
+        path: '',
         port,
         key: API_KEY,
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
-    })
-    const srv = await startCrServer(path)
+    }
+    const srv = await startCrServer(config)
     return {
         port: srv.port,
         backend,
         close: async () => {
             await srv.close()
             await backend.close()
-            await cleanup()
         },
     }
 }

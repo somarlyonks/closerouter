@@ -1,11 +1,11 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import type {Config} from '../lib/config'
+import type {RuntimeConfig} from '../lib/config'
 import {handleChatCompletions} from '../lib/server/v1/chat/completions'
 import {startMockBackend, startHandlerServer} from './helpers'
 
-function configFor (baseUrl: string): Config {
-    return {providers: {p: {base_url: baseUrl, api_key: 'bk'}}}
+function configFor (baseUrl: string): RuntimeConfig {
+    return {path: '', port: 6712, key: 'k', providers: {p: {base_url: baseUrl, api_key: 'bk'}}}
 }
 
 async function post (port: number, body: string): Promise<Response> {
@@ -17,7 +17,7 @@ async function post (port: number, body: string): Promise<Response> {
 }
 
 test('chat completions rejects invalid JSON with 400', async () => {
-    const srv = await startHandlerServer(handleChatCompletions, {config: configFor('http://x'), apiKey: 'k'})
+    const srv = await startHandlerServer(handleChatCompletions, {config: configFor('http://x')})
     try {
         const res = await post(srv.port, '{bad json')
         assert.equal(res.status, 400)
@@ -30,7 +30,7 @@ test('chat completions rejects invalid JSON with 400', async () => {
 })
 
 test('chat completions rejects a missing model with 400', async () => {
-    const srv = await startHandlerServer(handleChatCompletions, {config: configFor('http://x'), apiKey: 'k'})
+    const srv = await startHandlerServer(handleChatCompletions, {config: configFor('http://x')})
     try {
         const res = await post(srv.port, JSON.stringify({messages: []}))
         assert.equal(res.status, 400)
@@ -42,7 +42,7 @@ test('chat completions rejects a missing model with 400', async () => {
 })
 
 test('chat completions rejects a model without a provider prefix with 404', async () => {
-    const srv = await startHandlerServer(handleChatCompletions, {config: configFor('http://x'), apiKey: 'k'})
+    const srv = await startHandlerServer(handleChatCompletions, {config: configFor('http://x')})
     try {
         const res = await post(srv.port, JSON.stringify({model: 'foo'}))
         assert.equal(res.status, 404)
@@ -55,7 +55,7 @@ test('chat completions rejects a model without a provider prefix with 404', asyn
 })
 
 test('chat completions rejects an unknown provider with 404', async () => {
-    const srv = await startHandlerServer(handleChatCompletions, {config: configFor('http://x'), apiKey: 'k'})
+    const srv = await startHandlerServer(handleChatCompletions, {config: configFor('http://x')})
     try {
         const res = await post(srv.port, JSON.stringify({model: 'unknown/x'}))
         assert.equal(res.status, 404)
@@ -73,7 +73,7 @@ test('chat completions proxies to the backend with the provider prefix stripped'
         res.writeHead(200, {'content-type': 'application/json'})
         res.end(JSON.stringify({id: 'chatcmpl-1', choices: []}))
     })
-    const srv = await startHandlerServer(handleChatCompletions, {config: configFor(backend.baseUrl), apiKey: 'k'})
+    const srv = await startHandlerServer(handleChatCompletions, {config: configFor(backend.baseUrl)})
     try {
         const res = await post(srv.port, JSON.stringify({
             model: 'p/gpt',
@@ -101,7 +101,7 @@ test('chat completions streams backend chunks through to the client', async () =
             res.end()
         }, 10)
     })
-    const srv = await startHandlerServer(handleChatCompletions, {config: configFor(backend.baseUrl), apiKey: 'k'})
+    const srv = await startHandlerServer(handleChatCompletions, {config: configFor(backend.baseUrl)})
     try {
         const res = await post(srv.port, JSON.stringify({model: 'p/gpt', stream: true, messages: []}))
         const text = await res.text()
