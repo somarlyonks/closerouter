@@ -4,6 +4,7 @@
     "description": "OpenAI API compatible providers all for one router",
     "license": "MIT",
     "author": "Yang Sheng <somarl@live.com>",
+    "type": "module",
     "main": "dist/closerouter",
     "files": [
         "lib",
