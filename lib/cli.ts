@@ -5,6 +5,7 @@ import {spawn} from 'child_process'
 import {proxyGetRequest} from './proxy'
 import {startServer} from './server'
 import {loadConfig, printServerConfig, type RuntimeConfig} from './config'
+import packageJson from '../package.json'
 
 function writeRawModelsToConfig (config: RuntimeConfig, providerName: string, models: string[]): void {
     const configPath = config.path
@@ -172,6 +173,10 @@ function cmdListProviders ({providers}: RuntimeConfig): void {
     for (const name of Object.keys(providers)) console.log(`  ${name}`)
 }
 
+function printVersion (): void {
+    console.log(packageJson.version)
+}
+
 function printHelp (): void {
     console.log(`
 closerouter — LLM proxy/router
@@ -179,6 +184,7 @@ closerouter — LLM proxy/router
 Usage:
   closerouter [server] [-d|--detach]                 Start the proxy server
   closerouter help                                   Show this help
+  closerouter version                                Show the version
   closerouter providers                              List configured providers
   closerouter models <provider>                      List provider's models to add
               models <provider> pick [<model>...]    Add specific model(s) to config
@@ -244,6 +250,12 @@ async function main (): Promise<void> {
             break
         case 'models':
             await handleModels(config)
+            process.exit(0)
+            break
+        case 'version':
+        case '--version':
+        case '-v':
+            printVersion()
             process.exit(0)
             break
         case 'help':

@@ -1,14 +1,15 @@
 {
     "name": "closerouter",
-    "version": "1.0.0",
-    "description": "",
+    "version": "0.1.0",
+    "description": "OpenAI API compatible providers all for one router",
     "license": "MIT",
-    "author": "sy@somarl.com",
-    "type": "module",
+    "author": "Yang Sheng <somarl@live.com>",
     "main": "dist/closerouter",
-    "directories": {
-        "lib": "lib"
-    },
+    "files": [
+        "lib",
+        "dist/closerouter",
+        "closerouter.json"
+    ],
     "scripts": {
         "pretest": "node build.ts",
         "test": "node --import ./test/loader.mjs --test",
