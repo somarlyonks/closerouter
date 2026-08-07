@@ -23,6 +23,7 @@
         "@somarlyonks/eslint": "^1",
         "@types/node": "^24",
         "eslint": "^10",
-        "scriptc": "^0.0.17"
+        "scriptc": "^0.0.17",
+        "typescript": "^5.9.3"
     }
 }
