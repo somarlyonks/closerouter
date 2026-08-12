@@ -1,0 +1,312 @@
+:root {
+    color-scheme: dark;
+
+    --color-background: canvas;
+    --color-foreground: #c9d1d9;
+    --color-foreground-secondary: #6e7681;
+    --color-border: #30363d;
+    --color-primary: #29cc65;
+    --color-success: #7ee787;
+    --color-info: #79c0ff;
+    --color-warning: #f0883e;
+    --color-error: #ff7b72;
+
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+}
+
+body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+}
+
+header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-border);
+
+    & h1 {
+        font-size: large;
+        margin: 0;
+        margin-inline-end: auto;
+        display: flex;
+        align-items: center;
+        gap: 1ch;
+
+        & svg {
+            height: 1.5em;
+            width: 1.5em;
+        }
+    }
+
+    & a {
+        color: var(--color-info);
+        font-size: small;
+        text-decoration: none;
+    }
+
+    & input[type="password"] {
+        width: 220px;
+        border-color: var(--color-border);
+    }
+}
+
+main {
+    flex: 1;
+    overflow: hidden;
+}
+
+input {
+    outline: none;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="password"] {
+    background: field;
+    color: currentColor;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font: inherit;
+    font-family: var(--font-mono);
+
+    &:hover,
+    &:focus {
+        border-color: var(--color-border);
+    }
+}
+
+button {
+    --color-background: #21262d;
+    --color-background-state: var(--color-background);
+    color: var(--color-foreground);
+    background: var(--color-background-state);
+    border: 1px solid var(--color-background-state);
+    border-radius: 6px;
+    padding: 4px 12px;
+    font: inherit;
+    cursor: pointer;
+    transition: background-color 0.1s ease;
+    outline: none;
+
+    &.primary {
+        --color-background: var(--color-primary);
+        --color-foreground: buttontext;
+    }
+
+    &.danger {
+        --color-foreground: var(--color-error);
+    }
+
+    &.add {
+        --color-foreground: var(--color-info);
+    }
+
+    &.icon {
+        padding: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    &:hover {
+        --color-background-state: color-mix(in srgb, var(--color-background), var(--color-foreground) 12%);
+    }
+
+    &:active {
+        --color-background-state: color-mix(in srgb, var(--color-background), black 8%);
+    }
+
+    & svg {
+        fill: currentColor;
+        width: 1em;
+        height: 1em;
+    }
+}
+
+dialog {
+    border: none;
+    box-shadow: 0px 0px 2px var(--color-border);
+    border-radius: 8px;
+    background: var(--color-background);
+    color: var(--color-foreground);
+    padding: 16px;
+    min-width: 320px;
+    outline: none;
+
+    &::backdrop {
+        background: rgba(0, 0, 0, 0.5);
+    }
+
+    & h3 {
+        margin: 0 0 12px;
+        font-size: medium;
+    }
+
+    & input {
+        width: 100%;
+        margin-bottom: 12px;
+    }
+
+    & .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+    }
+}
+
+.success {
+    color: var(--color-success);
+}
+
+.warning {
+    color: var(--color-warning);
+}
+
+.error {
+    color: var(--color-error);
+}
+
+.info {
+    color: var(--color-info);
+}
+
+.foreground {
+    color: var(--color-foreground);
+}
+
+.secondary {
+    color: var(--color-foreground-secondary);
+}
+
+.toast {
+    position: fixed;
+    z-index: 10003;
+    margin: 0;
+    inset-inline: auto;
+    padding: 16px;
+    border: none;
+    box-shadow: 0px 0px 1px var(--color-border), 0px 0px 3px var(--color-border);
+    width: min(100vw - 2 * 16px, 400px);
+    box-sizing: border-box;
+    border-radius: 8px;
+    transform: translateY(100%);
+    display: flex;
+    opacity: 0;
+    will-change: transform;
+    transition: opacity 200ms ease-out, transform 400ms ease;
+    flex-direction: column;
+    gap: 16px;
+    inset-inline-end: 16px;
+    inset-block-end: 16px;
+
+    &[open] {
+        opacity: 1;
+        transform: translateY(0);
+
+        &:has(~ .toast[open]) {
+            transform: translateY(calc(-1 * 12px)) scale(0.95);
+        }
+
+        &:has(~ .toast[open] ~ .toast[open]) {
+            transform: translateY(calc(-2 * 12px)) scale(0.9);
+        }
+
+        &:has(~ .toast[open] ~ .toast[open] ~ .toast[open]) {
+            opacity: 0;
+        }
+    }
+
+    & .header {
+        color: var(--title-color, #1f1f59);
+        display: flex;
+        gap: 8px;
+
+        & form {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            align-self: flex-start;
+        }
+
+        & .title {
+            flex: 1;
+            font-style: normal;
+            font-weight: 500;
+            font-size: 16px;
+            line-height: 24px;
+            letter-spacing: 0em;
+            text-indent: 0px;
+        }
+
+        & .button-close {
+            --color-background: transparent;
+            border-color: transparent;
+        }
+
+        &:has(+ .content) .title,
+        &:has(+ .footer) .title {
+            font-style: normal;
+            font-weight: 700;
+            font-size: 16px;
+            line-height: 24px;
+            letter-spacing: 0em;
+            text-indent: 0px;
+        }
+    }
+
+    & .content {
+        font-style: normal;
+        font-weight: 500;
+        font-size: 14px;
+        line-height: 20px;
+        letter-spacing: 0em;
+        text-indent: 0px;
+        width: auto;
+        min-width: auto;
+        margin: 0;
+        padding: 0;
+    }
+
+    &:has(.header .icon) .content {
+        padding-left: calc(24px + 8px);
+    }
+
+    & .footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+    }
+}
+
+.toast[data-type=success] {
+    --title-color: var(--color-success);
+}
+
+.toast[data-type=error] {
+    --title-color: var(--color-error);
+}
+
+.toast[data-type=warning] {
+    --title-color: var(--color-warning);
+}
+
+.toast[data-type=info] {
+    --title-color: var(--color-info);
+}

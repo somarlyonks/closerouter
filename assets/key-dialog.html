@@ -1,0 +1,73 @@
+<dialog id="key-dialog">
+    <form method="dialog">
+        <h3>Enter API key</h3>
+        <input id="key" type="password" placeholder="API key" autocomplete="off">
+        <div class="actions">
+            <button value="confirm" class="primary">Connect</button>
+        </div>
+    </form>
+</dialog>
+
+<script>
+    const keyDialog = document.getElementById('key-dialog')
+
+    function promptKey() {
+        const KEY_STORE = 'closerouter.key'
+
+        const keyInput = keyDialog.querySelector('#key')
+        const key = localStorage.getItem(KEY_STORE) || ''
+        keyInput.value = key
+
+        return new Promise(resolve => validateKey(key).then(resolve).catch(e => {
+            keyDialog.showModal()
+            keyInput.focus()
+            keyDialog.addEventListener('close', function (e) {
+                localStorage.setItem(KEY_STORE, keyInput.value.trim())
+                resolve(keyInput.value.trim())
+            }, {once: true})
+        }))
+    }
+
+    keyDialog?.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') e.preventDefault()
+    }, true)
+    keyDialog?.addEventListener('cancel', e => e.preventDefault())
+    keyDialog?.querySelector('form')?.addEventListener('submit', (e) => {
+        e.preventDefault()
+        const key = keyDialog?.querySelector('#key').value.trim()
+        validateKey(key).then((isValid) => {
+            if (isValid) keyDialog.close()
+            else throw new Error('Invalid key')
+        }).catch(() => {
+            //
+        })
+
+    })
+
+    async function validateKey(key) {
+        if (!key) throw new Error('Key is required')
+
+        const res = await fetch('/config', {
+            method: 'GET',
+            headers: {
+                Authorization: 'Bearer ' + key,
+                Accept: 'application/json',
+            },
+        })
+        console.log('res', res)
+
+        if (!res.ok || res.status !== 200) {
+            const err = await res.json().catch(() => ({}))
+            throw new Error(err.error?.message || 'HTTP ' + res.status)
+        }
+
+        return key
+    }
+
+    document.getElementById('key')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault()
+            document.getElementById('key-dialog')?.close('confirm')
+        }
+    })
+</script>

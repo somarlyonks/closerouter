@@ -1,6 +1,6 @@
 import type {IncomingMessage, OutgoingHttpHeaders, ServerResponse} from 'http'
 import {randomUUID} from 'crypto'
-import {router, needsCookie, withMethod, MAX_BODY, type RequestContext} from '../../util'
+import {router, needsCookie, withMethod, MAX_BODY, handleHTML, type RequestContext} from '../../util'
 import {indexHTML} from './index.html'
 
 export interface LogEntry {
@@ -50,14 +50,7 @@ export const handleLogs = withMethod('GET')(router(
             listeners.splice(listeners.indexOf(listener), 1)
         })
     }),
-    (_ctx, res) => {
-        res.writeHead(200, {
-            'content-type': 'text/html; charset=utf-8',
-            'cache-control': 'no-cache',
-            'x-content-type-options': 'nosniff',
-        })
-        res.end(indexHTML)
-    },
+    handleHTML(indexHTML),
 ))
 
 export function logMiddleware ({req, responseLog}: RequestContext, res: ServerResponse) {

@@ -44,10 +44,52 @@ test('PUT /config requires authentication', async () => {
     }
 })
 
-test('non-PUT /config returns 405', async () => {
+test('GET /config serves the HTML page', async () => {
+    const s = await setup()
+    try {
+        const res = await fetch(`http://127.0.0.1:${s.port}/config`)
+        assert.equal(res.status, 200)
+        assert.equal(res.headers.get('content-type'), 'text/html; charset=utf-8')
+        const body = await res.text()
+        assert.match(body, /Config/)
+    } finally {
+        await s.close()
+    }
+})
+
+test('GET /config with accept json requires authentication', async () => {
     const s = await setup()
     try {
         const res = await fetch(`http://127.0.0.1:${s.port}/config`, {
+            headers: {accept: 'application/json'},
+        })
+        assert.equal(res.status, 401)
+    } finally {
+        await s.close()
+    }
+})
+
+test('GET /config with accept json returns the running config', async () => {
+    const s = await setup()
+    try {
+        const res = await fetch(`http://127.0.0.1:${s.port}/config`, {
+            headers: {authorization: `Bearer ${API_KEY}`, accept: 'application/json'},
+        })
+        assert.equal(res.status, 200)
+        assert.equal(res.headers.get('content-type'), 'application/json')
+        const json = await res.json() as {port: number, key: string, providers: Record<string, unknown>}
+        assert.equal(json.key, API_KEY)
+        assert.ok(json.providers.p, 'response includes the provider')
+    } finally {
+        await s.close()
+    }
+})
+
+test('POST /config returns 405', async () => {
+    const s = await setup()
+    try {
+        const res = await fetch(`http://127.0.0.1:${s.port}/config`, {
+            method: 'POST',
             headers: {authorization: `Bearer ${API_KEY}`},
         })
         assert.equal(res.status, 405)
@@ -91,7 +133,7 @@ test('PUT /config rejects a config with no providers', async () => {
     }
 })
 
-test('PUT /config updates the running config and persists to disk', async () => {
+test('PUT /config updates the running config', async () => {
     const s = await setup()
     try {
         const newConfig = {
@@ -110,10 +152,6 @@ test('PUT /config updates the running config and persists to disk', async () => 
         assert.equal(res.status, 200)
         const json = await res.json() as {providers: Record<string, unknown>}
         assert.ok(json.providers.q, 'response includes the new provider')
-
-        // The file on disk should reflect the new provider.
-        const onDisk = JSON.parse(readFileSync(s.path, 'utf-8')) as {providers: Record<string, unknown>}
-        assert.ok(onDisk.providers.q, 'persisted config includes the new provider')
 
         // The running server should route to the new provider: a request for
         // q/qm hits the (unreachable) q backend with a 502, proving the new

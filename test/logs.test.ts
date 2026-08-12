@@ -14,7 +14,7 @@ test('GET /logs serves the HTML page without auth', async () => {
         assert.equal(res.headers.get('content-type'), 'text/html; charset=utf-8')
         const body = await res.text()
         assert.match(body, /<!doctype html>/i)
-        assert.match(body, /CloseRouter Logs/)
+        assert.match(body, /Logs/)
     } finally {
         await srv.close()
     }

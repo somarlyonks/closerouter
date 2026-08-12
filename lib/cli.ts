@@ -5,7 +5,7 @@ import {spawn} from 'child_process'
 import {proxyGetRequest} from './proxy'
 import {startServer} from './server'
 import {loadConfig, printServerConfig, type RuntimeConfig} from './config'
-import packageJson from '../package.json'
+import packageJson from '../package.json' with {type: 'json'}
 
 function writeRawModelsToConfig (config: RuntimeConfig, providerName: string, models: string[]): void {
     const configPath = config.path
@@ -221,7 +221,7 @@ async function main (): Promise<void> {
     const config = loadConfig(configPath)
 
     const isServer = args.length === 0
-        || (args.length === 1 && args[0] === '-d')
+        || (args.length === 1 && (args[0] === '-d' || args[0] === '--detach'))
         || (args.length >= 1 && args[0] === 'server')
 
     if (isServer) {

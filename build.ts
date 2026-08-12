@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import {readFileSync, writeFileSync, existsSync, statSync, readdirSync} from 'fs'
-import {basename, join} from 'path'
+import {basename, dirname, join} from 'path'
 
 // Convert .html files into .html.ts modules that export their content as a
 // template string, so scriptc-compiled code can serve the HTML without a
@@ -17,16 +17,54 @@ import {basename, join} from 'path'
 // source are escaped so the content survives the template literal unchanged.
 // The HTML must not contain ${ (no template variables) - keep it out of the
 // source, since it would be interpreted as interpolation.
+//
+// An assets/ directory can be placed in any ancestor of an HTML file. Each
+// file inside it can be inlined into the HTML via a marker comment of the form
+// /* @asset <name> */ (e.g. /* @asset index.css */), so shared styles, scripts,
+// or fragments live in one place without runtime requests. The marker is
+// replaced with the file contents during this build step.
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', '.scriptc', '.agents'])
+const ASSET_MARKER = /\/\*\s*@asset\s+([\w./-]+)\s*\*\//g
+
+function findAssetsDir (htmlPath: string): string | undefined {
+    let dir = dirname(htmlPath)
+    while (true) {
+        const candidate = join(dir, 'assets')
+        if (existsSync(candidate) && statSync(candidate).isDirectory()) return candidate
+        const parent = dirname(dir)
+        if (parent === dir) break
+        dir = parent
+    }
+    return undefined
+}
 
 function buildHtml (htmlPath: string): boolean {
     const out = htmlPath + '.ts'
-    if (existsSync(out) && statSync(out).mtimeMs >= statSync(htmlPath).mtimeMs) {
+    const assetsDir = findAssetsDir(htmlPath)
+    const src = readFileSync(htmlPath, 'utf8')
+
+    const assetPaths: string[] = []
+    let processed = src
+    if (assetsDir) {
+        processed = src.replace(ASSET_MARKER, (match, name) => {
+            const assetPath = join(assetsDir, name)
+            if (existsSync(assetPath) && statSync(assetPath).isFile()) {
+                assetPaths.push(assetPath)
+                return readFileSync(assetPath, 'utf8').trim()
+            }
+            console.error(`asset not found: ${name} (referenced in ${htmlPath})`)
+            return match
+        })
+    }
+
+    const outMtime = existsSync(out) ? statSync(out).mtimeMs : 0
+    if (outMtime >= statSync(htmlPath).mtimeMs
+        && assetPaths.every(p => outMtime >= statSync(p).mtimeMs)) {
         return false // up to date
     }
-    const src = readFileSync(htmlPath, 'utf8')
-    const ts = `export const ${exportName(htmlPath)} = /* html */\`${escapeTemplate(src)}\`\n`
+
+    const ts = `export const ${exportName(htmlPath)} = /* html */\`${escapeTemplate(processed)}\`\n`
     writeFileSync(out, ts)
     return true
 

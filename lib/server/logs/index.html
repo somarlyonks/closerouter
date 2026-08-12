@@ -8,105 +8,13 @@
     <link rel="icon" type="image/svg+xml"
         href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' version='1.1' viewBox='-10 0 382 293.72' width='382' height='382'%3E%3Cg transform='translate(382, 293.72) scale(-1, -1)'%3E%3Cpath fill='%2329cc65' d='M303.9475,17.19926c42.79734,0,77.48933,34.69327,77.48933,77.48933s-34.69199,77.48933-77.48933,77.48933l76.86166,76.86244c9.76367,9.76313,2.84903,26.45667-10.95697,26.45667h-220.88335c-71.32686,0-129.14889-57.82202-129.14889-129.14889S77.64197,17.19926,148.96884,17.19926h154.97866ZM148.96884,68.85881c-42.79607,0-77.48933,34.69327-77.48933,77.48933s34.69327,77.48933,77.48933,77.48933,77.48933-34.69327,77.48933-77.48933-34.69327-77.48933-77.48933-77.48933Z'/%3E%3C/g%3E%3C/svg%3E">
     <style>
-        :root {
-            color-scheme: dark;
+        /* @asset index.css */
 
-            --color-background: canvas;
-            --color-foreground: #c9d1d9;
-            --color-foreground-secondary: #6e7681;
-            --color-border: #30363d;
-            --color-success: #7ee787;
-            --color-info: #79c0ff;
-            --color-warning: #f0883e;
-            --color-error: #ff7b72;
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
-        html,
-        body {
-            height: 100%;
-            margin: 0;
-        }
-
-        body {
-            background: var(--color-background);
-            color: var(--color-foreground);
-            font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-        }
-
-        header {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
-            background: #161b22;
-            border-bottom: 1px solid var(--color-border);
-
-            & h1 {
-                font-size: large;
-                margin: 0;
-                margin-inline-end: auto;
-            }
-
-            & .status {
-                font-size: small;
-                padding: 2px 10px;
-                border-radius: 12px;
-
-                &.ok {
-                    background: #1b3a25;
-                }
-
-                &.warn {
-                    background: #3a2a1b;
-                }
-
-                &.err {
-                    background: #3a1b1b;
-                }
-            }
-        }
-
-        input[type="password"] {
-            background: var(--color-background);
-            color: currentColor;
-            border: 1px solid var(--color-border);
-            border-radius: 6px;
-            padding: 4px 8px;
-            font: inherit;
-            width: 220px;
-        }
-
-        button {
-            background: #21262d;
-            color: var(--color-foreground);
-            border: 1px solid var(--color-border);
-            border-radius: 6px;
-            padding: 4px 12px;
-            font: inherit;
-            cursor: pointer;
-
-            &:hover {
-                background: var(--color-border);
-            }
-        }
-
-        label {
+        header label {
             display: inline-flex;
             align-items: center;
             gap: 4px;
             font-size: small;
-        }
-
-        main {
-            flex: 1;
-            overflow: hidden;
         }
 
         #log {
@@ -115,7 +23,7 @@
             overflow-x: hidden;
             margin: 0;
             padding: 8px 12px;
-            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+            font-family: var(--font-mono);
             font-size: small;
             line-height: 1.6;
             white-space: pre-wrap;
@@ -182,30 +90,6 @@
             }
         }
 
-        .ok {
-            color: var(--color-success);
-        }
-
-        .warn {
-            color: var(--color-warning);
-        }
-
-        .err {
-            color: var(--color-error);
-        }
-
-        .info {
-            color: var(--color-info);
-        }
-
-        .foreground {
-            color: var(--color-foreground);
-        }
-
-        .secondary {
-            color: var(--color-foreground-secondary);
-        }
-
         @keyframes pulse {
 
             0%,
@@ -222,10 +106,8 @@
 
 <body>
     <header>
-        <h1>CloseRouter Logs</h1>
-        <input id="key" type="password" placeholder="API key" autocomplete="off">
+        <h1>/* @asset logo.svg */Logs</h1>
         <button id="connect">Connect</button>
-        <span id="status" class="status">disconnected</span>
         <label><input id="autoscroll" type="checkbox" checked> auto-scroll</label>
         <button id="clear">Clear</button>
     </header>
@@ -233,34 +115,29 @@
         <div id="log"></div>
     </main>
 
+    /* @asset key-dialog.html */
+
     <script type="module">
-        const KEY_STORE = 'closerouter.logs.key'
+        /* @asset toast.js */
+
         const MAX_ENTRIES = 1000
 
         const connectBtn = document.getElementById('connect')
-        const statusEl = document.getElementById('status')
-
         const logEl = document.getElementById('log')
-        const keyInput = document.getElementById('key')
-        keyInput.value = localStorage.getItem(KEY_STORE) || ''
 
         let want = false;
         let es = null;
         const groups = new Map();
 
-        function setStatus(text, cls) {
-            statusEl.textContent = text
-            statusEl.className = 'status ' + (cls || '')
-        }
         function autoscroll() {if (document.getElementById('autoscroll')?.checked) logEl.scrollTop = logEl.scrollHeight}
         function trim() {while (logEl.childNodes.length > MAX_ENTRIES) logEl.removeChild(logEl.firstChild)}
 
         function classify(status) {
             if (status === undefined) return 'info'
-            if (status >= 500) return 'err'
-            if (status >= 400) return 'warn'
+            if (status >= 500) return 'error'
+            if (status >= 400) return 'warning'
             if (status >= 300) return 'info'
-            return 'ok'
+            return 'success'
         }
 
         function buildDetails(entry, side) {
@@ -390,27 +267,31 @@
             }
         }
 
-        function start() {
-            const key = keyInput.value.trim()
-            localStorage.setItem(KEY_STORE, key)
-            if (!key) {setStatus('enter API key', 'err'); want = false; return;}
+        async function start() {
+            const key = await promptKey()
             // EventSource cannot set headers, so auth via a cookie it sends automatically.
             document.cookie = 'cr-key=' + key + '; path=/; SameSite=Strict'
-            setStatus('connecting...', 'warn')
+            let closeReconnectToast = null
+            const closeConnectingToast = toast({title: 'connecting...', timeout: 0, type: 'warning'})
             connectBtn.textContent = 'Disconnect'
             es = new EventSource('/logs')
-            es.addEventListener('open', () => setStatus('connected', 'ok'))
+            es.addEventListener('open', () => {
+                closeConnectingToast()
+                closeReconnectToast?.()
+                toast({title: 'connected', type: 'success'})
+            })
             es.addEventListener('log', e => handle('log', e.data))
             es.addEventListener('error', function () {
                 if (!es) return
                 if (es.readyState === EventSource.CLOSED) {
                     want = false
                     es = null
-                    setStatus('error', 'err')
+                    toast({title: 'error', type: 'error'})
                     connectBtn.textContent = 'Connect'
                 } else {
                     // CONNECTING: browser is reconnecting after a dropped stream
-                    setStatus('reconnecting...', 'warn')
+                    closeReconnectToast?.()
+                    closeReconnectToast = toast({title: 'reconnecting...', type: 'warning'})
                 }
             })
 
@@ -423,21 +304,22 @@
             }
         }
 
-        function connect() {want = true; start()}
+        async function connect() {
+            want = true
+            start()
+        }
         function disconnect() {
             want = false
             if (es) {es.close(); es = null}
-            setStatus('disconnected', '')
+            toast({title: 'disconnected'})
             connectBtn.textContent = 'Connect'
         }
 
         connectBtn.addEventListener('click', () => want ? disconnect() : connect())
-        keyInput.addEventListener('keydown', (e) => e.key === 'Enter' && !want && connect())
         document.getElementById('clear')?.addEventListener('click', () => {
             logEl.textContent = ''
             groups.clear()
         })
-        setStatus('disconnected', '')
     </script>
 </body>
 

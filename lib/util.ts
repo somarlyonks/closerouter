@@ -107,6 +107,17 @@ export function handleBadRequest (res: ServerResponse, message: string): void {
     }))
 }
 
+export function handleHTML (html: string): RequestHandler {
+    return (_ctx, res) => {
+        res.writeHead(200, {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'no-cache',
+            'x-content-type-options': 'nosniff',
+        })
+        res.end(html)
+    }
+}
+
 export function normalizeModel (provider: string, model: unknown): unknown {
     if (typeof model === 'string') return {id: `${provider}/${model}`}
 

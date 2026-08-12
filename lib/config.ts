@@ -16,6 +16,7 @@ export interface Config {
 }
 
 export interface RuntimeConfig {
+    raw: string
     path: string
     port: number
     key: string
@@ -74,6 +75,7 @@ export function parseConfig (raw: string): Omit<RuntimeConfig, 'path'> {
     }
 
     return {
+        raw,
         port: typeof obj.port === 'number' ? obj.port : DEFAULT_PORT,
         key: typeof obj.key === 'string' ? obj.key : DEFAULT_KEY,
         providers: normalized,
