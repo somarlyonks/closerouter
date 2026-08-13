@@ -1,6 +1,6 @@
 # CloseRouter
 
-Simple and slim.
+Simple and slim AI gateway, it just works!
 
 ## Usage
 
@@ -13,9 +13,6 @@ Usage:
   closerouter [server] [-d|--detach]                 Start the proxy server
   closerouter help                                   Show this help
   closerouter version                                Show the version
-  closerouter providers                              List configured providers
-  closerouter models <provider>                      List provider's models to add
-              models <provider> pick [<model>...]    Add specific model(s) to config
 ```
 
 API endpoint: `http://localhost:6712/v1`
