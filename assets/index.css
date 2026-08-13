@@ -28,8 +28,14 @@ body {
     background: var(--color-background);
     color: var(--color-foreground);
     font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    display: flex;
-    flex-direction: column;
+}
+
+body>header,
+body>footer {
+    padding: 8px 12px;
+    background-color: var(--color-background);
+    width: 100%;
+    z-index: 1;
 }
 
 header {
@@ -37,21 +43,14 @@ header {
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    padding: 8px 12px;
     border-bottom: 1px solid var(--color-border);
+    position: fixed;
+    inset-block-start: 0;
 
     & h1 {
         font-size: large;
         margin: 0;
         margin-inline-end: auto;
-        display: flex;
-        align-items: center;
-        gap: 1ch;
-
-        & svg {
-            height: 1.5em;
-            width: 1.5em;
-        }
     }
 
     & a {
@@ -66,9 +65,61 @@ header {
     }
 }
 
-main {
+body>main {
+    margin-block-start: 48px;
     flex: 1;
-    overflow: hidden;
+    min-height: calc(100vh - 48px);
+}
+
+body>footer {
+    padding-block: 4ex;
+    color: var(--color-foreground-secondary);
+
+    & .responsive-wrapper {
+        display: flex;
+    }
+
+    & aside {
+        margin-inline-end: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1ch;
+    }
+
+    & nav {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+    }
+
+    & a {
+        color: currentColor;
+        text-decoration: none;
+
+        &:hover,
+        &:focus {
+            color: var(--color-foreground);
+            text-decoration: underline;
+        }
+    }
+}
+
+.responsive-wrapper {
+    max-width: 820px;
+    margin-inline: auto;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 1ch;
+    color: var(--color-foreground);
+
+    & svg {
+        height: 1.5em;
+        width: 1.5em;
+    }
 }
 
 input {
