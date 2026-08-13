@@ -17,7 +17,6 @@ export interface Config {
 
 export interface RuntimeConfig {
     raw: string
-    path: string
     port: number
     key: string
     providers: Record<string, ProviderConfig>
@@ -26,7 +25,7 @@ export interface RuntimeConfig {
 const DEFAULT_PORT = 6712
 const DEFAULT_KEY = 'sk-cr-kee9itsecr1t'
 
-export function parseConfig (raw: string): Omit<RuntimeConfig, 'path'> {
+export function parseConfig (raw: string): RuntimeConfig {
     let parsed: unknown
     try {
         parsed = JSON.parse(raw)

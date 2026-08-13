@@ -8,7 +8,7 @@
 
 - **Zero runtime dependencies** — use only Node.js built-in modules.
 - **Compiled via `scriptc`** — the project is built with `scriptc`, which compiles TypeScript to a native binary. Keep code compatible with whatever Node.js API surface `scriptc` supports.
-- **JSON config only** — no YAML, TOML, or other formats. Config file is `closerouter.json` by default.
+- **JSON config only** — no YAML, TOML, or other formats. Config file is `closerouter.json` by default, overridable via the `-c`/`--config <path>` CLI argument.
 - **Streaming is critical** — `/v1/chat/completions` must support SSE streaming. Proxy responses should stream chunks back to the client without buffering the entire response.
 - **OpenAI-format only** — only proxy providers that speak the OpenAI API format. The router itself only exposes `/v1/chat/completions`, `/v1/responses`, and `/v1/models`.
 
