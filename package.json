@@ -1,6 +1,6 @@
 {
     "name": "closerouter",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "OpenAI API compatible providers all for one router",
     "license": "MIT",
     "author": "Yang Sheng <somarl@live.com>",
