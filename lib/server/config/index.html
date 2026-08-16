@@ -149,14 +149,13 @@
     <script type="module">
         /* @asset toast.js */
 
-        const saveBtn = document.getElementById('save')
         const formEl = document.getElementById('form')
 
         function authHeaders(key) {
             return {Authorization: 'Bearer ' + key}
         }
 
-        function el(tag, attrs = {}, ...children) {
+        function createElement(tag, attrs = {}, ...children) {
             const e = document.createElement(tag)
             for (const [k, v] of Object.entries(attrs)) {
                 if (v === null || v === undefined) continue
@@ -172,26 +171,25 @@
         function renderForm(cfg) {
             formEl.textContent = ''
 
-            const general = el('div', {className: 'section'},
-                el('h2', {textContent: 'General'}),
-                el('div', {className: 'general'},
-                    el('div', {className: 'field'},
-                        el('label', {textContent: 'Port'}),
-                        el('input', {type: 'number', id: 'cfg-port', value: String(cfg.port ?? '')}),
+            formEl.appendChild(createElement('div', {className: 'section'},
+                createElement('h2', {textContent: 'General'}),
+                createElement('div', {className: 'general'},
+                    createElement('div', {className: 'field'},
+                        createElement('label', {textContent: 'Port'}),
+                        createElement('input', {type: 'number', id: 'cfg-port', value: String(cfg.port ?? '')}),
                     ),
-                    el('div', {className: 'field'},
-                        el('label', {textContent: 'Key'}),
-                        el('input', {type: 'password', id: 'cfg-key', value: cfg.key ?? ''}),
+                    createElement('div', {className: 'field'},
+                        createElement('label', {textContent: 'Key'}),
+                        createElement('input', {type: 'password', id: 'cfg-key', value: cfg.key ?? ''}),
                     ),
                 ),
-            )
-            formEl.appendChild(general)
+            ))
 
-            formEl.appendChild(el('div', {className: 'section'},
-                el('h2', {textContent: 'Providers'}),
+            formEl.appendChild(createElement('div', {className: 'section'},
+                createElement('h2', {textContent: 'Providers'}),
                 ...Array.from(Object.entries(cfg.providers || {}), ([name, provider]) => renderProvider(name, provider)),
-                el('div', {className: 'actions'},
-                    el('button', {
+                createElement('div', {className: 'actions'},
+                    createElement('button', {
                         className: 'add',
                         textContent: '+ Add provider',
                         onclick() {
@@ -201,39 +199,48 @@
                             )
                         },
                     })
-                )
+                ),
+                createElement('div', {className: 'actions'},
+                    createElement('button', {
+                        className: 'primary',
+                        textContent: 'save',
+                        onclick() {
+                            saveConfig()
+                        },
+                    })
+                ),
             ))
 
             function renderProvider(name, provider) {
                 const models = provider.models || []
 
-                return el('div', {className: 'provider'},
-                    el('div', {className: 'provider-header'},
-                        el('input', {
+                return createElement('div', {className: 'provider'},
+                    createElement('div', {className: 'provider-header'},
+                        createElement('input', {
                             type: 'text',
                             className: 'provider-name-input',
                             value: name,
                             placeholder: 'provider name',
                         }),
-                        el('button', {
+                        createElement('button', {
                             className: 'danger',
                             textContent: 'Remove',
                             onclick: () => {if (confirm('Remove this provider?')) card.remove()},
                         }),
                     ),
-                    el('div', {className: 'field'},
-                        el('label', {textContent: 'Base URL'}),
-                        el('input', {type: 'text', className: 'cfg-base-url', value: provider.base_url || ''}),
+                    createElement('div', {className: 'field'},
+                        createElement('label', {textContent: 'Base URL'}),
+                        createElement('input', {type: 'text', className: 'cfg-base-url', value: provider.base_url || ''}),
                     ),
-                    el('div', {className: 'field'},
-                        el('label', {textContent: 'API Key'}),
-                        el('input', {type: 'password', className: 'cfg-api-key', value: provider.api_key || ''}),
+                    createElement('div', {className: 'field'},
+                        createElement('label', {textContent: 'API Key'}),
+                        createElement('input', {type: 'password', className: 'cfg-api-key', value: provider.api_key || ''}),
                     ),
-                    el('div', {className: 'field'},
-                        el('label', {textContent: 'Models'}),
-                        el('div', {className: 'models'},
+                    createElement('div', {className: 'field'},
+                        createElement('label', {textContent: 'Models'}),
+                        createElement('div', {className: 'models'},
                             ...models.map(model => renderModelRow(modelToString(model))),
-                            el('button', {
+                            createElement('button', {
                                 className: 'add',
                                 textContent: '+ Add model',
                                 onclick() {
@@ -245,14 +252,14 @@
                 )
 
                 function renderModelRow(value) {
-                    return el('div', {className: 'model-row'},
-                        el('textarea', {
+                    return createElement('div', {className: 'model-row'},
+                        createElement('textarea', {
                             value,
                             rows: value.split('\n').length,
                             placeholder: 'model id or JSON object',
                             oninput(e) {e.target.rows = Math.max(1, e.target.value.split('\n').length)},
                         }),
-                        el('button', {
+                        createElement('button', {
                             className: 'icon danger',
                             innerHTML: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path d="M183.1 137.4C170.6 124.9 150.3 124.9 137.8 137.4C125.3 149.9 125.3 170.2 137.8 182.7L275.2 320L137.9 457.4C125.4 469.9 125.4 490.2 137.9 502.7C150.4 515.2 170.7 515.2 183.2 502.7L320.5 365.3L457.9 502.6C470.4 515.1 490.7 515.1 503.2 502.6C515.7 490.1 515.7 469.8 503.2 457.3L365.8 320L503.1 182.6C515.6 170.1 515.6 149.8 503.1 137.3C490.6 124.8 470.3 124.8 457.8 137.3L320.5 274.7L183.1 137.4z"/></svg>',
                             onclick: () => row.remove(),
@@ -344,7 +351,7 @@
             }
         }
 
-        saveBtn.addEventListener('click', saveConfig)
+        document.getElementById('save')?.addEventListener('click', saveConfig)
 
         loadConfig()
     </script>

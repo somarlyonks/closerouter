@@ -17,8 +17,21 @@
             font-size: small;
         }
 
+        #totals {
+            font-family: var(--font-mono);
+            font-size: small;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 1ch;
+
+            & svg:nth-of-type(2) {
+                transform: rotate(180deg);
+            }
+        }
+
         #log {
-            height: 100%;
+            height: calc(100vh - 48px);
             overflow-y: auto;
             overflow-x: hidden;
             margin: 0;
@@ -41,16 +54,25 @@
             & .line {
                 display: flex;
                 gap: 1ch;
+                line-height: 1;
 
                 & .arrow {
                     flex-shrink: 0;
 
                     &.in {
                         color: var(--color-info);
+
+                        & svg {
+                            transform: rotate(90deg);
+                        }
                     }
 
                     &.out {
                         color: currentColor;
+
+                        & svg {
+                            transform: rotate(270deg);
+                        }
                     }
                 }
 
@@ -72,11 +94,25 @@
                     gap: 1ch;
                 }
 
+                & .detail-tokens,
                 & .detail-headers,
                 & .detail-body {
                     margin: 4px 0 0 0;
                     font-size: smaller;
                     color: var(--color-foreground);
+                }
+
+                & .detail-tokens {
+                    >div {
+                        display: flex;
+                        align-items: center;
+
+                        &:nth-of-type(2) {
+                            & svg {
+                                transform: rotate(180deg);
+                            }
+                        }
+                    }
                 }
 
                 & .detail-body {
@@ -107,15 +143,15 @@
 <body>
     <header>
         <h1 class="brand">/* @asset logo.svg */Logs</h1>
-        <button id="connect">Connect</button>
-        <label><input id="autoscroll" type="checkbox" checked> auto-scroll</label>
+        <span id="totals" class="success" title="">
+            /* @asset arrow-up.svg */ <span class="in">0</span>
+            /* @asset arrow-up.svg */ <span class="out">0</span>
+        </span>
         <button id="clear">Clear</button>
     </header>
     <main>
         <div id="log"></div>
     </main>
-
-    /* @asset footer.html */
 
     /* @asset key-dialog.html */
 
@@ -124,14 +160,45 @@
 
         const MAX_ENTRIES = 1000
 
-        const connectBtn = document.getElementById('connect')
         const logEl = document.getElementById('log')
 
-        let want = false;
         let es = null;
         const groups = new Map();
 
-        function autoscroll() {if (document.getElementById('autoscroll')?.checked) logEl.scrollTop = logEl.scrollHeight}
+        const totals = {in: 0, out: 0, count: 0}
+        const flips = {in: 0, out: 0}
+
+        function renderTotals() {
+            const totalsEl = document.getElementById('totals')
+            if (!totalsEl) return
+
+            totalsEl.title = `${totals.count} requests / ${totals.in.toLocaleString()} tokens in / ${totals.out.toLocaleString()} tokens out`
+
+            flipNumber('in')
+            flipNumber('out')
+        }
+
+        function flipNumber(key) {
+            const el = document.querySelector('#totals .' + key)
+            if (!el) return
+
+            cancelAnimationFrame(flips[key])
+            const from = Number(String(el.textContent).replace(/[^\d.-]/g, '')) || 0
+            const to = totals[key]
+            const duration = 5000
+            const start = performance.now()
+
+            function tick(now) {
+                const t = Math.min(1, Math.max(0, (now - start) / duration))
+                const eased = 1 - Math.pow(1 - t, 3)
+                const value = Math.round(from + (to - from) * eased)
+                el.textContent = value.toLocaleString()
+                if (t < 1) flips[key] = requestAnimationFrame(tick)
+            }
+
+            flips[key] = requestAnimationFrame(tick)
+        }
+
         function trim() {while (logEl.childNodes.length > MAX_ENTRIES) logEl.removeChild(logEl.firstChild)}
 
         function classify(status) {
@@ -148,19 +215,34 @@
             const body = side === 'request' ? entry.requestBody : entry.responseBody
             const hasHeaders = headers && Object.keys(headers).length > 0
 
+            if (entry.inputTokens !== undefined || entry.outputTokens !== undefined) {
+                ret.push(createElement('div', {className: 'detail-tokens'}, ...buildTokenDetail(entry)))
+            }
             if (hasHeaders) {
-                ret.push(createElement('div', {
-                    className: 'detail-headers',
-                    textContent: formatHeaders(headers),
-                }))
+                ret.push(createElement('div', {className: 'detail-headers', textContent: formatHeaders(headers)}))
             }
             if (body) {
-                ret.push(createElement('pre', {
-                    className: 'detail-body',
-                    textContent: prettyBody(body),
-                }))
+                ret.push(createElement('pre', {className: 'detail-body', textContent: prettyBody(body)}))
             }
             return ret
+
+            function buildTokenDetail(entry) {
+                const compact = new Intl.NumberFormat('en', {notation: 'compact', maximumFractionDigits: 0}).format
+                const pad = n => String(compact(n)).padStart(4, ' ')
+                const parts = []
+
+                if (entry.inputTokens !== undefined) {
+                    const cacheRate = entry.cachedTokens === undefined ? '' : ('(' + Math.round(entry.cachedTokens / (entry.inputTokens || 1) * 100) + '% cached)')
+                    parts.push(createElement('div', {innerHTML: `/* @asset arrow-up.svg */` + pad(entry.inputTokens) + ' tokens ' + cacheRate}))
+                }
+                if (entry.outputTokens !== undefined) {
+                    const genMs = entry.generationMs || entry.durationMs
+                    const tps = !genMs ? '' : ('(' + Math.round(entry.outputTokens / (genMs / 1000)) + ' tok/s)')
+                    parts.push(createElement('div', {innerHTML: `/* @asset arrow-up.svg */` + pad(entry.outputTokens) + ' tokens ' + tps}))
+                }
+
+                return parts
+            }
 
             function formatHeaders(h) {
                 const secretFields = ['authorization', 'cookie', 'set-cookie']
@@ -184,7 +266,7 @@
         function createElement(tag, attributes = {}, ...children) {
             const el = document.createElement(tag)
             Object.entries(attributes).forEach(([key, value]) => {el[key] = value})
-            children.forEach(child => {el.appendChild(child)})
+            children.forEach(child => el.appendChild(child))
             return el
         }
 
@@ -195,7 +277,7 @@
         function onRequest(entry) {
             const group = createElement('div', {className: 'group responding'},
                 createElement('div', {className: 'line req'},
-                    createElement('strong', {className: 'arrow in', textContent: '->'}),
+                    createElement('strong', {className: 'arrow in', innerHTML: `/* @asset arrow-up.svg */`}),
                     createElement('details', {},
                         createElement('summary', {},
                             ts(entry.time),
@@ -209,14 +291,13 @@
             )
 
             const resLine = createElement('div', {className: 'line res pending'},
-                createElement('span', {className: 'arrow out', textContent: '<-'})
+                createElement('span', {className: 'arrow out', innerHTML: `/* @asset arrow-up.svg */`})
             )
-            group.appendChild(resLine);
+            group.appendChild(resLine)
 
-            logEl.appendChild(group);
-            trim();
-            autoscroll();
-            groups.set(entry.id, {group, resLine})
+            logEl.appendChild(group)
+            trim()
+            groups.set(entry.id, {group, resLine});
 
             function buildAppendix() {
                 if (entry.path === '/v1/chat/completions') {
@@ -253,16 +334,23 @@
             groupEntry.resLine.classList.remove('pending')
             groupEntry.resLine.textContent = ''
             appendResponse(groupEntry.resLine, entry);
-            autoscroll()
+            if (entry.inputTokens !== undefined) totals.in += entry.inputTokens
+            if (entry.outputTokens !== undefined) totals.out += entry.outputTokens
+            totals.count++
+            renderTotals()
             groups.delete(entry.id)
 
             function appendResponse(line, entry) {
-                line.appendChild(createElement('strong', {className: 'arrow out', textContent: '<-'}))
+                const genMs = entry.generationMs || entry.durationMs
+
+                line.appendChild(createElement('strong', {className: 'arrow out', innerHTML: `/* @asset arrow-up.svg */`}))
                 line.appendChild(createElement('details', {},
                     createElement('summary', {},
                         ts(entry.time),
                         ...(entry.status !== undefined ? [createElement('strong', {textContent: String(entry.status)})] : []),
                         ...(entry.durationMs !== undefined ? [createElement('span', {textContent: entry.durationMs + 'ms'})] : []),
+                        ...(entry.ttftMs !== undefined ? [createElement('span', {className: 'foreground', textContent: entry.ttftMs + 'ms', title: 'Time to First Token'})] : []),
+                        ...((!entry.outputTokens || !genMs) ? [] : [createElement('span', {className: 'foreground', textContent: (Math.floor(entry.outputTokens / (genMs / 1000)) + ' tok/s')})]),
                     ),
                     ...buildDetails(entry, 'response'),
                 ))
@@ -275,7 +363,6 @@
             document.cookie = 'cr-key=' + key + '; path=/; SameSite=Strict'
             let closeReconnectToast = null
             const closeConnectingToast = toast({title: 'connecting...', timeout: 0, type: 'warning'})
-            connectBtn.textContent = 'Disconnect'
             es = new EventSource('/logs')
             es.addEventListener('open', () => {
                 closeConnectingToast()
@@ -286,13 +373,10 @@
             es.addEventListener('error', function () {
                 if (!es) return
                 if (es.readyState === EventSource.CLOSED) {
-                    want = false
                     es = null
                     toast({title: 'error', type: 'error'})
-                    connectBtn.textContent = 'Connect'
                 } else {
-                    // CONNECTING: browser is reconnecting after a dropped stream
-                    closeReconnectToast?.()
+                    if (closeReconnectToast) return
                     closeReconnectToast = toast({title: 'reconnecting...', type: 'warning'})
                 }
             })
@@ -306,22 +390,12 @@
             }
         }
 
-        async function connect() {
-            want = true
-            start()
-        }
-        function disconnect() {
-            want = false
-            if (es) {es.close(); es = null}
-            toast({title: 'disconnected'})
-            connectBtn.textContent = 'Connect'
-        }
-
-        connectBtn.addEventListener('click', () => want ? disconnect() : connect())
         document.getElementById('clear')?.addEventListener('click', () => {
             logEl.textContent = ''
             groups.clear()
         })
+
+        start()
     </script>
 </body>
 

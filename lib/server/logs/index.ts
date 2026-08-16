@@ -11,10 +11,21 @@ export interface LogEntry {
     path: string
     status?: number
     durationMs?: number
+    ttftMs?: number
+    generationMs?: number
+    inputTokens?: number
+    outputTokens?: number
+    cachedTokens?: number
     requestBody?: string
     requestHeaders?: IncomingMessage['headers']
     responseBody?: string
     responseHeaders?: OutgoingHttpHeaders
+}
+
+interface TokenUsage {
+    inputTokens?: number
+    outputTokens?: number
+    cachedTokens?: number
 }
 
 type LogListener = (entry: LogEntry) => void
@@ -84,6 +95,9 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
     req.on('end', logRequest)
     res.on('close', () => {
         logRequest()
+        const usage = extractTokenUsage(responseLog?.body)
+        const firstTokenAt = responseLog?.firstTokenAt
+        const lastTokenAt = responseLog?.lastTokenAt
         publishLog({
             id,
             phase: 'response',
@@ -92,8 +106,48 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
             path: req.url!,
             status: responseLog?.status ?? (res.headersSent ? res.statusCode : undefined),
             durationMs: Date.now() - startedAt,
+            ttftMs: firstTokenAt !== undefined ? firstTokenAt - startedAt : undefined,
+            generationMs: firstTokenAt !== undefined && lastTokenAt !== undefined ? lastTokenAt - firstTokenAt : undefined,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cachedTokens: usage.cachedTokens,
             responseBody: responseLog?.body,
             responseHeaders: responseLog?.headers,
         })
     })
+}
+
+function extractTokenUsage (body: string | undefined): TokenUsage {
+    const result: TokenUsage = {}
+    if (!body) return result
+
+    const apply = (usage: unknown) => {
+        if (!usage || typeof usage !== 'object') return
+        const u = usage as Record<string, unknown>
+        if (typeof u.prompt_tokens === 'number') result.inputTokens = u.prompt_tokens
+        if (typeof u.completion_tokens === 'number') result.outputTokens = u.completion_tokens
+        const details = u.prompt_tokens_details as Record<string, unknown> | undefined
+        if (details && typeof details.cached_tokens === 'number') result.cachedTokens = details.cached_tokens
+    }
+
+    try {
+        apply((JSON.parse(body) as Record<string, unknown>).usage)
+    } catch {
+        // Not a single JSON document — fall through to SSE parsing below.
+    }
+
+    if (result.inputTokens === undefined || result.outputTokens === undefined) {
+        for (const line of body.split('\n')) {
+            if (!line.startsWith('data:')) continue
+            const payload = line.slice(5).trim()
+            if (!payload || payload === '[DONE]') continue
+            try {
+                apply((JSON.parse(payload) as Record<string, unknown>).usage)
+            } catch {
+                // Ignore non-JSON SSE frames.
+            }
+        }
+    }
+
+    return result
 }

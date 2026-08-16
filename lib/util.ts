@@ -9,6 +9,8 @@ export interface ResponseLog {
     status?: number
     headers?: OutgoingHttpHeaders
     body?: string
+    firstTokenAt?: number
+    lastTokenAt?: number
 }
 
 export interface RequestContext {

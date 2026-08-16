@@ -28,11 +28,19 @@ function forwardResponse (backendRes: IncomingMessage, clientRes: ServerResponse
     logResponse(responseLog, {status: statusCode, headers})
     clientRes.writeHead(statusCode, headers)
 
+    let firstChunkAt: number | undefined
     backendRes.on('data', (chunk: Buffer) => {
+        if (firstChunkAt === undefined) {
+            firstChunkAt = Date.now()
+            if (responseLog) responseLog.firstTokenAt = firstChunkAt
+        }
         appendResponseBody(responseLog, chunk)
         clientRes.write(chunk)
     })
     backendRes.on('end', () => {
+        if (responseLog && firstChunkAt !== undefined) {
+            responseLog.lastTokenAt = Date.now()
+        }
         clientRes.end()
     })
     backendRes.on('error', () => {
@@ -204,8 +212,7 @@ export function proxyModelRequest (
             return
         }
 
-        const provider = ctx.env.config.providers[providerName]
-        if (!provider) {
+        if (!(providerName in ctx.env.config.providers)) {
             res.writeHead(404, {'content-type': 'application/json'})
             res.end(JSON.stringify({
                 error: {
@@ -215,6 +222,7 @@ export function proxyModelRequest (
             }))
             return
         }
+        const provider = ctx.env.config.providers[providerName]
 
         const rewriteBody = (body: string): string => {
             try {

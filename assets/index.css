@@ -105,6 +105,12 @@ body>footer {
     }
 }
 
+svg {
+    fill: currentColor;
+    width: 1em;
+    height: 1em;
+}
+
 .responsive-wrapper {
     max-width: 820px;
     margin-inline: auto;
@@ -182,12 +188,6 @@ button {
 
     &:active {
         --color-background-state: color-mix(in srgb, var(--color-background), black 8%);
-    }
-
-    & svg {
-        fill: currentColor;
-        width: 1em;
-        height: 1em;
     }
 }
 

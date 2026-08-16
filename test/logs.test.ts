@@ -148,7 +148,7 @@ test('server logs capture request and response bodies', async () => {
     })
     const port = await getFreePort()
     const config: RuntimeConfig = {
-        path: '',
+        raw: '',
         port,
         key: 'logkey',
         providers: {
@@ -211,6 +211,10 @@ test('server logs capture request and response bodies', async () => {
         assert.equal(responseEntry.status, 200)
         assert.match(responseEntry.responseBody ?? '', /data: \{"choices":\[\]\}/)
         assert.equal(responseEntry.responseHeaders?.['content-type'], 'text/event-stream')
+        assert.equal(typeof responseEntry.generationMs, 'number')
+        assert.ok((responseEntry.generationMs ?? 0) >= 0)
+        assert.equal(typeof responseEntry.ttftMs, 'number')
+        assert.ok((responseEntry.ttftMs ?? 0) >= 0)
     } finally {
         await srv.close()
         await backend.close()
