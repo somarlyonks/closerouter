@@ -17,7 +17,7 @@
         "prestart": "node build.ts",
         "start": "scriptc run lib/cli.ts",
         "prebuild": "node build.ts",
-        "build": "scriptc build lib/cli.ts -o dist/closerouter"
+        "build": "scriptc build lib/cli.ts --ffi native/ffi.json -o dist/closerouter"
     },
     "devDependencies": {
         "@somarlyonks/eslint": "^1",

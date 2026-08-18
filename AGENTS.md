@@ -31,9 +31,9 @@ closerouter.json     # Sample / default config
 
 ## HTML Pages, Assets, and Build
 
-HTML pages are authored as `.html` source templates under `lib/server/` (e.g. `lib/server/config/index.html`, `lib/server/logs/index.html`). They are **not** served directly — `build.ts` converts each into a `.html.ts` module (`index.html.ts`) that exports a template string (`indexHTML`), so `scriptc` can serve the HTML inline from the native binary with no runtime file read.
+HTML pages are authored as `.html` source templates under `lib/server/` (e.g. `lib/server/config/index.html`, `lib/server/logs/index.html`). They are **not** served directly - `assets/build.ts` converts each into a `.html.ts` module (`index.html.ts`) that exports a template string (`indexHTML`), so `scriptc` can serve the HTML inline from the native binary with no runtime file read.
 
-- **Run the build:** `node build.ts` (scans `lib/server` for `*.html`; also accepts a file or dir arg). The generated `.html.ts` files are **gitignored build artifacts** — always regenerate after editing a source `.html`, and don't edit them by hand.
+- **Run the build:** `node build.ts` orchestrates both build steps - `assets/build.ts` (HTML; scans `lib/server` for `*.html`, also accepts a file or dir arg passed through) and `native/build.ts` (compiles the FFI C shims listed in `native/ffi.json` in place). The generated `.html.ts` files are **gitignored build artifacts** - always regenerate after editing a source `.html`, and don't edit them by hand.
 
 ### Assets
 
@@ -43,7 +43,7 @@ A file inside an assets dir is inlined into the HTML via a marker comment `/* @a
 
 Rules for authored HTML:
 - The rendered HTML must **not contain `\${`** — no template variables, since the content becomes a template literal.
-- To add a shared fragment (like a footer) to multiple pages: create the fragment in `assets/`, reference it with `/* @asset <name> */` in each `.html`, and run `node build.ts`.
+- To add a shared fragment (like a footer) to multiple pages: create the fragment in `assets/`, reference it with `/* @asset <name> */` in each `.html`, and run `node assets/build.ts`.
 
 ### Page layout
 
