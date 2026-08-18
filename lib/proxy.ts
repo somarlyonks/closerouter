@@ -1,6 +1,6 @@
 import * as http from 'http'
 import * as https from 'https'
-import {IncomingMessage, ServerResponse} from 'http'
+import {ClientRequest, IncomingMessage, ServerResponse} from 'http'
 import {appendResponseBody, logResponse, type ResponseLog, type RequestContext} from './util'
 
 function getPort (targetUrl: URL, isHttps: boolean): number {
@@ -15,6 +15,20 @@ function getPort (targetUrl: URL, isHttps: boolean): number {
 function firstHeader (val: string | string[] | undefined): string | undefined {
     if (val === undefined) return undefined
     return Array.isArray(val) ? val[0] : val
+}
+
+function backendRequest (
+    isHttps: boolean,
+    hostname: string,
+    port: number,
+    path: string,
+    method: string,
+    headers: Record<string, string>,
+): ClientRequest {
+    if (isHttps) {
+        return https.request({hostname, port, path, method, headers: headers})
+    }
+    return http.request({hostname, port, path, method, headers: headers})
 }
 
 function forwardResponse (backendRes: IncomingMessage, clientRes: ServerResponse, responseLog: ResponseLog | undefined): void {
@@ -89,15 +103,15 @@ export function proxyRequest (
         }
 
         const contentLength = Buffer.byteLength(body).toString()
-        const request = isHttps ? https.request : http.request
-        const backendReq = request({
-            hostname, port, path: urlPath, method,
-            headers: {
+        const backendReq = backendRequest(
+            isHttps, hostname, port, urlPath, method,
+            {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`,
                 'Content-Length': contentLength,
             },
-        }, (backendRes) => {
+        )
+        backendReq.on('response', (backendRes) => {
             forwardResponse(backendRes, clientRes, responseLog)
         })
         backendReq.on('error', (err: Error) => handleBackendError(err, clientRes, responseLog))
@@ -143,11 +157,11 @@ export function proxyGetRequest (
     const urlPath = targetUrl.pathname + targetUrl.search
 
     return new Promise((resolve, reject) => {
-        const request = isHttps ? https.request : http.request
-        const req = request({
-            hostname, port, path: urlPath, method: 'GET',
-            headers: {Authorization: `Bearer ${apiKey}`},
-        }, (res) => {
+        const req = backendRequest(
+            isHttps, hostname, port, urlPath, 'GET',
+            {Authorization: `Bearer ${apiKey}`},
+        )
+        req.on('response', (res) => {
             const chunks: Buffer[] = []
             res.on('data', (chunk: Buffer) => chunks.push(chunk))
             res.on('end', () => {
