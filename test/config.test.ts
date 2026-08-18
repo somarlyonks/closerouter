@@ -1,5 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
+import {dirname, resolve, join} from 'node:path'
 import {loadConfig} from '../lib/config'
 import {captureExit, writeTempConfig, writeTempFile} from './helpers'
 
@@ -120,6 +121,76 @@ test('loadConfig exits when a provider is missing api_key', async () => {
         const res = captureExit(() => loadConfig(path))
         assert.equal(res.exit?.code, 1)
         assert.match(res.stderr, /api_key/)
+    } finally {
+        await cleanup()
+    }
+})
+
+test('loadConfig defaults dbPath to in memory next to the config', async () => {
+    const {path, cleanup} = await writeTempConfig({
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    try {
+        const cfg = loadConfig(path)
+        assert.equal(cfg.dbPath, '')
+    } finally {
+        await cleanup()
+    }
+})
+
+test('loadConfig resolves a relative db path against the config directory', async () => {
+    const {path, cleanup} = await writeTempConfig({
+        db: 'data/usage.db',
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    try {
+        const cfg = loadConfig(path)
+        assert.equal(cfg.dbPath, join(dirname(path), 'data', 'usage.db'))
+    } finally {
+        await cleanup()
+    }
+})
+
+test('loadConfig keeps an absolute db path and "" means in-memory', async () => {
+    const abs = resolve('/tmp', 'abs.db')
+    const withAbs = await writeTempConfig({
+        db: abs,
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    const withMemory = await writeTempConfig({
+        db: '',
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    try {
+        assert.equal(loadConfig(withAbs.path).dbPath, abs)
+        assert.equal(loadConfig(withMemory.path).dbPath, '')
+    } finally {
+        await withAbs.cleanup()
+        await withMemory.cleanup()
+    }
+})
+
+test('loadConfig disables storage for db: false', async () => {
+    const {path, cleanup} = await writeTempConfig({
+        db: false,
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    try {
+        assert.equal(loadConfig(path).dbPath, undefined)
+    } finally {
+        await cleanup()
+    }
+})
+
+test('loadConfig exits when db has an invalid type', async () => {
+    const {path, cleanup} = await writeTempConfig({
+        db: 42,
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    try {
+        const res = captureExit(() => loadConfig(path))
+        assert.equal(res.exit?.code, 1)
+        assert.match(res.stderr, /db/i)
     } finally {
         await cleanup()
     }

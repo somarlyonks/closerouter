@@ -57,6 +57,7 @@ export function openDatabase (path: string): void {
 }
 
 export function closeDatabase (): void {
+    if (!sqliteAvailable()) return
     sqliteClose()
 }
 
@@ -77,7 +78,7 @@ export function run (sql: string, params: SqlParam[] = []): RunResult {
 export function all (sql: string, params: SqlParam[] = []): SqlRow[] {
     const rows: SqlValue[][] = []
     const columns = runSql(sql, params, row => rows.push(row))
-    return rows.map(row => zipRow(columns, row))
+    return rows.map(row => Object.fromEntries(columns.map((column, i) => [column, row[i]])))
 }
 
 /** Run a query and return the first row, or undefined when there are none. */
@@ -143,12 +144,6 @@ function runSql (sql: string, params: SqlParam[], onRow: (row: SqlValue[]) => vo
     return columns
 }
 
-function zipRow (columns: string[], values: SqlValue[]): SqlRow {
-    const row: SqlRow = {}
-    for (let i = 0; i < columns.length; i++) row[columns[i]] = values[i]
-    return row
-}
-
 export function decodeValue (value: RawValue): SqlValue {
     // Uint8Array is the only object in RawValue's object branch
     if (value !== null && typeof value === 'object') return Buffer.from(value.$hex, 'hex')
@@ -165,4 +160,16 @@ function encodeParam (param: SqlParam): string | number | boolean | null | {$hex
         return {$hex: Buffer.from(param).toString('hex')}
     }
     return param
+}
+
+export function getSqliteVersion (): string | never {
+    if (!sqliteAvailable()) throw new Error('sqlite unavailable')
+
+    openDatabase('')
+    run('CREATE TABLE IF NOT EXISTS smoke (id INTEGER PRIMARY KEY)')
+    run('INSERT INTO smoke (id) VALUES (NULL)')
+    const version = get('SELECT sqlite_version() AS version')?.version
+    if (typeof version === 'string') return version
+
+    throw new Error('sqlite ok (unknown version)')
 }

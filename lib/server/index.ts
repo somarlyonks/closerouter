@@ -1,5 +1,6 @@
 import {createServer, type IncomingMessage, type Server, type ServerResponse} from 'http'
 import {printServerConfig, type RuntimeConfig} from '../config'
+import {closeDatabase} from '../db'
 import {v1Router as handleOpenAIRequest} from './v1'
 import {router, type RequestContext, type RequestHandler} from '../util'
 import {handleLogs, logMiddleware} from './logs'
@@ -49,6 +50,7 @@ export function startServer (config: RuntimeConfig): Server {
 
     const shutdown = (sig: string) => () => {
         console.log(`received ${sig}, shutting down`)
+        closeDatabase()
         // server.close stops accepting new connections and waits for in-flight
         // responses to drain. SSE /logs streams and parked keep-alive clients are
         // long-lived, though, so arm a grace-period force-quit so supervisors can

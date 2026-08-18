@@ -151,6 +151,7 @@ test('server logs capture request and response bodies', async () => {
         raw: '',
         port,
         key: 'logkey',
+        dbPath: '',
         providers: {
             p: {base_url: backend.baseUrl, api_key: 'bk', models: [{id: 'm'}]},
         },

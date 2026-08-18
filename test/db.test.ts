@@ -6,6 +6,7 @@ import {
     sqliteAvailable, openDatabase, closeDatabase, run, all, get,
     messageCollector, encodeParams, decodeValue,
 } from '../lib/db'
+import {initUsage, recordUsage} from '../lib/server/logs/db'
 
 // The SQL tests need the native SQLite symbols, which only exist when this
 // file is compiled by scriptc with --ffi, e.g.
@@ -177,6 +178,40 @@ function sqlTests (): void {
         openDatabase(path)
         assert.equal(get('SELECT v FROM kv WHERE k = ?', ['persisted'])?.v as string, 'yes')
         closeDatabase()
+    })
+
+    test('usage rows persist through recordUsage', () => {
+        openDatabase('')
+        initUsage()
+        recordUsage({
+            ts: 1234,
+            method: 'POST',
+            path: '/v1/chat/completions',
+            provider: 'p',
+            model: 'm',
+            status: 200,
+            durationMs: 42,
+            ttftMs: 5,
+            generationMs: 30,
+            inputTokens: 10,
+            outputTokens: 20,
+            cachedTokens: 3,
+        })
+        recordUsage({ts: 5678, method: 'POST', path: '/v1/responses'})
+        const rows = all('SELECT * FROM usage ORDER BY id')
+        assert.equal(rows.length, 2)
+        assert.equal(rows[0].provider as string, 'p')
+        assert.equal(rows[0].model as string, 'm')
+        assert.equal(rows[0].status as number, 200)
+        assert.equal(rows[0].duration_ms as number, 42)
+        assert.equal(rows[0].input_tokens as number, 10)
+        assert.ok(isNull(rows[0].cached_tokens) === false)
+        assert.equal(rows[0].cached_tokens as number, 3)
+        assert.ok(isNull(rows[1].provider))
+        assert.ok(isNull(rows[1].input_tokens))
+        // idempotent schema
+        initUsage()
+        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, 2)
     })
 }
 

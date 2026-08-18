@@ -237,6 +237,10 @@ export function proxyModelRequest (
             return
         }
         const provider = ctx.env.config.providers[providerName]
+        if (ctx.responseLog) {
+            ctx.responseLog.provider = providerName
+            ctx.responseLog.model = realModel
+        }
 
         const rewriteBody = (body: string): string => {
             try {
