@@ -23,6 +23,21 @@
             "type": "string",
             "minLength": 1
         },
+        "db": {
+            "description": "Where usage is persisted. A path string (relative paths resolve against the config file's directory), \"\" for in-memory, or false to disable. Defaults to closerouter.db next to the config file. Only takes effect in FFI builds (npm run build).",
+            "oneOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "boolean",
+                    "enum": [
+                        false
+                    ]
+                }
+            ],
+            "default": "closerouter.db"
+        },
         "providers": {
             "description": "Map of provider name to its configuration. Must contain at least one entry.",
             "type": "object",

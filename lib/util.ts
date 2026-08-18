@@ -11,6 +11,8 @@ export interface ResponseLog {
     body?: string
     firstTokenAt?: number
     lastTokenAt?: number
+    provider?: string
+    model?: string
 }
 
 export interface RequestContext {

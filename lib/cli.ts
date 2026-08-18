@@ -2,7 +2,8 @@ import {resolve} from 'path'
 import {spawn} from 'child_process'
 import {startServer} from './server'
 import {loadConfig, printServerConfig, type RuntimeConfig} from './config'
-import {sqliteAvailable, openDatabase, closeDatabase, run, get} from './db'
+import {sqliteAvailable, openDatabase, run, getSqliteVersion} from './db'
+import {initUsage} from './server/logs/db'
 import packageJson from '../package.json' with {type: 'json'}
 
 const DEFAULT_CONFIG = resolve(process.cwd(), 'closerouter.json')
@@ -77,18 +78,26 @@ function startDetached (configPath: string): void {
     console.log(`closerouter started in background (pid ${child.pid ?? 'unknown'})`)
 }
 
-function runDbCheck (): void {
+function initStorage ({dbPath}: RuntimeConfig): void {
+    if (dbPath === undefined) return
     if (!sqliteAvailable()) {
-        console.error('sqlite unavailable: this binary was built without FFI (npm run build)')
+        console.log('sqlite unavailable in this build - usage is not persisted')
+        return
+    }
+    openDatabase(dbPath)
+    if (dbPath !== '') run('PRAGMA journal_mode=WAL')
+    initUsage()
+    console.log(`usage log at ${dbPath === '' ? ':memory:' : dbPath}`)
+}
+
+function runDbCheck (): void {
+    try {
+        const version = getSqliteVersion()
+        console.log(`sqlite ${version} ok`)
+    } catch (e) {
+        console.error(e)
         process.exit(1)
     }
-    openDatabase('')
-    run('CREATE TABLE IF NOT EXISTS smoke (id INTEGER PRIMARY KEY)')
-    run('INSERT INTO smoke (id) VALUES (NULL)')
-    const version = get('SELECT sqlite_version() AS version')?.version
-    if (typeof version === 'string') console.log(`sqlite ${version} ok`)
-    else console.log('sqlite ok (unknown version)')
-    closeDatabase()
 }
 
 async function main (): Promise<void> {
@@ -105,6 +114,7 @@ async function main (): Promise<void> {
             process.exit(0)
         }
 
+        initStorage(config)
         startServer(config)
         return
     }

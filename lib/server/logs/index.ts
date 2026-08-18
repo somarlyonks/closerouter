@@ -1,6 +1,7 @@
 import type {IncomingMessage, OutgoingHttpHeaders, ServerResponse} from 'http'
 import {randomUUID} from 'crypto'
 import {router, needsCookie, withMethod, MAX_BODY, handleHTML, type RequestContext} from '../../util'
+import {recordUsage} from './db'
 import {indexHTML} from './index.html'
 
 export interface LogEntry {
@@ -114,6 +115,22 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
             responseBody: responseLog?.body,
             responseHeaders: responseLog?.headers,
         })
+        if (responseLog?.provider !== undefined && responseLog.model !== undefined) {
+            recordUsage({
+                ts: startedAt,
+                method: req.method!,
+                path: req.url!,
+                provider: responseLog.provider,
+                model: responseLog.model,
+                status: responseLog.status ?? (res.headersSent ? res.statusCode : undefined),
+                durationMs: Date.now() - startedAt,
+                ttftMs: firstTokenAt !== undefined ? firstTokenAt - startedAt : undefined,
+                generationMs: firstTokenAt !== undefined && lastTokenAt !== undefined ? lastTokenAt - firstTokenAt : undefined,
+                inputTokens: usage.inputTokens,
+                outputTokens: usage.outputTokens,
+                cachedTokens: usage.cachedTokens,
+            })
+        }
     })
 }
 
