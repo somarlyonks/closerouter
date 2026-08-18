@@ -1,5 +1,3 @@
-/* eslint-disable eslint-plugin-no-null/no-null */
-
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {spawn, type ChildProcess} from 'child_process'

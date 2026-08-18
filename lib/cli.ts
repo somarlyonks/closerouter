@@ -2,6 +2,7 @@ import {resolve} from 'path'
 import {spawn} from 'child_process'
 import {startServer} from './server'
 import {loadConfig, printServerConfig, type RuntimeConfig} from './config'
+import {sqliteAvailable, openDatabase, closeDatabase, run, get} from './db'
 import packageJson from '../package.json' with {type: 'json'}
 
 const DEFAULT_CONFIG = resolve(process.cwd(), 'closerouter.json')
@@ -76,6 +77,20 @@ function startDetached (configPath: string): void {
     console.log(`closerouter started in background (pid ${child.pid ?? 'unknown'})`)
 }
 
+function runDbCheck (): void {
+    if (!sqliteAvailable()) {
+        console.error('sqlite unavailable: this binary was built without FFI (npm run build)')
+        process.exit(1)
+    }
+    openDatabase('')
+    run('CREATE TABLE IF NOT EXISTS smoke (id INTEGER PRIMARY KEY)')
+    run('INSERT INTO smoke (id) VALUES (NULL)')
+    const version = get('SELECT sqlite_version() AS version')?.version
+    if (typeof version === 'string') console.log(`sqlite ${version} ok`)
+    else console.log('sqlite ok (unknown version)')
+    closeDatabase()
+}
+
 async function main (): Promise<void> {
     const args = process.argv.slice(2)
     const {configPath, detach, command} = parseCli(args)
@@ -105,6 +120,10 @@ async function main (): Promise<void> {
         case '--help':
         case '-h':
             printHelp()
+            process.exit(0)
+            break
+        case 'db':
+            runDbCheck()
             process.exit(0)
             break
         default:

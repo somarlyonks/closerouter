@@ -1,0 +1,73 @@
+{
+    "ffi_format": 2,
+    "functions": [
+        {
+            "name": "sqliteOpen",
+            "symbol": "shim_open",
+            "params": [
+                "string"
+            ],
+            "returns": "i32"
+        },
+        {
+            "name": "sqliteClose",
+            "symbol": "shim_close",
+            "params": [],
+            "returns": "void"
+        },
+        {
+            "name": "sqliteExec",
+            "symbol": "shim_exec",
+            "params": [
+                "string",
+                "string",
+                {
+                    "callback": {
+                        "id": "chunk",
+                        "params": [
+                            "u32"
+                        ],
+                        "returns": "void",
+                        "lifetime": "call"
+                    }
+                }
+            ],
+            "returns": "i32"
+        },
+        {
+            "name": "sqliteLastError",
+            "symbol": "shim_last_error",
+            "params": [
+                {
+                    "callback": {
+                        "id": "chunk",
+                        "params": [
+                            "u32"
+                        ],
+                        "returns": "void",
+                        "lifetime": "call"
+                    }
+                }
+            ],
+            "returns": "void"
+        },
+        {
+            "name": "sqliteChanges",
+            "symbol": "shim_changes",
+            "params": [],
+            "returns": "i32"
+        },
+        {
+            "name": "sqliteLastInsertRowid",
+            "symbol": "shim_last_insert_rowid",
+            "params": [],
+            "returns": "f64"
+        }
+    ],
+    "libraries": [
+        "../lib/db/shim.o"
+    ],
+    "system_libraries": [
+        "sqlite3"
+    ]
+}
