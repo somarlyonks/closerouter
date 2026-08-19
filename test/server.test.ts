@@ -31,7 +31,8 @@ async function setup (): Promise<{
     })
     const port = await getFreePort()
     const config: RuntimeConfig = {
-        path: '',
+        raw: '',
+        dbPath: '',
         port,
         key: API_KEY,
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
@@ -94,6 +95,7 @@ test('POST /v1/chat/completions routes to the backend with prefix stripped', asy
             body: JSON.stringify({model: 'p/m', messages: [{role: 'user', content: 'hi'}]}),
         })
         assert.equal(res.status, 200)
+        assert.match(res.headers.get('x-closerouter-request-id') ?? '', /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
         const json = await res.json() as {id: string}
         assert.equal(json.id, 'chatcmpl-1')
         const sent = JSON.parse(s.backend.requests[0].body) as {model: string}

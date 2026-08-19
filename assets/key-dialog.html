@@ -54,7 +54,6 @@
                 Accept: 'application/json',
             },
         })
-        console.log('res', res)
 
         if (!res.ok || res.status !== 200) {
             const err = await res.json().catch(() => ({}))

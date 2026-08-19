@@ -1,13 +1,13 @@
 import type {IncomingMessage, OutgoingHttpHeaders, ServerResponse} from 'http'
 import {randomUUID} from 'crypto'
 import {router, needsCookie, withMethod, MAX_BODY, handleHTML, type RequestContext} from '../../util'
-import {recordUsage} from './db'
+import {recordUsage, loadUsage} from './db'
 import {indexHTML} from './index.html'
 
 export interface LogEntry {
     id: string
     phase: 'request' | 'response'
-    time: string
+    time: number
     method: string
     path: string
     status?: number
@@ -62,13 +62,25 @@ export const handleLogs = withMethod('GET')(router(
             listeners.splice(listeners.indexOf(listener), 1)
         })
     }),
-    handleHTML(indexHTML),
+    router(
+        r => r.req.headers['accept'] === 'application/json',
+        needsCookie((_ctx, res) => {
+            res.writeHead(200, {
+                'content-type': 'application/json',
+                'cache-control': 'no-cache',
+                'access-control-allow-origin': '*',
+            })
+            res.end(JSON.stringify({entries: loadUsage()}))
+        }),
+        handleHTML(indexHTML),
+    ),
 ))
 
 export function logMiddleware ({req, responseLog}: RequestContext, res: ServerResponse) {
     if (req.url === '/logs') return
 
-    const id = randomUUID()
+    const id = readClientRequestId(req) ?? randomUUID()
+    res.setHeader('x-closerouter-request-id', id)
     const startedAt = Date.now()
     const bodyChunks: Buffer[] = []
     let bodyBytes = 0
@@ -79,6 +91,8 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
         }
     })
 
+    const readRequestBody = () => bodyChunks.length > 0 ? Buffer.concat(bodyChunks).toString('utf-8').slice(0, MAX_BODY) : undefined
+
     let logged = false
     const logRequest = () => {
         if (logged) return
@@ -86,10 +100,10 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
         publishLog({
             id,
             phase: 'request',
-            time: new Date().toISOString(),
+            time: Date.now(),
             method: req.method!,
             path: req.url!,
-            requestBody: bodyChunks.length > 0 ? Buffer.concat(bodyChunks).toString('utf-8').slice(0, MAX_BODY) : undefined,
+            requestBody: readRequestBody(),
             requestHeaders: req.headers,
         })
     }
@@ -102,7 +116,7 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
         publishLog({
             id,
             phase: 'response',
-            time: new Date().toISOString(),
+            time: Date.now(),
             method: req.method!,
             path: req.url!,
             status: responseLog?.status ?? (res.headersSent ? res.statusCode : undefined),
@@ -117,7 +131,8 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
         })
         if (responseLog?.provider !== undefined && responseLog.model !== undefined) {
             recordUsage({
-                ts: startedAt,
+                id,
+                time: startedAt,
                 method: req.method!,
                 path: req.url!,
                 provider: responseLog.provider,
@@ -129,9 +144,20 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
                 inputTokens: usage.inputTokens,
                 outputTokens: usage.outputTokens,
                 cachedTokens: usage.cachedTokens,
+                requestBody: readRequestBody(),
+                responseBody: responseLog.body,
             })
         }
     })
+}
+
+function readClientRequestId (req: IncomingMessage): string | undefined {
+    const header = req.headers['x-client-request-id'] || req.headers['x-request-id']
+    const value = Array.isArray(header) ? header[0] : header
+    if (typeof value !== 'string') return undefined
+    const id = value.trim()
+    if (id.length === 0 || id.length > 128 || id.includes('\r') || id.includes('\n')) return undefined
+    return id
 }
 
 function extractTokenUsage (body: string | undefined): TokenUsage {

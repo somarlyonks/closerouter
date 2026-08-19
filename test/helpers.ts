@@ -163,6 +163,7 @@ export async function startCrServer (config: RuntimeConfig): Promise<{port: numb
 export function sampleConfig (over: Partial<RuntimeConfig> = {}): RuntimeConfig {
     return {
         raw: over.raw ?? '',
+        dbPath: over.dbPath ?? '',
         port: over.port ?? 6712,
         key: over.key ?? 'sk-test',
         providers: over.providers ?? {
