@@ -5,7 +5,7 @@ import {handleChatCompletions} from '../lib/server/v1/chat/completions'
 import {startMockBackend, startHandlerServer} from './helpers'
 
 function configFor (baseUrl: string): RuntimeConfig {
-    return {path: '', port: 6712, key: 'k', providers: {p: {base_url: baseUrl, api_key: 'bk'}}}
+    return {raw: '', dbPath: '', port: 6712, key: 'k', providers: {p: {base_url: baseUrl, api_key: 'bk'}}}
 }
 
 async function post (port: number, body: string): Promise<Response> {

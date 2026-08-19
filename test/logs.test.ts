@@ -80,7 +80,7 @@ test('GET /logs SSE stream delivers published log events', async () => {
         const entry: LogEntry = {
             id: 'test',
             phase: 'response',
-            time: '2026-01-01T00:00:00.000Z',
+            time: 1767225600000,
             method: 'GET',
             path: '/v1/models',
             status: 200,
@@ -201,15 +201,19 @@ test('server logs capture request and response bodies', async () => {
             headers: {
                 'content-type': 'application/json',
                 'authorization': 'Bearer logkey',
+                'x-client-request-id': 'client-abc-123',
             },
             body: JSON.stringify({model: 'p/m', messages: []}),
         })
         assert.equal(res.status, 200)
+        assert.equal(res.headers.get('x-closerouter-request-id'), 'client-abc-123')
         await res.text()
 
         const [requestEntry, responseEntry] = await entriesPromise
+        assert.equal(requestEntry.id, 'client-abc-123')
         assert.equal(requestEntry.requestBody, JSON.stringify({model: 'p/m', messages: []}))
         assert.equal(responseEntry.status, 200)
+        assert.equal(responseEntry.id, 'client-abc-123')
         assert.match(responseEntry.responseBody ?? '', /data: \{"choices":\[\]\}/)
         assert.equal(responseEntry.responseHeaders?.['content-type'], 'text/event-stream')
         assert.equal(typeof responseEntry.generationMs, 'number')

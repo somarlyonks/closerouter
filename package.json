@@ -16,7 +16,7 @@
         "pretest": "node build.ts",
         "test": "node --import ./test/loader.mjs --test",
         "prestart": "node build.ts",
-        "start": "scriptc run lib/cli.ts",
+        "start": "scriptc run lib/cli.ts --ffi native/ffi.json",
         "prebuild": "node build.ts",
         "build": "scriptc build lib/cli.ts --ffi native/ffi.json -o dist/closerouter"
     },

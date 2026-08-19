@@ -209,6 +209,11 @@
             return 'success'
         }
 
+        function timeText(time) {
+            const date = new Date(time)
+            return isNaN(date.getTime()) ? '' : date.toISOString().slice(11, 19)
+        }
+
         function buildDetails(entry, side) {
             const ret = []
             const headers = side === 'request' ? entry.requestHeaders : entry.responseHeaders
@@ -266,38 +271,33 @@
         function createElement(tag, attributes = {}, ...children) {
             const el = document.createElement(tag)
             Object.entries(attributes).forEach(([key, value]) => {el[key] = value})
-            children.forEach(child => el.appendChild(child))
+            children.filter(c => c !== null).forEach(child => el.appendChild(child))
             return el
         }
 
-        function ts(time) {
-            return createElement('span', {className: 'ts', textContent: (time || '').slice(11, 19)})
-        }
-
-        function onRequest(entry) {
-            const group = createElement('div', {className: 'group responding'},
+        function appendRequest(entry, status) {
+            const cls = status || classify(entry.status)
+            const group = createElement('div', {className: 'group ' + cls},
                 createElement('div', {className: 'line req'},
                     createElement('strong', {className: 'arrow in', innerHTML: `/* @asset arrow-up.svg */`}),
                     createElement('details', {},
                         createElement('summary', {},
-                            ts(entry.time),
+                            createElement('span', {className: 'ts', textContent: timeText(entry.time)}),
                             createElement('strong', {className: 'info', textContent: entry.method}),
                             createElement('span', {className: 'info', textContent: entry.path}),
                             ...buildAppendix(),
                         ),
                         ...buildDetails(entry, 'request'),
                     )
-                )
+                ),
+                createElement('div', {className: 'line res pending'},
+                    createElement('span', {className: 'arrow out', innerHTML: `/* @asset arrow-up.svg */`})
+                ),
             )
-
-            const resLine = createElement('div', {className: 'line res pending'},
-                createElement('span', {className: 'arrow out', innerHTML: `/* @asset arrow-up.svg */`})
-            )
-            group.appendChild(resLine)
 
             logEl.appendChild(group)
             trim()
-            groups.set(entry.id, {group, resLine});
+            groups.set(entry.id, {group})
 
             function buildAppendix() {
                 if (entry.path === '/v1/chat/completions') {
@@ -308,6 +308,7 @@
                 return []
 
                 function readBody(field) {
+                    if (entry.provider && entry.model) return '' + entry.provider + '/' + entry.model
                     if (!entry.requestBody) return ''
                     try {
                         const body = JSON.parse(entry.requestBody)
@@ -318,49 +319,69 @@
             }
         }
 
-        function onResponse(entry) {
+        function appendResponse(entry) {
             const cls = classify(entry.status)
             let groupEntry = groups.get(entry.id)
             if (!groupEntry) {
-                const group = createElement('div', {className: 'group'})
-                const resLine = createElement('div', {className: 'line res'})
-                groupEntry = {group, resLine}
-                group.appendChild(resLine)
+                const group = createElement('div', {className: 'group'}, createElement('div', {className: 'line res'}))
+                groupEntry = {group}
                 logEl.appendChild(group)
 
                 trim()
             }
             groupEntry.group.className = 'group ' + cls
-            groupEntry.resLine.classList.remove('pending')
-            groupEntry.resLine.textContent = ''
-            appendResponse(groupEntry.resLine, entry);
+
+            const genMs = entry.generationMs || entry.durationMs
+            const line = groupEntry.group.querySelector('.line.res')
+            if (!line) return
+
+            line.classList.remove('pending')
+            line.textContent = ''
+            line.appendChild(createElement('strong', {className: 'arrow out', innerHTML: `/* @asset arrow-up.svg */`}))
+            line.appendChild(createElement('details', {},
+                createElement('summary', {},
+                    createElement('span', {className: 'ts', textContent: timeText(entry.time)}),
+                    entry.status !== undefined ? createElement('strong', {textContent: String(entry.status)}) : null,
+                    entry.durationMs !== undefined ? createElement('span', {textContent: entry.durationMs + 'ms'}) : null,
+                    entry.ttftMs !== undefined ? createElement('span', {className: 'foreground', textContent: entry.ttftMs + 'ms', title: 'Time to First Token'}) : null,
+                    (!entry.outputTokens || !genMs) ? null : createElement('span', {className: 'foreground', textContent: (Math.floor(entry.outputTokens / (genMs / 1000)) + ' tok/s')}),
+                ),
+                ...buildDetails(entry, 'response'),
+            ))
+
+            groups.delete(entry.id)
+        }
+
+        function loadHistory() {
+            return fetch('/logs', {method: 'GET', headers: {accept: 'application/json'}}).then(res => res.ok ? res.json() : null).then(data => {
+                if (data && Array.isArray(data.entries)) data.entries.forEach(renderHistory)
+            }).catch(() => { }).finally(() => {
+                renderTotals()
+            })
+
+            function renderHistory(entry) {
+                appendRequest(entry)
+                appendResponse(entry)
+            }
+        }
+
+        function onRequest(entry) {
+            appendRequest(entry, 'responding')
+        }
+
+        function onResponse(entry) {
+            appendResponse(entry)
             if (entry.inputTokens !== undefined) totals.in += entry.inputTokens
             if (entry.outputTokens !== undefined) totals.out += entry.outputTokens
             totals.count++
             renderTotals()
-            groups.delete(entry.id)
-
-            function appendResponse(line, entry) {
-                const genMs = entry.generationMs || entry.durationMs
-
-                line.appendChild(createElement('strong', {className: 'arrow out', innerHTML: `/* @asset arrow-up.svg */`}))
-                line.appendChild(createElement('details', {},
-                    createElement('summary', {},
-                        ts(entry.time),
-                        ...(entry.status !== undefined ? [createElement('strong', {textContent: String(entry.status)})] : []),
-                        ...(entry.durationMs !== undefined ? [createElement('span', {textContent: entry.durationMs + 'ms'})] : []),
-                        ...(entry.ttftMs !== undefined ? [createElement('span', {className: 'foreground', textContent: entry.ttftMs + 'ms', title: 'Time to First Token'})] : []),
-                        ...((!entry.outputTokens || !genMs) ? [] : [createElement('span', {className: 'foreground', textContent: (Math.floor(entry.outputTokens / (genMs / 1000)) + ' tok/s')})]),
-                    ),
-                    ...buildDetails(entry, 'response'),
-                ))
-            }
         }
 
         async function start() {
             const key = await promptKey()
             // EventSource cannot set headers, so auth via a cookie it sends automatically.
             document.cookie = 'cr-key=' + key + '; path=/; SameSite=Strict'
+            await loadHistory()
             let closeReconnectToast = null
             const closeConnectingToast = toast({title: 'connecting...', timeout: 0, type: 'warning'})
             es = new EventSource('/logs')
