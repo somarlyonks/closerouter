@@ -1,7 +1,8 @@
 import * as http from 'http'
 import * as https from 'https'
 import {ClientRequest, IncomingMessage, ServerResponse} from 'http'
-import {appendResponseBody, logResponse, type ResponseLog, type RequestContext} from './util'
+import {appendResponseBody, feedStreamUsage, logResponse} from './util'
+import type {ResponseLog, RequestContext, UsageCounts} from './util'
 
 function getPort (targetUrl: URL, isHttps: boolean): number {
     const host = targetUrl.host
@@ -42,12 +43,19 @@ function forwardResponse (backendRes: IncomingMessage, clientRes: ServerResponse
     logResponse(responseLog, {status: statusCode, headers})
     clientRes.writeHead(statusCode, headers)
 
+    if (responseLog && !responseLog.usage) {
+        responseLog.usage = {}
+    }
+    const usage: UsageCounts | undefined = responseLog?.usage
+    const usageState = {carry: ''}
+
     let firstChunkAt: number | undefined
     backendRes.on('data', (chunk: Buffer) => {
         if (firstChunkAt === undefined) {
             firstChunkAt = Date.now()
             if (responseLog) responseLog.firstTokenAt = firstChunkAt
         }
+        if (usage) feedStreamUsage(usageState, usage, chunk)
         appendResponseBody(responseLog, chunk)
         clientRes.write(chunk)
     })

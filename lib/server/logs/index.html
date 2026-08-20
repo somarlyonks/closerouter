@@ -300,7 +300,7 @@
             groups.set(entry.id, {group})
 
             function buildAppendix() {
-                if (entry.path === '/v1/chat/completions') {
+                if (entry.path === '/v1/chat/completions' || entry.path === '/v1/responses') {
                     const model = readBody('model')
                     if (model) return [createElement('span', {className: 'foreground', textContent: `[${model}]`})]
                 }

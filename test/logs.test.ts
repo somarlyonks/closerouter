@@ -226,6 +226,90 @@ test('server logs capture request and response bodies', async () => {
     }
 })
 
+test('responses stream usage is captured and recorded in logs', async () => {
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200, {'content-type': 'text/event-stream'})
+        res.write('event: response.output_text.delta\n')
+        res.write('data: {"delta":"hi"}\n\n')
+        setTimeout(() => {
+            res.write('event: response.completed\n')
+            res.write('data: {"type":"response.completed","id":"resp_1","status":"completed","output":[],"usage":{"input_tokens":125,"input_tokens_details":{"cached_tokens":100},"output_tokens":45,"total_tokens":170}}\n\n')
+            res.end()
+        }, 5)
+    })
+    const port = await getFreePort()
+    const config: RuntimeConfig = {
+        raw: '',
+        port,
+        key: 'logkey',
+        dbPath: '',
+        providers: {
+            p: {base_url: backend.baseUrl, api_key: 'bk', models: [{id: 'm'}]},
+        },
+    }
+    const srv = await startCrServer(config)
+    try {
+        let resolveEntries!: (entries: LogEntry[]) => void
+        let rejectEntries!: (err: Error) => void
+        const entriesPromise = new Promise<LogEntry[]>((resolve, reject) => {
+            resolveEntries = resolve
+            rejectEntries = reject
+        })
+
+        const sseReq = http.request(`http://127.0.0.1:${srv.port}/logs`, {
+            headers: {accept: 'text/event-stream', cookie: 'cr-key=logkey'},
+        }, (res) => {
+            let buf = ''
+            const timeout = setTimeout(() => {
+                sseReq.destroy()
+                rejectEntries(new Error('timed out waiting for log entries'))
+            }, 3000)
+            timeout.unref()
+            let requestEntry: LogEntry | undefined
+            let responseEntry: LogEntry | undefined
+            res.on('data', (chunk: Buffer) => {
+                buf += chunk.toString('utf-8')
+                for (const entry of parseLogEvents(buf)) {
+                    if (entry.path !== '/v1/responses') continue
+                    if (entry.phase === 'request') requestEntry = entry
+                    if (entry.phase === 'response') responseEntry = entry
+                }
+                if (requestEntry && responseEntry) {
+                    clearTimeout(timeout)
+                    sseReq.destroy()
+                    resolveEntries([requestEntry, responseEntry])
+                }
+            })
+            res.on('error', rejectEntries)
+        })
+        sseReq.on('error', rejectEntries)
+        sseReq.end()
+
+        await once(sseReq, 'response')
+
+        const res = await fetch(`http://127.0.0.1:${srv.port}/v1/responses`, {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                'authorization': 'Bearer logkey',
+            },
+            body: JSON.stringify({model: 'p/gpt', stream: true, input: 'hi'}),
+        })
+        assert.equal(res.status, 200)
+        await res.text()
+
+        const [_requestEntry, responseEntry] = await entriesPromise
+        assert.equal(responseEntry.status, 200)
+        assert.equal(responseEntry.inputTokens, 125)
+        assert.equal(responseEntry.outputTokens, 45)
+        assert.equal(responseEntry.cachedTokens, 100)
+        assert.match(responseEntry.responseBody ?? '', /response\.completed/)
+    } finally {
+        await srv.close()
+        await backend.close()
+    }
+})
+
 function parseLogEvents (raw: string): LogEntry[] {
     const entries: LogEntry[] = []
     for (const block of raw.split('\n\n')) {
