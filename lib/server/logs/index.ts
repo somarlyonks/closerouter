@@ -1,7 +1,7 @@
 import type {IncomingMessage, OutgoingHttpHeaders, ServerResponse} from 'http'
 import {randomUUID} from 'crypto'
 import {router, needsCookie, withMethod, MAX_BODY, handleHTML, applyUsageObject, type RequestContext} from '../../util'
-import {recordUsage, loadUsage} from './db'
+import {recordUsage, loadUsage, loadUsageBody} from './db'
 import {indexHTML} from './index.html'
 
 export interface LogEntry {
@@ -29,6 +29,14 @@ interface TokenUsage {
     cachedTokens?: number
 }
 
+function hasUsage (usage: TokenUsage | undefined): boolean {
+    return usage !== undefined && (
+        usage.inputTokens !== undefined
+        || usage.outputTokens !== undefined
+        || usage.cachedTokens !== undefined
+    )
+}
+
 type LogListener = (entry: LogEntry) => void
 
 const listeners: LogListener[] = []
@@ -38,46 +46,68 @@ export function publishLog (entry: LogEntry): void {
 }
 
 export const handleLogs = withMethod('GET')(router(
-    r => r.req.headers['accept'] === 'text/event-stream',
-    needsCookie((_ctx, res) => {
-        res.writeHead(200, {
-            'content-type': 'text/event-stream',
-            'cache-control': 'no-cache, no-transform',
-            'connection': 'keep-alive',
+    r => !!logDetailId(r.req.url),
+    needsCookie((ctx, res) => {
+        const body = loadUsageBody(logDetailId(ctx.req.url)!)
+        res.writeHead(body ? 200 : 404, {
+            'content-type': 'application/json',
+            'cache-control': 'no-cache',
             'access-control-allow-origin': '*',
-            'x-accel-buffering': 'no',
         })
-
-        const listener: LogListener = (entry) => {
-            res.write('event: log\n')
-            res.write(`data: ${JSON.stringify(entry)}\n\n`)
-        }
-        listeners.push(listener)
-
-        const heartbeat = setInterval(() => res.write('event: ping\n\n'), 3000)
-        heartbeat.unref()
-
-        res.on('close', () => {
-            clearInterval(heartbeat)
-            listeners.splice(listeners.indexOf(listener), 1)
-        })
+        res.end(JSON.stringify(body ?? {error: {message: 'usage entry not found', type: 'not_found'}}))
     }),
     router(
-        r => r.req.headers['accept'] === 'application/json',
+        r => r.req.headers['accept'] === 'text/event-stream',
         needsCookie((_ctx, res) => {
             res.writeHead(200, {
-                'content-type': 'application/json',
-                'cache-control': 'no-cache',
+                'content-type': 'text/event-stream',
+                'cache-control': 'no-cache, no-transform',
+                'connection': 'keep-alive',
                 'access-control-allow-origin': '*',
+                'x-accel-buffering': 'no',
             })
-            res.end(JSON.stringify({entries: loadUsage()}))
+
+            const listener: LogListener = (entry) => {
+                res.write('event: log\n')
+                res.write(`data: ${JSON.stringify(entry)}\n\n`)
+            }
+            listeners.push(listener)
+
+            const heartbeat = setInterval(() => res.write('event: ping\n\n'), 3000)
+            heartbeat.unref()
+
+            res.on('close', () => {
+                clearInterval(heartbeat)
+                listeners.splice(listeners.indexOf(listener), 1)
+            })
         }),
-        handleHTML(indexHTML),
+        router(
+            r => r.req.headers['accept'] === 'application/json',
+            needsCookie((_ctx, res) => {
+                res.writeHead(200, {
+                    'content-type': 'application/json',
+                    'cache-control': 'no-cache',
+                    'access-control-allow-origin': '*',
+                })
+                res.end(JSON.stringify({entries: loadUsage()}))
+            }),
+            handleHTML(indexHTML),
+        ),
     ),
 ))
 
+function logDetailId (url: string | undefined): number | undefined {
+    if (!url) return undefined
+    const path = url.split('?')[0]
+    if (!path.startsWith('/logs/')) return undefined
+    const rest = path.slice('/logs/'.length)
+    if (!/^\d+$/.test(rest)) return undefined
+    const id = Number(rest)
+    return Number.isInteger(id) && id > 0 ? id : undefined
+}
+
 export function logMiddleware ({req, responseLog}: RequestContext, res: ServerResponse) {
-    if (req.url === '/logs') return
+    if (req.url === '/logs' || req.url === '/usage') return
 
     const id = readClientRequestId(req) ?? randomUUID()
     res.setHeader('x-closerouter-request-id', id)
@@ -110,7 +140,9 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
     req.on('end', logRequest)
     res.on('close', () => {
         logRequest()
-        const usage = responseLog?.usage ?? extractTokenUsage(responseLog?.body)
+        const usage = hasUsage(responseLog?.usage)
+            ? responseLog!.usage!
+            : extractTokenUsage(responseLog?.body)
         const firstTokenAt = responseLog?.firstTokenAt
         const lastTokenAt = responseLog?.lastTokenAt
         publishLog({
@@ -131,7 +163,7 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
         })
         if (responseLog?.provider !== undefined && responseLog.model !== undefined) {
             recordUsage({
-                id,
+                requestId: id,
                 time: startedAt,
                 method: req.method!,
                 path: req.url!,

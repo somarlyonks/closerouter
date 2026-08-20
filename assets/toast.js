@@ -4,6 +4,7 @@ function toast ({
     message,
     type = 'info',
     timeout = 3000,
+    promise,
     confirmText,
     cancelText,
     onConfirm,
@@ -35,9 +36,15 @@ function toast ({
         })
     })
 
-    setTimeout(() => $dialog.show(), 1)
-    if (timeout) setTimeout(() => $dialog.close(), timeout)
+    if (Promise.resolve(promise) === promise) {
+        return new Promise((resolve, reject) => {
+            $dialog.show()
+            promise.then(() => $dialog.close()).then(resolve).catch(reject)
+        })
+    }
 
+    setTimeout(() => $dialog.show(), 0)
+    if (timeout) setTimeout(() => $dialog.close(), timeout)
     return () => setTimeout(() => $dialog.close(), 1)
 
     // factory
