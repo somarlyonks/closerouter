@@ -1,6 +1,6 @@
 import type {IncomingMessage, OutgoingHttpHeaders, ServerResponse} from 'http'
 import {randomUUID} from 'crypto'
-import {router, needsCookie, withMethod, MAX_BODY, handleHTML, type RequestContext} from '../../util'
+import {router, needsCookie, withMethod, MAX_BODY, handleHTML, applyUsageObject, type RequestContext} from '../../util'
 import {recordUsage, loadUsage} from './db'
 import {indexHTML} from './index.html'
 
@@ -110,7 +110,7 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
     req.on('end', logRequest)
     res.on('close', () => {
         logRequest()
-        const usage = extractTokenUsage(responseLog?.body)
+        const usage = responseLog?.usage ?? extractTokenUsage(responseLog?.body)
         const firstTokenAt = responseLog?.firstTokenAt
         const lastTokenAt = responseLog?.lastTokenAt
         publishLog({
@@ -164,19 +164,10 @@ function extractTokenUsage (body: string | undefined): TokenUsage {
     const result: TokenUsage = {}
     if (!body) return result
 
-    const apply = (usage: unknown) => {
-        if (!usage || typeof usage !== 'object') return
-        const u = usage as Record<string, unknown>
-        if (typeof u.prompt_tokens === 'number') result.inputTokens = u.prompt_tokens
-        if (typeof u.completion_tokens === 'number') result.outputTokens = u.completion_tokens
-        const details = u.prompt_tokens_details as Record<string, unknown> | undefined
-        if (details && typeof details.cached_tokens === 'number') result.cachedTokens = details.cached_tokens
-    }
-
     try {
-        apply((JSON.parse(body) as Record<string, unknown>).usage)
+        applyUsageObject(result, JSON.parse(body) as Record<string, unknown>)
     } catch {
-        // Not a single JSON document — fall through to SSE parsing below.
+        // Not a single JSON document — fall through to SSE line parsing below.
     }
 
     if (result.inputTokens === undefined || result.outputTokens === undefined) {
@@ -185,7 +176,7 @@ function extractTokenUsage (body: string | undefined): TokenUsage {
             const payload = line.slice(5).trim()
             if (!payload || payload === '[DONE]') continue
             try {
-                apply((JSON.parse(payload) as Record<string, unknown>).usage)
+                applyUsageObject(result, JSON.parse(payload) as Record<string, unknown>)
             } catch {
                 // Ignore non-JSON SSE frames.
             }
