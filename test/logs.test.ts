@@ -310,6 +310,89 @@ test('responses stream usage is captured and recorded in logs', async () => {
     }
 })
 
+test('non-streaming chat completion token usage is captured and recorded in logs', async () => {
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200, {'content-type': 'application/json'})
+        res.end(JSON.stringify({
+            id: 'chatcmpl-1',
+            object: 'chat.completion',
+            model: 'm',
+            usage: {prompt_tokens: 9, completion_tokens: 12, total_tokens: 21},
+            choices: [{index: 0, message: {role: 'assistant', content: 'hi'}, finish_reason: 'stop'}],
+        }))
+    })
+    const port = await getFreePort()
+    const config: RuntimeConfig = {
+        raw: '',
+        port,
+        key: 'logkey',
+        dbPath: '',
+        providers: {
+            p: {base_url: backend.baseUrl, api_key: 'bk', models: [{id: 'm'}]},
+        },
+    }
+    const srv = await startCrServer(config)
+    try {
+        let resolveEntries!: (entries: LogEntry[]) => void
+        let rejectEntries!: (err: Error) => void
+        const entriesPromise = new Promise<LogEntry[]>((resolve, reject) => {
+            resolveEntries = resolve
+            rejectEntries = reject
+        })
+
+        const sseReq = http.request(`http://127.0.0.1:${srv.port}/logs`, {
+            headers: {accept: 'text/event-stream', cookie: 'cr-key=logkey'},
+        }, (res) => {
+            let buf = ''
+            const timeout = setTimeout(() => {
+                sseReq.destroy()
+                rejectEntries(new Error('timed out waiting for log entries'))
+            }, 3000)
+            timeout.unref()
+            let requestEntry: LogEntry | undefined
+            let responseEntry: LogEntry | undefined
+            res.on('data', (chunk: Buffer) => {
+                buf += chunk.toString('utf-8')
+                for (const entry of parseLogEvents(buf)) {
+                    if (entry.path !== '/v1/chat/completions') continue
+                    if (entry.phase === 'request') requestEntry = entry
+                    if (entry.phase === 'response') responseEntry = entry
+                }
+                if (requestEntry && responseEntry) {
+                    clearTimeout(timeout)
+                    sseReq.destroy()
+                    resolveEntries([requestEntry, responseEntry])
+                }
+            })
+            res.on('error', rejectEntries)
+        })
+        sseReq.on('error', rejectEntries)
+        sseReq.end()
+
+        await once(sseReq, 'response')
+
+        const res = await fetch(`http://127.0.0.1:${srv.port}/v1/chat/completions`, {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                'authorization': 'Bearer logkey',
+            },
+            body: JSON.stringify({model: 'p/m', messages: []}),
+        })
+        assert.equal(res.status, 200)
+        await res.text()
+
+        const [_requestEntry, responseEntry] = await entriesPromise
+        assert.equal(responseEntry.status, 200)
+        assert.equal(responseEntry.inputTokens, 9)
+        assert.equal(responseEntry.outputTokens, 12)
+        assert.match(responseEntry.responseBody ?? '', /"usage"/)
+    } finally {
+        await srv.close()
+        await backend.close()
+    }
+})
+
 function parseLogEvents (raw: string): LogEntry[] {
     const entries: LogEntry[] = []
     for (const block of raw.split('\n\n')) {

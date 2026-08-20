@@ -6,7 +6,7 @@ import {
     sqliteAvailable, openDatabase, closeDatabase, run, all, get,
     messageCollector, encodeParams, decodeValue,
 } from '../lib/db'
-import {initUsage, recordUsage, loadUsage} from '../lib/server/logs/db'
+import {initUsage, recordUsage, loadUsage, loadUsageBody} from '../lib/server/logs/db'
 
 // The SQL tests need the native SQLite symbols, which only exist when this
 // file is compiled by scriptc with --ffi, e.g.
@@ -184,7 +184,7 @@ function sqlTests (): void {
         openDatabase('')
         initUsage()
         recordUsage({
-            id: 'req-1',
+            requestId: 'req-1',
             time: 1234,
             method: 'POST',
             path: '/v1/chat/completions',
@@ -200,7 +200,7 @@ function sqlTests (): void {
             requestBody: '{"model": "p/m"}',
             responseBody: '{"choices": []}',
         })
-        recordUsage({id: 'req-2', time: 5678, method: 'POST', path: '/v1/responses'})
+        recordUsage({requestId: 'req-2', time: 5678, method: 'POST', path: '/v1/responses'})
         const rows = all('SELECT * FROM usage ORDER BY id')
         assert.equal(rows.length, 2)
         assert.equal(rows[0].request_id as string, 'req-1')
@@ -220,10 +220,17 @@ function sqlTests (): void {
         assert.ok(isNull(rows[1].response_body))
         const entries = loadUsage()
         assert.equal(entries.length, 2)
-        assert.equal(entries[0].id as string, 'req-1')
-        assert.equal(entries[0].requestBody as string, '{"model": "p/m"}')
-        assert.equal(entries[0].responseBody as string, '{"choices": []}')
+        assert.equal(entries[0].requestId as string, 'req-1')
+        assert.ok((entries[0].id as number) >= 1)
+        assert.ok(entries[0].requestBody === undefined)
+        assert.ok(entries[0].responseBody === undefined)
         assert.ok(entries[1].requestBody === undefined)
+        // bodies are fetched on demand by integer row id
+        const body = loadUsageBody(entries[0].id as number)
+        assert.equal(body?.requestBody as string, '{"model": "p/m"}')
+        assert.equal(body?.responseBody as string, '{"choices": []}')
+        assert.ok(loadUsageBody(entries[1].id as number)?.requestBody === undefined)
+        assert.ok(loadUsageBody(-1) === undefined)
         // idempotent schema
         initUsage()
         assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, 2)

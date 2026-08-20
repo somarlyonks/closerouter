@@ -4,6 +4,7 @@ import {closeDatabase} from '../db'
 import {v1Router as handleOpenAIRequest} from './v1'
 import {router, type RequestContext, type RequestHandler} from '../util'
 import {handleLogs, logMiddleware} from './logs'
+import {handleUsage} from './usage'
 import {handleStatus} from './status'
 import {handleConfig} from './config'
 
@@ -32,11 +33,15 @@ export function startServer (config: RuntimeConfig): Server {
                     c => c.req.url === '/status',
                     handleStatus,
                     router(
-                        c => c.req.url === '/logs',
+                        c => c.req.url === '/logs' || !!c.req.url?.startsWith('/logs/'),
                         handleLogs,
                         router(
-                            c => c.req.url === '/config',
-                            handleConfig,
+                            c => c.req.url === '/usage',
+                            handleUsage,
+                            router(
+                                c => c.req.url === '/config',
+                                handleConfig,
+                            ),
                         ),
                     ),
                 ),

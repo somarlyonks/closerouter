@@ -144,8 +144,8 @@
     <header>
         <h1 class="brand">/* @asset logo.svg */Logs</h1>
         <span id="totals" class="success" title="">
-            /* @asset arrow-up.svg */ <span class="in">0</span>
-            /* @asset arrow-up.svg */ <span class="out">0</span>
+            /* @asset arrow-up.svg */ <span class="in">?</span>
+            /* @asset arrow-up.svg */ <span class="out">?</span>
         </span>
         <button id="clear">Clear</button>
     </header>
@@ -165,14 +165,14 @@
         let es = null;
         const groups = new Map();
 
-        const totals = {in: 0, out: 0, count: 0}
+        const totals = {in: 0, out: 0, cached: 0, count: 0}
         const flips = {in: 0, out: 0}
 
         function renderTotals() {
             const totalsEl = document.getElementById('totals')
             if (!totalsEl) return
 
-            totalsEl.title = `${totals.count} requests / ${totals.in.toLocaleString()} tokens in / ${totals.out.toLocaleString()} tokens out`
+            totalsEl.title = `${totals.count} requests / ${totals.in.toLocaleString()} tokens in (${(totals.cached / totals.in * 100).toFixed(2)}% cached) / ${totals.out.toLocaleString()} tokens out`
 
             flipNumber('in')
             flipNumber('out')
@@ -258,13 +258,13 @@
                 }
                 return out
             }
+        }
 
-            function prettyBody(text) {
-                try {
-                    return JSON.stringify(JSON.parse(text), null, 2)
-                } catch {
-                    return text
-                }
+        function prettyBody(text) {
+            try {
+                return JSON.stringify(JSON.parse(text), null, 2)
+            } catch {
+                return text
             }
         }
 
@@ -275,12 +275,37 @@
             return el
         }
 
+        async function ensureBody(details, entry, side) {
+            if (!details.open || details.dataset.bodyLoaded) return
+            details.dataset.bodyLoaded = '1'
+            const existing = side === 'request' ? entry.requestBody : entry.responseBody
+            if (existing) return
+            const id = typeof entry.id === 'number' ? entry.id : undefined
+            if (!id) return
+            let pre = details.querySelector('.detail-body')
+            if (!pre) {
+                pre = createElement('pre', {className: 'detail-body', textContent: 'loading...'})
+                details.appendChild(pre)
+            } else {
+                pre.textContent = 'loading...'
+            }
+            try {
+                const res = await fetch('/logs/' + id)
+                if (!res.ok) throw new Error('not ok')
+                const data = await res.json()
+                const loaded = side === 'request' ? data.requestBody : data.responseBody
+                pre.textContent = loaded ? prettyBody(loaded) : '(no body recorded)'
+            } catch {
+                pre.textContent = '(failed to load body)'
+            }
+        }
+
         function appendRequest(entry, status) {
             const cls = status || classify(entry.status)
             const group = createElement('div', {className: 'group ' + cls},
                 createElement('div', {className: 'line req'},
                     createElement('strong', {className: 'arrow in', innerHTML: `/* @asset arrow-up.svg */`}),
-                    createElement('details', {},
+                    createElement('details', {ontoggle() {ensureBody(this, entry, 'request')} },
                         createElement('summary', {},
                             createElement('span', {className: 'ts', textContent: timeText(entry.time)}),
                             createElement('strong', {className: 'info', textContent: entry.method}),
@@ -338,7 +363,7 @@
             line.classList.remove('pending')
             line.textContent = ''
             line.appendChild(createElement('strong', {className: 'arrow out', innerHTML: `/* @asset arrow-up.svg */`}))
-            line.appendChild(createElement('details', {},
+            line.appendChild(createElement('details', {ontoggle() {ensureBody(this, entry, 'response')} },
                 createElement('summary', {},
                     createElement('span', {className: 'ts', textContent: timeText(entry.time)}),
                     entry.status !== undefined ? createElement('strong', {textContent: String(entry.status)}) : null,
@@ -352,9 +377,18 @@
             groups.delete(entry.id)
         }
 
-        function loadHistory() {
-            return fetch('/logs', {method: 'GET', headers: {accept: 'application/json'}}).then(res => res.ok ? res.json() : null).then(data => {
+        function loadHistory(key) {
+            return Promise.all([
+                fetch('/logs', {method: 'GET', headers: {accept: 'application/json'}}).then(res => res.ok ? res.json() : null),
+                fetch('/usage', {method: 'GET', headers: {Authorization: 'Bearer ' + key}}).then(res => res.ok ? res.json() : null),
+            ]).then(([data, usage]) => {
                 if (data && Array.isArray(data.entries)) data.entries.forEach(renderHistory)
+                if (usage && typeof usage.count === 'number') {
+                    totals.count = usage.count
+                    totals.in = usage.inTokens
+                    totals.out = usage.outTokens
+                    totals.cached = usage.cachedTokens || 0
+                }
             }).catch(() => { }).finally(() => {
                 renderTotals()
             })
@@ -373,6 +407,7 @@
             appendResponse(entry)
             if (entry.inputTokens !== undefined) totals.in += entry.inputTokens
             if (entry.outputTokens !== undefined) totals.out += entry.outputTokens
+            if (entry.cachedTokens !== undefined) totals.cached += entry.cachedTokens
             totals.count++
             renderTotals()
         }
@@ -381,7 +416,8 @@
             const key = await promptKey()
             // EventSource cannot set headers, so auth via a cookie it sends automatically.
             document.cookie = 'cr-key=' + key + '; path=/; SameSite=Strict'
-            await loadHistory()
+            await toast({title: 'loading...', promise: loadHistory(key), type: 'info'})
+
             let closeReconnectToast = null
             const closeConnectingToast = toast({title: 'connecting...', timeout: 0, type: 'warning'})
             es = new EventSource('/logs')
@@ -398,7 +434,7 @@
                     toast({title: 'error', type: 'error'})
                 } else {
                     if (closeReconnectToast) return
-                    closeReconnectToast = toast({title: 'reconnecting...', type: 'warning'})
+                    closeReconnectToast = toast({title: 'reconnecting...', timeout: 0, type: 'warning'})
                 }
             })
 
