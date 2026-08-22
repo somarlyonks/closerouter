@@ -51,7 +51,8 @@ CloseRouter:
             [x] launch at login (SMAppService)
             [x] notifications on crash/start
             [x] settings
+            [x] hide dock icon (accessory mode, menu bar + background server stay alive)
         overview:
-            [ ] status banner
-            [ ] usage totals
-            [ ] provider/model list
+            [x] status banner
+            [x] usage totals
+            [x] provider/model list

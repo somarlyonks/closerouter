@@ -19,7 +19,8 @@
         "start": "scriptc run lib/cli.ts --ffi native/ffi.json",
         "prebuild:cli": "node build.ts",
         "build:cli": "scriptc build lib/cli.ts --ffi native/ffi.json -o dist/closerouter",
-        "build": "npm run build:cli && xcodebuild -project app/CloseRouter.xcodeproj -scheme CloseRouter -configuration Release build"
+        "build:app": "xcodebuild -project app/CloseRouter.xcodeproj -scheme CloseRouter -configuration Release build",
+        "build": "npm run build:cli && npm run build:app"
     },
     "devDependencies": {
         "@somarlyonks/eslint": "^1",

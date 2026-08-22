@@ -90,7 +90,7 @@ final class StatusBarController: NSObject {
     }
 
     @objc private func openMainWindow() {
-        (NSApplication.shared.delegate as? AppDelegate)?.openMainWindow()
+        AppDelegate.shared?.openMainWindow()
     }
 
     @objc private func quit() {

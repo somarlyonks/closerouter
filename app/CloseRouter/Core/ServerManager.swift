@@ -28,6 +28,7 @@ final class ServerManager: ObservableObject {
 
     @Published private(set) var state: State = .stopped
     @Published private(set) var port: Int = 6712
+    @Published private(set) var startedAt: Date?
 
     private var process: Process?
     private var healthTask: Task<Void, Never>?
@@ -97,6 +98,7 @@ final class ServerManager: ObservableObject {
         self.process = process
         stopRequested = false
         restartBackoff = 1.0
+        startedAt = Date()
         state = .starting
         startHealthMonitoring()
     }
@@ -110,6 +112,7 @@ final class ServerManager: ObservableObject {
         }
         stopRequested = true
         state = .stopping
+        stopHealthMonitoring()
         process.terminate()
         // Escalate to SIGKILL if it doesn't exit on its own.
         Task { [process] in
@@ -138,6 +141,7 @@ final class ServerManager: ObservableObject {
     private func processDidExit(_ proc: Process) {
         guard proc === process else { return }
         process = nil
+        startedAt = nil
         stopHealthMonitoring()
         if stopRequested {
             stopRequested = false
@@ -165,7 +169,7 @@ final class ServerManager: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 let version = await self.queryStatus()
-                if Task.isCancelled { return }
+                if Task.isCancelled || self.stopRequested { return }
                 if let version, let process = self.process, process.isRunning {
                     self.restartBackoff = 1.0
                     if !self.state.isRunning {
