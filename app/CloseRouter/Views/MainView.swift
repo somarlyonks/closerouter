@@ -1,6 +1,7 @@
 import SwiftUI
 
 enum AppSection: String, CaseIterable, Identifiable {
+    case overview
     case config
     case logs
     case settings
@@ -9,6 +10,7 @@ enum AppSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .overview: "Overview"
         case .config: "Config"
         case .logs: "Logs"
         case .settings: "Settings"
@@ -17,6 +19,7 @@ enum AppSection: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
+        case .overview: "text.and.command.macwindow"
         case .config: "doc.badge.gearshape"
         case .logs: "terminal"
         case .settings: "gearshape"
@@ -26,7 +29,7 @@ enum AppSection: String, CaseIterable, Identifiable {
 
 /// Shared navigation state so any view (e.g. Settings) can switch sections.
 final class AppState: ObservableObject {
-    @Published var section: AppSection? = .config
+    @Published var section: AppSection? = .overview
 }
 
 struct MainView: View {
@@ -37,6 +40,7 @@ struct MainView: View {
             SidebarView(selection: $appState.section)
         } detail: {
             switch appState.section {
+            case .overview: OverviewView()
             case .config: ConfigEditorView()
             case .logs: LogsView()
             case .settings: SettingsView()

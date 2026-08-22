@@ -16,4 +16,5 @@ enum Preferences {
     @UserDefault(key: "launchAtLogin", defaultValue: false) static var launchAtLogin
     @UserDefault(key: "startServerOnLaunch", defaultValue: false) static var startServerOnLaunch
     @UserDefault(key: "notificationsEnabled", defaultValue: true) static var notificationsEnabled
+    @UserDefault(key: "hideDockIcon", defaultValue: false) static var hideDockIcon
 }

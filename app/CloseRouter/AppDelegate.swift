@@ -2,11 +2,28 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    // @NSApplicationDelegateAdaptor wraps us in SwiftUI.AppDelegate, so NSApp.delegate
+    // casts to AppDelegate fail — reach the real one through here.
+    static var shared: AppDelegate!
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.shared = self
         try? ConfigStore.ensureConfigFile()
         AppNotifications.requestAuthorizationIfNeeded()
         StatusBarController.shared.setup()
-        applyLaunchBehavior()
+
+        if Self.launchedAsLoginItem() {
+            NSApp.setActivationPolicy(.accessory)
+        } else if Preferences.hideDockIcon {
+            NSApp.setActivationPolicy(.accessory)
+        }
+
+        if !Self.launchedAsLoginItem() {
+            MainWindowController.shared.open()
+        }
+        if Preferences.startServerOnLaunch {
+            ServerManager.shared.start()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -23,22 +40,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    func openMainWindow() {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+    /// Hide/show the Dock icon at runtime; the status-bar item and the server keep running either way.
+    func setDockIconHidden(_ hidden: Bool) {
+        Preferences.hideDockIcon = hidden
+        NSApp.setActivationPolicy(hidden ? .accessory : .regular)
+        if !hidden {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
-    /// Menu-bar-only behavior when launched as a login item, and optional server auto-start.
-    private func applyLaunchBehavior() {
-        if Self.launchedAsLoginItem() {
-            NSApp.setActivationPolicy(.accessory)
-            Task { @MainActor in
-                NSApp.windows.first?.close()
-            }
-        }
-        if Preferences.startServerOnLaunch {
-            ServerManager.shared.start()
-        }
+    func openMainWindow() {
+        MainWindowController.shared.open()
     }
 
     private static func launchedAsLoginItem() -> Bool {

@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("startServerOnLaunch") private var startServerOnLaunch = false
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
+    @AppStorage("hideDockIcon") private var hideDockIcon = false
 
     @ObservedObject private var server = ServerManager.shared
     @EnvironmentObject private var appState: AppState
@@ -27,6 +28,11 @@ struct SettingsView: View {
                     .help("Automatically starts the proxy server when CloseRouter launches.")
                 Toggle("Show notifications", isOn: $notificationsEnabled)
                     .help("Notifications for server start and unexpected stops.")
+                Toggle("Hide Dock icon", isOn: $hideDockIcon)
+                    .onChange(of: hideDockIcon) { _, hidden in
+                        (NSApp.delegate as? AppDelegate)?.setDockIconHidden(hidden)
+                    }
+                    .help("Runs without a Dock icon; the app stays in the menu bar and the server keeps running.")
             }
 
             Section("Server") {

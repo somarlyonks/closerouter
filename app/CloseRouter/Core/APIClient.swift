@@ -20,6 +20,56 @@ enum APIClient {
         let entries: [LogHistoryEntry]
     }
 
+    // MARK: Overview DTOs
+
+    struct UsageTotals: Decodable {
+        let count: Int
+        let inTokens: Int
+        let outTokens: Int
+        let cachedTokens: Int?
+    }
+
+    struct ConfigInfo: Decodable {
+        let port: Int
+        let key: String
+        let providers: [String: ProviderInfo]
+    }
+
+    struct ProviderInfo: Decodable {
+        let base_url: String
+        let models: [ModelEntry]?
+    }
+
+    /// A config model entry — either a bare id string or an object with an `id`.
+    struct ModelEntry: Decodable {
+        let id: String?
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.singleValueContainer()
+            if let s = try? c.decode(String.self) {
+                id = s
+            } else if let d = try? c.decode([String: String].self) {
+                id = d["id"]
+            } else {
+                id = nil
+            }
+        }
+    }
+
+    struct ModelsResponse: Decodable {
+        let data: [ModelInfo]
+    }
+
+    struct ModelInfo: Decodable, Identifiable {
+        let id: String
+        let ownedBy: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case ownedBy = "owned_by"
+        }
+    }
+
     static func url(port: Int, path: String) -> URL {
         URL(string: "http://127.0.0.1:\(port)/\(path)")!
     }
@@ -53,6 +103,35 @@ enum APIClient {
         }
         let payload = try JSONDecoder().decode(LogEntriesResponse.self, from: data)
         return payload.entries.map(\.asLogEntry)
+    }
+
+    /// GET /usage — aggregate token totals from the usage DB.
+    static func getUsage(port: Int, key: String) async throws -> UsageTotals {
+        try await getJSON(path: "usage", port: port, key: key)
+    }
+
+    /// GET /config — current port, key and providers.
+    static func getConfig(port: Int, key: String) async throws -> ConfigInfo {
+        try await getJSON(path: "config", port: port, key: key)
+    }
+
+    /// GET /v1/models — the provider/model list.
+    static func getModels(port: Int, key: String) async throws -> [ModelInfo] {
+        let payload: ModelsResponse = try await getJSON(path: "v1/models", port: port, key: key)
+        return payload.data
+    }
+
+    private static func getJSON<T: Decodable>(path: String, port: Int, key: String) async throws -> T {
+        var req = URLRequest(url: url(port: port, path: path))
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.timeoutInterval = 10
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw APIClientError.badResponse }
+        guard http.statusCode == 200 else {
+            throw APIClientError.server(status: http.statusCode, message: extractError(data) ?? "Request failed (HTTP \(http.statusCode))")
+        }
+        return try JSONDecoder().decode(T.self, from: data)
     }
 
     private static func extractError(_ data: Data) -> String? {

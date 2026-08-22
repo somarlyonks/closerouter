@@ -26,6 +26,7 @@
 		0000000000000000000000F1 /* LogStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000D3 /* LogStream.swift */; };
 		0000000000000000000000F2 /* Preferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000D4 /* Preferences.swift */; };
 		0000000000000000000000F3 /* AppNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000D5 /* AppNotifications.swift */; };
+		0000000000000000000000F4 /* OverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000D6 /* OverviewView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +48,7 @@
 		0000000000000000000000D3 /* LogStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogStream.swift; sourceTree = "<group>"; };
 		0000000000000000000000D4 /* Preferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Preferences.swift; sourceTree = "<group>"; };
 		0000000000000000000000D5 /* AppNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNotifications.swift; sourceTree = "<group>"; };
+		0000000000000000000000D6 /* OverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverviewView.swift; sourceTree = "<group>"; };
 		0000000000000000000000D1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		0000000000000000000000D2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -114,6 +116,7 @@
 				0000000000000000000000C5 /* SidebarView.swift */,
 				0000000000000000000000C7 /* LogsView.swift */,
 				0000000000000000000000C8 /* SettingsView.swift */,
+				0000000000000000000000D6 /* OverviewView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -236,6 +239,7 @@
 				0000000000000000000000F1 /* LogStream.swift in Sources */,
 				0000000000000000000000F2 /* Preferences.swift in Sources */,
 				0000000000000000000000F3 /* AppNotifications.swift in Sources */,
+				0000000000000000000000F4 /* OverviewView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
