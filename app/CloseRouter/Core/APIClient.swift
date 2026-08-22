@@ -16,6 +16,10 @@ enum APIClientError: LocalizedError {
 
 /// Minimal HTTP client for the closerouter server's local API.
 enum APIClient {
+    struct LogEntriesResponse: Decodable {
+        let entries: [LogHistoryEntry]
+    }
+
     static func url(port: Int, path: String) -> URL {
         URL(string: "http://127.0.0.1:\(port)/\(path)")!
     }
@@ -34,6 +38,21 @@ enum APIClient {
             let message = extractError(data) ?? "Server rejected the config (HTTP \(http.statusCode))"
             throw APIClientError.server(status: http.statusCode, message: message)
         }
+    }
+
+    /// GET /logs as JSON — historical log entries from the usage DB.
+    static func getLogEntries(port: Int, key: String) async throws -> [LogEntry] {
+        var req = URLRequest(url: url(port: port, path: "logs"))
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("cr-key=\(key)", forHTTPHeaderField: "Cookie")
+        req.timeoutInterval = 10
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw APIClientError.badResponse }
+        guard http.statusCode == 200 else {
+            throw APIClientError.server(status: http.statusCode, message: extractError(data) ?? "Failed to load logs (HTTP \(http.statusCode))")
+        }
+        let payload = try JSONDecoder().decode(LogEntriesResponse.self, from: data)
+        return payload.entries.map(\.asLogEntry)
     }
 
     private static func extractError(_ data: Data) -> String? {
