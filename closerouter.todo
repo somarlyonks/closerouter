@@ -1,0 +1,29 @@
+CloseRouter:
+    core:
+        [x] config loading & validation
+    cli:
+        [x] help
+        server:
+            [x] detach
+            [x] config path
+        [x] version
+    server:
+        [x] router
+        [x] auth (bearer key, cookie)
+        [x] proxy forwarding with SSE streaming
+        routes:
+            v1:
+                [x] chat/completions
+                [x] models
+                [x] responses
+            [x] config
+            [x] logs
+            [x] status
+            [x] usage
+    db:
+        [x] SQLite ABI
+        [x] sql interface functions
+        [x] tests
+        [x] config field
+        [x] in momery
+        [x] persistent
