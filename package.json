@@ -24,6 +24,6 @@
         "@types/node": "^24",
         "eslint": "^10",
         "scriptc": "0.0.34",
-        "typescript": "5.9.3"
+        "typescript": "7.0.2"
     }
 }
