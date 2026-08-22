@@ -26,6 +26,17 @@ enum ConfigStore {
         let key = obj["key"] as? String ?? "sk-cr-kee9itsecr1t"
         return (port, key)
     }
+
+    /// Persists a raw config string to disk.
+    static func save(_ raw: String) throws {
+        try raw.write(to: configURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Extracts the port from a raw config string.
+    static func port(of raw: String) throws -> Int {
+        let obj = try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]
+        return obj?["port"] as? Int ?? 6712
+    }
 }
 
 /// Generates the default config written on first launch.

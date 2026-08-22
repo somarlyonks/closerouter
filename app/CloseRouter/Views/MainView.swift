@@ -32,7 +32,7 @@ struct MainView: View {
             SidebarView(selection: $selection)
         } detail: {
             switch selection {
-            case .config: ConfigView()
+            case .config: ConfigEditorView()
             case .logs: LogsView()
             case .settings: SettingsView()
             case .none: EmptyView()
