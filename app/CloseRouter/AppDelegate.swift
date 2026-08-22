@@ -3,7 +3,12 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        try? ConfigStore.ensureConfigFile()
         StatusBarController.shared.setup()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        ServerManager.shared.terminateNow()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
