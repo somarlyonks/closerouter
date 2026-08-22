@@ -24,6 +24,8 @@
 		0000000000000000000000EF /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000CE /* APIClient.swift */; };
 		0000000000000000000000F0 /* closerouter-schema.json in Resources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000CF /* closerouter-schema.json */; };
 		0000000000000000000000F1 /* LogStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000D3 /* LogStream.swift */; };
+		0000000000000000000000F2 /* Preferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000D4 /* Preferences.swift */; };
+		0000000000000000000000F3 /* AppNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000D5 /* AppNotifications.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +45,8 @@
 		0000000000000000000000CE /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		0000000000000000000000CF /* closerouter-schema.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "../../closerouter-schema.json"; sourceTree = "<group>"; };
 		0000000000000000000000D3 /* LogStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogStream.swift; sourceTree = "<group>"; };
+		0000000000000000000000D4 /* Preferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Preferences.swift; sourceTree = "<group>"; };
+		0000000000000000000000D5 /* AppNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNotifications.swift; sourceTree = "<group>"; };
 		0000000000000000000000D1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		0000000000000000000000D2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -97,6 +101,8 @@
 				0000000000000000000000CA /* ServerManager.swift */,
 				0000000000000000000000CE /* APIClient.swift */,
 				0000000000000000000000D3 /* LogStream.swift */,
+				0000000000000000000000D4 /* Preferences.swift */,
+				0000000000000000000000D5 /* AppNotifications.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -228,6 +234,8 @@
 				0000000000000000000000EE /* ConfigEditorView.swift in Sources */,
 				0000000000000000000000EF /* APIClient.swift in Sources */,
 				0000000000000000000000F1 /* LogStream.swift in Sources */,
+				0000000000000000000000F2 /* Preferences.swift in Sources */,
+				0000000000000000000000F3 /* AppNotifications.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
