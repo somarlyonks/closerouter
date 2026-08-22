@@ -34,10 +34,10 @@ CloseRouter:
             [x] menu bar icon + empty window
             [x] run script build wiring
         process core:
-            [ ] ServerManager (spawn/monitor/restart)
-            [ ] health check via /status
-            [ ] menu bar start/stop + open window
-            [ ] default config in Application Support
+            [x] ServerManager (spawn/monitor/restart)
+            [x] health check via /status
+            [x] menu bar start/stop + open window
+            [x] default config in Application Support
         config editor:
             [ ] CodeTextView (NSTextView)
             [ ] schema completions

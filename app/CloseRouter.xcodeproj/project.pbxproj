@@ -16,6 +16,8 @@
 		0000000000000000000000E7 /* LogsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000C7 /* LogsView.swift */; };
 		0000000000000000000000E8 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000C8 /* SettingsView.swift */; };
 		0000000000000000000000E9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000D2 /* Assets.xcassets */; };
+		0000000000000000000000EA /* ConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000C9 /* ConfigStore.swift */; };
+		0000000000000000000000EB /* ServerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000CA /* ServerManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +30,8 @@
 		0000000000000000000000C6 /* ConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigView.swift; sourceTree = "<group>"; };
 		0000000000000000000000C7 /* LogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogsView.swift; sourceTree = "<group>"; };
 		0000000000000000000000C8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		0000000000000000000000C9 /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
+		0000000000000000000000CA /* ServerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerManager.swift; sourceTree = "<group>"; };
 		0000000000000000000000D1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		0000000000000000000000D2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -65,11 +69,21 @@
 				0000000000000000000000C1 /* CloseRouterApp.swift */,
 				0000000000000000000000C2 /* AppDelegate.swift */,
 				0000000000000000000000C3 /* StatusBarController.swift */,
+				0000000000000000000000B4 /* Core */,
 				0000000000000000000000B3 /* Views */,
 				0000000000000000000000D1 /* Info.plist */,
 				0000000000000000000000D2 /* Assets.xcassets */,
 			);
 			path = CloseRouter;
+			sourceTree = "<group>";
+		};
+		0000000000000000000000B4 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				0000000000000000000000C9 /* ConfigStore.swift */,
+				0000000000000000000000CA /* ServerManager.swift */,
+			);
+			path = Core;
 			sourceTree = "<group>";
 		};
 		0000000000000000000000B3 /* Views */ = {
@@ -183,6 +197,8 @@
 				0000000000000000000000E6 /* ConfigView.swift in Sources */,
 				0000000000000000000000E7 /* LogsView.swift in Sources */,
 				0000000000000000000000E8 /* SettingsView.swift in Sources */,
+				0000000000000000000000EA /* ConfigStore.swift in Sources */,
+				0000000000000000000000EB /* ServerManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

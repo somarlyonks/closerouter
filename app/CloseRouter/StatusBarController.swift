@@ -1,10 +1,14 @@
 import AppKit
+import Combine
 
 @MainActor
 final class StatusBarController: NSObject {
     static let shared = StatusBarController()
 
     private var statusItem: NSStatusItem?
+    private var cancellables = Set<AnyCancellable>()
+    private var statusMenuItem: NSMenuItem?
+    private var toggleItem: NSMenuItem?
 
     func setup() {
         guard statusItem == nil else { return }
@@ -13,11 +17,27 @@ final class StatusBarController: NSObject {
             button.image = NSImage(systemSymbolName: "network", accessibilityDescription: "CloseRouter")
             button.image?.isTemplate = true
         }
+        item.menu = buildMenu()
+        statusItem = item
+        updateMenu(for: ServerManager.shared.state)
+        observeServer()
+    }
 
+    private func buildMenu() -> NSMenu {
         let menu = NSMenu()
         let title = NSMenuItem(title: "CloseRouter", action: nil, keyEquivalent: "")
         title.isEnabled = false
         menu.addItem(title)
+        menu.addItem(.separator())
+
+        statusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        statusMenuItem?.isEnabled = false
+        menu.addItem(statusMenuItem!)
+
+        toggleItem = NSMenuItem(title: "", action: #selector(toggleServer), keyEquivalent: "")
+        toggleItem?.target = self
+        menu.addItem(toggleItem!)
+
         menu.addItem(.separator())
 
         let open = NSMenuItem(title: "Open CloseRouter", action: #selector(openMainWindow), keyEquivalent: "")
@@ -30,8 +50,43 @@ final class StatusBarController: NSObject {
         quit.target = self
         menu.addItem(quit)
 
-        item.menu = menu
-        statusItem = item
+        return menu
+    }
+
+    private func observeServer() {
+        ServerManager.shared.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.updateMenu(for: state)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func updateMenu(for state: ServerManager.State) {
+        statusMenuItem?.title = Self.statusTitle(for: state)
+        toggleItem?.title = state.isRunning ? "Stop Server" : "Start Server"
+        toggleItem?.isEnabled = !state.isTransitioning
+    }
+
+    private static func statusTitle(for state: ServerManager.State) -> String {
+        switch state {
+        case .stopped:
+            return "Stopped"
+        case .starting:
+            return "Starting…"
+        case .running(let version):
+            let port = ServerManager.shared.port
+            if let version {
+                return "Running · v\(version) · port \(port)"
+            }
+            return "Running · port \(port)"
+        case .stopping:
+            return "Stopping…"
+        }
+    }
+
+    @objc private func toggleServer() {
+        ServerManager.shared.toggle()
     }
 
     @objc private func openMainWindow() {
