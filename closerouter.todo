@@ -39,10 +39,10 @@ CloseRouter:
             [x] menu bar start/stop + open window
             [x] default config in Application Support
         config editor:
-            [ ] CodeTextView (NSTextView)
-            [ ] schema completions
-            [ ] validation + format
-            [ ] save via PUT /config
+            [x] CodeTextView (NSTextView)
+            [x] schema completions
+            [x] validation + format
+            [x] save via PUT /config
         logs:
             [ ] SSE stream view
             [ ] pause/filter/clear

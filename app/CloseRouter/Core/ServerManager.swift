@@ -50,6 +50,19 @@ final class ServerManager: ObservableObject {
         }
     }
 
+    /// Stops the server and starts it again once it has fully stopped.
+    func restart() {
+        guard state.isRunning else { return }
+        stop()
+        Task { [weak self] in
+            guard let self else { return }
+            while self.state != .stopped {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            self.start()
+        }
+    }
+
     func start() {
         guard !state.isTransitioning, !state.isRunning else { return }
         guard let binaryURL else {
