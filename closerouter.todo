@@ -27,3 +27,31 @@ CloseRouter:
         [x] config field
         [x] in momery
         [x] persistent
+    app:
+        scaffold:
+            [x] xcode project
+            [x] bundle closerouter binary
+            [x] menu bar icon + empty window
+            [x] run script build wiring
+        process core:
+            [ ] ServerManager (spawn/monitor/restart)
+            [ ] health check via /status
+            [ ] menu bar start/stop + open window
+            [ ] default config in Application Support
+        config editor:
+            [ ] CodeTextView (NSTextView)
+            [ ] schema completions
+            [ ] validation + format
+            [ ] save via PUT /config
+        logs:
+            [ ] SSE stream view
+            [ ] pause/filter/clear
+            [ ] history on open
+        polish:
+            [ ] launch at login (SMAppService)
+            [ ] notifications on crash/start
+            [ ] settings
+        overview:
+            [ ] status banner
+            [ ] usage totals
+            [ ] provider/model list
