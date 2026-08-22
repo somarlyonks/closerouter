@@ -48,9 +48,9 @@ CloseRouter:
             [x] pause/filter/clear
             [x] history on open
         polish:
-            [ ] launch at login (SMAppService)
-            [ ] notifications on crash/start
-            [ ] settings
+            [x] launch at login (SMAppService)
+            [x] notifications on crash/start
+            [x] settings
         overview:
             [ ] status banner
             [ ] usage totals

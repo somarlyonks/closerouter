@@ -144,6 +144,10 @@ final class ServerManager: ObservableObject {
             state = .stopped
         } else {
             // Unexpected exit — restart with backoff.
+            AppNotifications.post(
+                title: "CloseRouter server stopped",
+                body: "It stopped unexpectedly and will restart."
+            )
             let delay = min(restartBackoff, 30)
             restartBackoff *= 2
             state = .stopped
@@ -166,6 +170,10 @@ final class ServerManager: ObservableObject {
                     self.restartBackoff = 1.0
                     if !self.state.isRunning {
                         self.state = .running(version: version)
+                        AppNotifications.post(
+                            title: "CloseRouter server started",
+                            body: "Running on port \(self.port)"
+                        )
                     }
                 }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)

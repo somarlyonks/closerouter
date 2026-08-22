@@ -4,7 +4,9 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         try? ConfigStore.ensureConfigFile()
+        AppNotifications.requestAuthorizationIfNeeded()
         StatusBarController.shared.setup()
+        applyLaunchBehavior()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -24,5 +26,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func openMainWindow() {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Menu-bar-only behavior when launched as a login item, and optional server auto-start.
+    private func applyLaunchBehavior() {
+        if Self.launchedAsLoginItem() {
+            NSApp.setActivationPolicy(.accessory)
+            Task { @MainActor in
+                NSApp.windows.first?.close()
+            }
+        }
+        if Preferences.startServerOnLaunch {
+            ServerManager.shared.start()
+        }
+    }
+
+    private static func launchedAsLoginItem() -> Bool {
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        return event?.eventID == kAEOpenApplication &&
+            event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
     }
 }

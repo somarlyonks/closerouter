@@ -24,14 +24,19 @@ enum AppSection: String, CaseIterable, Identifiable {
     }
 }
 
+/// Shared navigation state so any view (e.g. Settings) can switch sections.
+final class AppState: ObservableObject {
+    @Published var section: AppSection? = .config
+}
+
 struct MainView: View {
-    @State private var selection: AppSection? = .config
+    @StateObject private var appState = AppState()
 
     var body: some View {
         NavigationSplitView {
-            SidebarView(selection: $selection)
+            SidebarView(selection: $appState.section)
         } detail: {
-            switch selection {
+            switch appState.section {
             case .config: ConfigEditorView()
             case .logs: LogsView()
             case .settings: SettingsView()
@@ -39,5 +44,6 @@ struct MainView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 420)
+        .environmentObject(appState)
     }
 }
