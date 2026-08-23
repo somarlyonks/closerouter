@@ -14,13 +14,22 @@ final class StatusBarController: NSObject {
         guard statusItem == nil else { return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
-            button.image = NSImage(systemSymbolName: "network", accessibilityDescription: "CloseRouter")
+            button.image = Self.makeMenuBarImage() ?? NSImage(systemSymbolName: "network", accessibilityDescription: "CloseRouter")
             button.image?.isTemplate = true
         }
         item.menu = buildMenu()
         statusItem = item
         updateMenu(for: ServerManager.shared.state)
         observeServer()
+    }
+
+    private static func makeMenuBarImage() -> NSImage? {
+        guard let url = Bundle.main.url(forResource: "logo", withExtension: "svg"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        let height: CGFloat = 16
+        image.size = NSSize(width: round(height * image.size.width / image.size.height), height: height)
+        image.accessibilityDescription = "CloseRouter"
+        return image
     }
 
     private func buildMenu() -> NSMenu {
