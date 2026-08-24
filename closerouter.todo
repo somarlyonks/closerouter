@@ -56,3 +56,7 @@ CloseRouter:
             [x] status banner
             [x] usage totals
             [x] provider/model list
+        updates:
+            [x] UpdateChecker (GitHub releases API, semver compare)
+            [x] Settings > Updates section (Check Now, auto-check toggle, download link)
+            [x] auto-check on launch via AppDelegate

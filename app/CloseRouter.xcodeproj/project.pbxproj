@@ -27,6 +27,7 @@
 		0000000000000000000000F2 /* Preferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000D4 /* Preferences.swift */; };
 		0000000000000000000000F3 /* AppNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000D5 /* AppNotifications.swift */; };
 		0000000000000000000000F4 /* OverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000D6 /* OverviewView.swift */; };
+		0000000000000000000000F9 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000F8 /* UpdateChecker.swift */; };
 		0000000000000000000000F5 /* logo.svg in Resources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000F6 /* logo.svg */; };
 /* End PBXBuildFile section */
 
@@ -50,6 +51,7 @@
 		0000000000000000000000D3 /* LogStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogStream.swift; sourceTree = "<group>"; };
 		0000000000000000000000D4 /* Preferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Preferences.swift; sourceTree = "<group>"; };
 		0000000000000000000000D5 /* AppNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNotifications.swift; sourceTree = "<group>"; };
+		0000000000000000000000F8 /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
 		0000000000000000000000D6 /* OverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverviewView.swift; sourceTree = "<group>"; };
 		0000000000000000000000D1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		0000000000000000000000D2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -108,6 +110,7 @@
 				0000000000000000000000D3 /* LogStream.swift */,
 				0000000000000000000000D4 /* Preferences.swift */,
 				0000000000000000000000D5 /* AppNotifications.swift */,
+				0000000000000000000000F8 /* UpdateChecker.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -244,6 +247,7 @@
 				0000000000000000000000F2 /* Preferences.swift in Sources */,
 				0000000000000000000000F3 /* AppNotifications.swift in Sources */,
 				0000000000000000000000F4 /* OverviewView.swift in Sources */,
+				0000000000000000000000F9 /* UpdateChecker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
