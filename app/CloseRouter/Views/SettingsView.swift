@@ -6,8 +6,10 @@ struct SettingsView: View {
     @AppStorage("startServerOnLaunch") private var startServerOnLaunch = false
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
     @AppStorage("hideDockIcon") private var hideDockIcon = false
+    @AppStorage("checkForUpdatesAutomatically") private var checkForUpdatesAutomatically = true
 
     @ObservedObject private var server = ServerManager.shared
+    @ObservedObject private var updateChecker = UpdateChecker.shared
     @EnvironmentObject private var appState: AppState
     @State private var loginItemStatus = SMAppService.mainApp.status
     @State private var loginItemError: String?
@@ -52,6 +54,26 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Updates") {
+                LabeledContent("Current version", value: "v\(versionLabel)")
+                Toggle("Check for updates automatically", isOn: $checkForUpdatesAutomatically)
+                    .help("Checks GitHub releases when the app launches.")
+                HStack {
+                    Button("Check Now") {
+                        Task { await UpdateChecker.shared.check() }
+                    }
+                    .disabled(UpdateChecker.shared.state.isChecking)
+                    if case .available(let version, let url, _) = UpdateChecker.shared.state {
+                        Link("Download \(version)", destination: URL(string: url)!)
+                            .fontWeight(.medium)
+                    }
+                    if UpdateChecker.shared.state.isChecking {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                updateStatusText
+            }
+
             Section("About") {
                 LabeledContent("Version", value: versionLabel)
                 LabeledContent("Endpoint", value: "http://localhost:\(server.port)/v1")
@@ -84,6 +106,28 @@ struct SettingsView: View {
 
     private var versionLabel: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+    }
+
+    private var updateStatusText: some View {
+        Group {
+            switch updateChecker.state {
+            case .idle:
+                Text("Last checked: never")
+            case .checking:
+                Text("Checking GitHub releases…")
+            case .upToDate:
+                Label("You're up to date", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            case .available(let version, _, _):
+                Label("\(version) is available", systemImage: "arrow.down.circle.fill")
+                    .foregroundStyle(.orange)
+            case .failed(let message):
+                Label("Update check failed: \(message)", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 
     private func applyLoginItem(_ on: Bool) {

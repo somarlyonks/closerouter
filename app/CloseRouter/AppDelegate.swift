@@ -24,6 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if Preferences.startServerOnLaunch {
             ServerManager.shared.start()
         }
+        if Preferences.checkForUpdatesAutomatically {
+            UpdateChecker.shared.checkInBackground()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
