@@ -128,7 +128,7 @@ struct ConfigEditorView: View {
             saveState = .error("Cannot format: invalid JSON")
             return
         }
-        if let pretty = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]),
+        if let pretty = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .withoutEscapingSlashes]),
            let formatted = String(data: pretty, encoding: .utf8) {
             text = formatted
         }
