@@ -41,7 +41,7 @@ final class UpdateChecker: ObservableObject {
 
     @Published private(set) var state: State = .idle
 
-    static var currentVersion: String {
+    nonisolated static var currentVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
     }
 

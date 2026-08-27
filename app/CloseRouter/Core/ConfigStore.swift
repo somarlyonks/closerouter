@@ -39,29 +39,20 @@ enum ConfigStore {
     }
 }
 
-/// Generates the default config written on first launch.
+/// Seeds the default config on first launch from the bundled repo-level closerouter.json.
 enum DefaultConfig {
     static func make() -> String {
-        """
-        {
-            "$schema": "https://raw.githubusercontent.com/somarlyonks/closerouter/refs/heads/master/closerouter-schema.json",
-            "port": 6712,
-            "key": "sk-cr-\(randomToken())",
-            "db": "closerouter.db",
-            "providers": {
-                "example": {
-                    "base_url": "https://api.openai.com/v1",
-                    "api_key": "YOUR_API_KEY",
-                    "models": [
-                        "gpt-4o-mini"
-                    ]
-                }
+        guard let url = Bundle.main.url(forResource: "closerouter", withExtension: "json"),
+              let raw = try? String(contentsOf: url, encoding: .utf8) else {
+            return """
+            {
+                "$schema": "https://raw.githubusercontent.com/somarlyonks/closerouter/refs/tags/v\(UpdateChecker.currentVersion)/closerouter-schema.json",
+                "port": 6712,
+                "key": "sk-cr-kee9itsecr1t",
+                "providers": {}
             }
+            """
         }
-        """
-    }
-
-    private static func randomToken() -> String {
-        UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        return raw
     }
 }

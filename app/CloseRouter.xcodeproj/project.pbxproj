@@ -29,6 +29,7 @@
 		0000000000000000000000F4 /* OverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000D6 /* OverviewView.swift */; };
 		0000000000000000000000F9 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000F8 /* UpdateChecker.swift */; };
 		0000000000000000000000F5 /* logo.svg in Resources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000F6 /* logo.svg */; };
+		0000000000000000000001A1 /* closerouter.json in Resources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000001A2 /* closerouter.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -48,6 +49,7 @@
 		0000000000000000000000CE /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		0000000000000000000000CF /* closerouter-schema.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "../../closerouter-schema.json"; sourceTree = "<group>"; };
 		0000000000000000000000F6 /* logo.svg */ = {isa = PBXFileReference; lastKnownFileType = text.html.svg; path = "../../assets/logo.svg"; sourceTree = "<group>"; };
+		0000000000000000000001A2 /* closerouter.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "../../closerouter.json"; sourceTree = "<group>"; };
 		0000000000000000000000D3 /* LogStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogStream.swift; sourceTree = "<group>"; };
 		0000000000000000000000D4 /* Preferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Preferences.swift; sourceTree = "<group>"; };
 		0000000000000000000000D5 /* AppNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNotifications.swift; sourceTree = "<group>"; };
@@ -94,6 +96,7 @@
 				0000000000000000000000B5 /* Editor */,
 				0000000000000000000000B3 /* Views */,
 				0000000000000000000000CF /* closerouter-schema.json */,
+				0000000000000000000001A2 /* closerouter.json */,
 				0000000000000000000000F6 /* logo.svg */,
 				0000000000000000000000D1 /* Info.plist */,
 				0000000000000000000000D2 /* Assets.xcassets */,
@@ -197,6 +200,7 @@
 			files = (
 				0000000000000000000000E9 /* Assets.xcassets in Resources */,
 				0000000000000000000000F0 /* closerouter-schema.json in Resources */,
+				0000000000000000000001A1 /* closerouter.json in Resources */,
 				0000000000000000000000F5 /* logo.svg in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
