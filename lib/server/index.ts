@@ -23,30 +23,20 @@ export function startServer (config: RuntimeConfig): Server {
 
         logMiddleware(ctx, res)
 
-        routerErrorBoundary(router(
-            c => c.req.method === 'OPTIONS',
+        routerErrorBoundary(
+            router(c => c.req.method === 'OPTIONS',
             handleOptions,
-            router(
-                c => !!c.req.url?.startsWith('/v1/'),
-                handleOpenAIRequest,
-                router(
-                    c => c.req.url === '/status',
-                    handleStatus,
-                    router(
-                        c => c.req.url === '/logs' || !!c.req.url?.startsWith('/logs/'),
-                        handleLogs,
-                        router(
-                            c => c.req.url === '/usage',
-                            handleUsage,
-                            router(
-                                c => c.req.url === '/config',
-                                handleConfig,
-                            ),
-                        ),
-                    ),
-                ),
-            ),
-        ))(ctx, res)
+            router(c => !!c.req.url?.startsWith('/v1/'),
+            handleOpenAIRequest,
+            router(c => c.req.url === '/status',
+            handleStatus,
+            router(c => c.req.url === '/logs' || !!c.req.url?.startsWith('/logs/'),
+            handleLogs,
+            router(c => c.req.url === '/usage',
+            handleUsage,
+            router(c => c.req.url === '/config',
+            handleConfig,
+        )))))))(ctx, res)
     })
 
     server.listen(config.port, () => {
