@@ -107,7 +107,7 @@ function logDetailId (url: string | undefined): number | undefined {
 }
 
 export function logMiddleware ({req, responseLog}: RequestContext, res: ServerResponse) {
-    if (req.url === '/logs' || req.url === '/usage') return
+    if (!req.url?.startsWith('/v1/')) return
 
     const id = readClientRequestId(req) ?? randomUUID()
     res.setHeader('x-closerouter-request-id', id)
