@@ -1,0 +1,13 @@
+{
+    "port": 6799,
+    "key": "sk-cr-testkey123",
+    "providers": {
+        "mock": {
+            "base_url": "http://127.0.0.1:9999/v1",
+            "api_key": "sk-mock",
+            "models": [
+                "mock-1"
+            ]
+        }
+    }
+}
