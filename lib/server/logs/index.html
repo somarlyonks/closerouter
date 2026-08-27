@@ -241,7 +241,7 @@
                     parts.push(createElement('div', {innerHTML: `/* @asset arrow-up.svg */` + pad(entry.inputTokens) + ' tokens ' + cacheRate}))
                 }
                 if (entry.outputTokens !== undefined) {
-                    const genMs = entry.generationMs || entry.durationMs
+                    const genMs = entry.durationMs || entry.generationMs
                     const tps = !genMs ? '' : ('(' + Math.round(entry.outputTokens / (genMs / 1000)) + ' tok/s)')
                     parts.push(createElement('div', {innerHTML: `/* @asset arrow-up.svg */` + pad(entry.outputTokens) + ' tokens ' + tps}))
                 }
@@ -356,7 +356,7 @@
             }
             groupEntry.group.className = 'group ' + cls
 
-            const genMs = entry.generationMs || entry.durationMs
+            const genMs = entry.durationMs || entry.generationMs
             const line = groupEntry.group.querySelector('.line.res')
             if (!line) return
 
