@@ -136,6 +136,60 @@ same AppKit objects (`NSTextStorage`/`NSLayoutManager`/`NSTextContainer`/`NSText
 in a plain `swift script` inside an offscreen `NSWindow` and force layout
 (`layoutManager?.ensureLayout(for:)`). This reproduced the zero-height bug without any GUI access.
 
+## End-to-end logs testing with a mock provider
+
+To verify the logs view (or any /v1 proxy behavior) without touching real provider keys, stand up a
+**mock backend + closerouter test config** and drive the app over AX (this is how the request/response
+body loading was verified).
+
+**Why a mock:** usage rows (and log bodies) are only recorded for `/v1/` requests that resolve to a
+valid `provider/model`, so a fake OpenAI-format backend is the only safe way to produce real history
+with bodies.
+
+**Mock backend + config:** `test/mock-server.js` — zero-dep Node, streams an SSE chat completion
+on `/v1/chat/completions`, serves `{ok:true}` otherwise. It owns the closerouter test config:
+`node test/mock-server.js [mockPort]` starts the backend (default 9999) and writes the matching
+`test/mock-server.config.json` (gitignored; closerouter port via `CR_PORT`, default 6799). Test
+runners can also `import {mockConfig, startMockServer} from './test/mock-server.js'`.
+
+**Server-only check** (no app): `node test/mock-server.js` + `./dist/closerouter server -c
+test/mock-server.config.json`, then POST `/v1/chat/completions` (model `mock/mock-1`, Bearer
+`sk-cr-testkey123`) to seed history:
+
+```bash
+curl -s -H "Accept: application/json" -H "Cookie: cr-key=$KEY" http://127.0.0.1:6799/logs  # NO requestBody/responseBody
+curl -s -H "Cookie: cr-key=$KEY" http://127.0.0.1:6799/logs/1                             # bodies are here
+curl --max-time 5 -sN -H "Accept: text/event-stream" -H "Cookie: cr-key=$KEY" http://127.0.0.1:6799/logs  # live entries carry bodies
+```
+
+**Full app-level test:**
+1. Back up the config: `cp ~/Library/Application Support/CloseRouter/closerouter.json /tmp/…bak`
+   — **restore after**.
+2. Point Application Support config at the mock (port 6712, same key) so the app boots the bundled
+   `dist/closerouter` against it.
+3. `open app/build/DerivedData/Build/Products/Debug/CloseRouter.app`; click the **Start** button in
+   Overview via AX (server doesn't auto-start with `startServerOnLaunch` off) — `curl
+   http://127.0.0.1:6712/status` confirms it's up.
+4. Seed 1-2 history rows via POST `/v1/chat/completions` to 6712.
+5. AX: click the **Logs** sidebar row (real mouse down/up at row center — `AXPress` won't select),
+   click a history table row, then assert the detail inspector shows the pretty-printed JSON request
+   body + raw SSE response body. This proves the on-demand `/logs/<id>` fetch.
+6. `osascript -e 'tell application "CloseRouter" to quit'`, restore the config backup, kill the
+   mock/test servers, restart the real server if it was running.
+
+AX click-at helper (sidebar/table rows need a real click at center):
+
+```swift
+let pt = CGPoint(x: 432, y: 279) // from AX dump kAXPositionAttribute + size/2
+let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)!
+let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)!
+down.post(tap: .cghidEventTap); usleep(80000); up.post(tap: .cghidEventTap)
+```
+
+**Facts this workflow surfaced:** `/logs` JSON history omits bodies **by design** (each can be up to
+1MB; fetched per row via `/logs/<id>`), live SSE entries carry both, history `/logs/<id>` needs the
+`cr-key` **cookie** auth, and `timeout` may not exist on macOS — use `curl --max-time N`.
+
 ## Known pitfalls (learned the hard way)
 
 - **NSTextView in a programmatic `NSScrollView` lays out at ZERO height** unless you set

@@ -4,9 +4,9 @@ node_modules
 
 .scriptc
 dist
+*.html.ts
+*.o
 
 app/build
 
-*.html.ts
-
-*.o
+test/mock-server.config.json
