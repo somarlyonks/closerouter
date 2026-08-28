@@ -19,6 +19,9 @@ struct LogsView: View {
         }
         .onAppear { viewModel.start() }
         .onDisappear { viewModel.stop() }
+        .onChange(of: selection) { _, newValue in
+            viewModel.loadBodies(for: newValue)
+        }
     }
 
     // MARK: Toolbar
@@ -100,16 +103,25 @@ struct LogsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if let bodyText = row.requestBody, !bodyText.isEmpty {
-                    section("Request", bodyText)
+                    section("Request", prettyBody(bodyText))
                 }
                 if let bodyText = row.responseBody, !bodyText.isEmpty {
-                    section("Response", bodyText)
+                    section("Response", prettyBody(bodyText))
                 }
                 if row.requestBody == nil || row.requestBody?.isEmpty == true,
                    row.responseBody == nil || row.responseBody?.isEmpty == true {
-                    Text("No request/response bodies captured for this request.")
-                        .foregroundStyle(.secondary)
+                    if viewModel.isLoadingBodies(for: row.id) {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Loading bodies…")
+                                .foregroundStyle(.secondary)
+                        }
                         .font(.callout)
+                    } else {
+                        Text("No request/response bodies captured for this request.")
+                            .foregroundStyle(.secondary)
+                            .font(.callout)
+                    }
                 }
             }
             .padding(12)
@@ -129,6 +141,15 @@ struct LogsView: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private func prettyBody(_ text: String) -> String {
+        guard let data = text.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data),
+              let pretty = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) else {
+            return text
+        }
+        return String(data: pretty, encoding: .utf8) ?? text
     }
 
     // MARK: Footer

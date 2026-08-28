@@ -20,6 +20,11 @@ enum APIClient {
         let entries: [LogHistoryEntry]
     }
 
+    struct LogBodyDetail: Decodable {
+        let requestBody: String?
+        let responseBody: String?
+    }
+
     // MARK: Overview DTOs
 
     struct UsageTotals: Decodable {
@@ -103,6 +108,20 @@ enum APIClient {
         }
         let payload = try JSONDecoder().decode(LogEntriesResponse.self, from: data)
         return payload.entries.map(\.asLogEntry)
+    }
+
+    /// GET /logs/<id> — request/response bodies for a single history row.
+    static func getLogDetail(port: Int, key: String, id: Int) async throws -> LogBodyDetail {
+        var req = URLRequest(url: url(port: port, path: "logs/\(id)"))
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("cr-key=\(key)", forHTTPHeaderField: "Cookie")
+        req.timeoutInterval = 10
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw APIClientError.badResponse }
+        guard http.statusCode == 200 else {
+            throw APIClientError.server(status: http.statusCode, message: extractError(data) ?? "Failed to load log body (HTTP \(http.statusCode))")
+        }
+        return try JSONDecoder().decode(LogBodyDetail.self, from: data)
     }
 
     /// GET /usage — aggregate token totals from the usage DB.

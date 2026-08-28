@@ -2,8 +2,9 @@ import Combine
 import Foundation
 
 /// One event from the server's /logs endpoint (either the request or response phase).
-struct LogEntry: Codable, Identifiable {
-    let id: String
+struct LogEntry: Codable {
+    var id: Int? = nil
+    let requestId: String
     let phase: String
     let time: Double
     let method: String
@@ -17,6 +18,23 @@ struct LogEntry: Codable, Identifiable {
     let cachedTokens: Int?
     let requestBody: String?
     let responseBody: String?
+
+    enum CodingKeys: String, CodingKey {
+        case requestId = "id"
+        case phase
+        case time
+        case method
+        case path
+        case status
+        case durationMs
+        case ttftMs
+        case generationMs
+        case inputTokens
+        case outputTokens
+        case cachedTokens
+        case requestBody
+        case responseBody
+    }
 }
 
 /// An entry from the usage DB (GET /logs with Accept: application/json).
@@ -41,7 +59,8 @@ struct LogHistoryEntry: Codable {
 
     var asLogEntry: LogEntry {
         LogEntry(
-            id: requestId,
+            id: id,
+            requestId: requestId,
             phase: "response",
             time: time,
             method: method,
@@ -61,7 +80,9 @@ struct LogHistoryEntry: Codable {
 
 /// A single request row; the response phase merges into the row started by the request phase.
 struct LogRow: Identifiable {
-    let id: String
+    let requestId: String
+    var id: String { requestId }
+    let dbId: Int?
     let time: Date
     let method: String
     let path: String
@@ -75,7 +96,8 @@ struct LogRow: Identifiable {
     var responseBody: String?
 
     init(entry: LogEntry) {
-        id = entry.id
+        requestId = entry.requestId
+        dbId = entry.id
         time = Date(timeIntervalSince1970: entry.time / 1000)
         method = entry.method
         path = entry.path
@@ -113,6 +135,7 @@ final class LogsViewModel: ObservableObject {
 
     private var rowsById: [String: Int] = [:]
     private var pendingBuffer: [LogEntry] = []
+    private var loadingBodies: Set<Int> = []
     private var streamTask: Task<Void, Never>?
     private var stateCancellable: AnyCancellable?
     private let maxRows = 500
@@ -167,6 +190,29 @@ final class LogsViewModel: ObservableObject {
     func clear() {
         rows.removeAll()
         rowsById.removeAll()
+        loadingBodies.removeAll()
+    }
+
+    /// History entries never carry bodies (the server omits them from /logs JSON),
+    /// so fetch a single row's bodies on demand via /logs/<id> when the row is shown.
+    func loadBodies(for rowID: LogRow.ID?) {
+        guard let rowID, let idx = rowsById[rowID], let dbId = rows[idx].dbId else { return }
+        guard !loadingBodies.contains(dbId) else { return }
+        loadingBodies.insert(dbId)
+        let port = server.port
+        let key = authKey()
+        Task { [weak self] in
+            defer { self?.loadingBodies.remove(dbId) }
+            guard let detail = try? await APIClient.getLogDetail(port: port, key: key, id: dbId) else { return }
+            guard let self, let idx = self.rowsById[rowID] else { return }
+            self.rows[idx].requestBody = detail.requestBody ?? self.rows[idx].requestBody
+            self.rows[idx].responseBody = detail.responseBody ?? self.rows[idx].responseBody
+        }
+    }
+
+    func isLoadingBodies(for rowID: LogRow.ID?) -> Bool {
+        guard let rowID, let idx = rowsById[rowID], let dbId = rows[idx].dbId else { return false }
+        return loadingBodies.contains(dbId)
     }
 
     // MARK: Connection
@@ -249,12 +295,12 @@ final class LogsViewModel: ObservableObject {
     }
 
     private func apply(_ entry: LogEntry) {
-        if let idx = rowsById[entry.id] {
+        if let idx = rowsById[entry.requestId] {
             rows[idx].merge(entry)
             objectWillChange.send()
         } else {
             rows.append(LogRow(entry: entry))
-            rowsById[entry.id] = rows.count - 1
+            rowsById[entry.requestId] = rows.count - 1
             if rows.count > maxRows {
                 rows.removeFirst(rows.count - maxRows)
                 rebuildIndex()
@@ -266,7 +312,7 @@ final class LogsViewModel: ObservableObject {
     private func rebuildIndex() {
         rowsById.removeAll()
         for (i, row) in rows.enumerated() {
-            rowsById[row.id] = i
+            rowsById[row.requestId] = i
         }
     }
 
