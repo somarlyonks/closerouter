@@ -12,6 +12,10 @@
 - **Streaming is critical** — `/v1/chat/completions` must support SSE streaming. Proxy responses should stream chunks back to the client without buffering the entire response.
 - **OpenAI-format only** — only proxy providers that speak the OpenAI API format. The router itself only exposes `/v1/chat/completions`, `/v1/responses`, and `/v1/models`.
 
+## Version Control
+
+- **Never `git commit` without explicit approval from the user.** Leave changes in the working tree and report them; the user decides when (and whether) to commit.
+
 ## File Structure
 
 ```

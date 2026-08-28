@@ -258,20 +258,37 @@ final class LogsViewModel: ObservableObject {
         isConnected = true
         defer { isConnected = false }
 
+        // Read raw bytes and split into lines ourselves: URLSession's `bytes.lines`
+        // (AsyncLineSequence) silently drops blank lines, so `line.isEmpty` would
+        // never fire and SSE frames (separated by blank lines) would never decode.
         var eventName = ""
         var dataLines: [String] = []
-        for try await line in bytes.lines {
-            if line.isEmpty {
-                if eventName == "log", let group = parseLogGroup(dataLines.joined(separator: "\n")) {
-                    handle(group)
-                }
-                eventName = ""
-                dataLines = []
-            } else if line.hasPrefix("event:") {
-                eventName = line.dropFirst("event:".count).trimmingCharacters(in: .whitespaces)
-            } else if line.hasPrefix("data:") {
-                dataLines.append(line.dropFirst("data:".count).trimmingCharacters(in: .whitespaces))
+        var lineBytes: [UInt8] = []
+        lineBytes.reserveCapacity(1024)
+        for try await byte in bytes {
+            if byte == 10 { // \n
+                let line = String(bytes: lineBytes, encoding: .utf8) ?? ""
+                processSSELine(line, eventName: &eventName, dataLines: &dataLines)
+                lineBytes.removeAll(keepingCapacity: true)
+            } else if byte != 13 { // strip \r
+                lineBytes.append(byte)
             }
+        }
+    }
+
+    /// Feed one SSE line (without the trailing newline) into the frame accumulator.
+    /// A blank line closes the current frame; only `event: log` frames are handled.
+    private func processSSELine(_ line: String, eventName: inout String, dataLines: inout [String]) {
+        if line.isEmpty {
+            if eventName == "log", let group = parseLogGroup(dataLines.joined(separator: "\n")) {
+                handle(group)
+            }
+            eventName = ""
+            dataLines = []
+        } else if line.hasPrefix("event:") {
+            eventName = line.dropFirst("event:".count).trimmingCharacters(in: .whitespaces)
+        } else if line.hasPrefix("data:") {
+            dataLines.append(line.dropFirst("data:".count).trimmingCharacters(in: .whitespaces))
         }
     }
 
