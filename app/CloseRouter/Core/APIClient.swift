@@ -17,7 +17,7 @@ enum APIClientError: LocalizedError {
 /// Minimal HTTP client for the closerouter server's local API.
 enum APIClient {
     struct LogEntriesResponse: Decodable {
-        let entries: [LogHistoryEntry]
+        let entries: [LogHistory]
     }
 
     struct LogBodyDetail: Decodable {
@@ -96,7 +96,7 @@ enum APIClient {
     }
 
     /// GET /logs as JSON — historical log entries from the usage DB.
-    static func getLogEntries(port: Int, key: String) async throws -> [LogEntry] {
+    static func getLogEntries(port: Int, key: String) async throws -> [LogGroup] {
         var req = URLRequest(url: url(port: port, path: "logs"))
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("cr-key=\(key)", forHTTPHeaderField: "Cookie")
@@ -107,7 +107,7 @@ enum APIClient {
             throw APIClientError.server(status: http.statusCode, message: extractError(data) ?? "Failed to load logs (HTTP \(http.statusCode))")
         }
         let payload = try JSONDecoder().decode(LogEntriesResponse.self, from: data)
-        return payload.entries.map(\.asLogEntry)
+        return payload.entries.map(LogGroup.init(history:))
     }
 
     /// GET /logs/<id> — request/response bodies for a single history row.

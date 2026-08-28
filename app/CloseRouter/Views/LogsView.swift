@@ -3,7 +3,7 @@ import SwiftUI
 
 struct LogsView: View {
     @StateObject private var viewModel = LogsViewModel()
-    @State private var selection: LogRow.ID?
+    @State private var selection: LogGroup.ID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,7 +48,7 @@ struct LogsView: View {
     // MARK: Table
 
     private var table: some View {
-        Table(viewModel.displayedRows, selection: $selection) {
+        Table(viewModel.displayedGroups, selection: $selection) {
             TableColumn("Time") { row in
                 Text(row.time.formatted(date: .omitted, time: .standard))
                     .monospacedDigit()
@@ -99,7 +99,7 @@ struct LogsView: View {
 
     // MARK: Detail inspector
 
-    private func detailInspector(_ row: LogRow) -> some View {
+    private func detailInspector(_ row: LogGroup) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if let bodyText = row.requestBody, !bodyText.isEmpty {
@@ -163,7 +163,7 @@ struct LogsView: View {
                 Label("Not connected", systemImage: "slash.circle")
                     .foregroundStyle(.secondary)
             }
-            Text("\(viewModel.displayedRows.count) requests")
+            Text("\(viewModel.displayedGroups.count) requests")
                 .foregroundStyle(.secondary)
             Spacer()
             Text(serverStateLabel)
@@ -177,9 +177,9 @@ struct LogsView: View {
 
     // MARK: Helpers
 
-    private var selectedRow: LogRow? {
+    private var selectedRow: LogGroup? {
         guard let selection else { return nil }
-        return viewModel.displayedRows.first { $0.id == selection }
+        return viewModel.displayedGroups.first { $0.id == selection }
     }
 
     private var serverStateLabel: String {
@@ -213,7 +213,7 @@ struct LogsView: View {
         return "\(v) ms"
     }
 
-    private func tokensText(_ row: LogRow) -> String {
+    private func tokensText(_ row: LogGroup) -> String {
         let input = row.inputTokens ?? 0
         let output = row.outputTokens ?? 0
         if input == 0 && output == 0 { return "—" }

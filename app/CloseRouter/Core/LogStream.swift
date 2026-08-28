@@ -1,14 +1,13 @@
 import Combine
 import Foundation
 
-/// One event from the server's /logs endpoint (either the request or response phase).
-struct LogEntry: Codable {
-    var id: Int? = nil
-    let requestId: String
-    let phase: String
+struct LogEvent: Decodable {
+    let id: String
     let time: Double
     let method: String
     let path: String
+    let provider: String?
+    let model: String?
     let status: Int?
     let durationMs: Int?
     let ttftMs: Int?
@@ -18,28 +17,9 @@ struct LogEntry: Codable {
     let cachedTokens: Int?
     let requestBody: String?
     let responseBody: String?
-
-    enum CodingKeys: String, CodingKey {
-        case requestId = "id"
-        case phase
-        case time
-        case method
-        case path
-        case status
-        case durationMs
-        case ttftMs
-        case generationMs
-        case inputTokens
-        case outputTokens
-        case cachedTokens
-        case requestBody
-        case responseBody
-    }
 }
 
-/// An entry from the usage DB (GET /logs with Accept: application/json).
-/// Different shape: numeric row `id`, the request UUID in `requestId`, and no `phase`.
-struct LogHistoryEntry: Codable {
+struct LogHistory: Decodable {
     let id: Int
     let requestId: String
     let time: Double
@@ -56,97 +36,109 @@ struct LogHistoryEntry: Codable {
     let cachedTokens: Int?
     let requestBody: String?
     let responseBody: String?
-
-    var asLogEntry: LogEntry {
-        LogEntry(
-            id: id,
-            requestId: requestId,
-            phase: "response",
-            time: time,
-            method: method,
-            path: path,
-            status: status,
-            durationMs: durationMs,
-            ttftMs: ttftMs,
-            generationMs: generationMs,
-            inputTokens: inputTokens,
-            outputTokens: outputTokens,
-            cachedTokens: cachedTokens,
-            requestBody: requestBody,
-            responseBody: responseBody
-        )
-    }
 }
 
-/// A single request row; the response phase merges into the row started by the request phase.
-struct LogRow: Identifiable {
+struct LogGroup: Identifiable, Equatable {
     let requestId: String
     var id: String { requestId }
-    let dbId: Int?
+    /// Numeric usage-DB row id (from history); nil for live events.
+    var dbId: Int?
     let time: Date
     let method: String
     let path: String
+    var provider: String?
+    var model: String?
     var status: Int?
     var durationMs: Int?
     var ttftMs: Int?
+    var generationMs: Int?
     var inputTokens: Int?
     var outputTokens: Int?
     var cachedTokens: Int?
     var requestBody: String?
     var responseBody: String?
 
-    init(entry: LogEntry) {
-        requestId = entry.requestId
-        dbId = entry.id
-        time = Date(timeIntervalSince1970: entry.time / 1000)
-        method = entry.method
-        path = entry.path
-        status = entry.status
-        durationMs = entry.durationMs
-        ttftMs = entry.ttftMs
-        inputTokens = entry.inputTokens
-        outputTokens = entry.outputTokens
-        cachedTokens = entry.cachedTokens
-        requestBody = entry.requestBody
-        responseBody = entry.responseBody
+    init(event: LogEvent) {
+        requestId = event.id
+        dbId = nil
+        time = Date(timeIntervalSince1970: event.time / 1000)
+        method = event.method
+        path = event.path
+        provider = event.provider
+        model = event.model
+        status = event.status
+        durationMs = event.durationMs
+        ttftMs = event.ttftMs
+        generationMs = event.generationMs
+        inputTokens = event.inputTokens
+        outputTokens = event.outputTokens
+        cachedTokens = event.cachedTokens
+        requestBody = event.requestBody
+        responseBody = event.responseBody
     }
 
-    mutating func merge(_ entry: LogEntry) {
-        status = entry.status ?? status
-        durationMs = entry.durationMs ?? durationMs
-        ttftMs = entry.ttftMs ?? ttftMs
-        inputTokens = entry.inputTokens ?? inputTokens
-        outputTokens = entry.outputTokens ?? outputTokens
-        cachedTokens = entry.cachedTokens ?? cachedTokens
-        requestBody = entry.requestBody ?? requestBody
-        responseBody = entry.responseBody ?? responseBody
+    init(history: LogHistory) {
+        requestId = history.requestId
+        dbId = history.id
+        time = Date(timeIntervalSince1970: history.time / 1000)
+        method = history.method
+        path = history.path
+        provider = history.provider
+        model = history.model
+        status = history.status
+        durationMs = history.durationMs
+        ttftMs = history.ttftMs
+        generationMs = history.generationMs
+        inputTokens = history.inputTokens
+        outputTokens = history.outputTokens
+        cachedTokens = history.cachedTokens
+        requestBody = history.requestBody
+        responseBody = history.responseBody
+    }
+
+    /// Fold a newer group for the same request into this one. The response phase
+    /// is self-contained, so this overwrites the optional response-side fields;
+    /// the fallbacks keep a filled row intact if an update ever omits a field.
+    mutating func merge(_ other: LogGroup) {
+        dbId = other.dbId ?? dbId
+        provider = other.provider ?? provider
+        model = other.model ?? model
+        status = other.status ?? status
+        durationMs = other.durationMs ?? durationMs
+        ttftMs = other.ttftMs ?? ttftMs
+        generationMs = other.generationMs ?? generationMs
+        inputTokens = other.inputTokens ?? inputTokens
+        outputTokens = other.outputTokens ?? outputTokens
+        cachedTokens = other.cachedTokens ?? cachedTokens
+        requestBody = other.requestBody ?? requestBody
+        responseBody = other.responseBody ?? responseBody
     }
 }
 
-/// Consumes the /logs SSE stream and maintains a live, filterable list of request rows.
+/// Consumes the /logs SSE stream and maintains a live, filterable list of log groups.
 @MainActor
 final class LogsViewModel: ObservableObject {
     private let server = ServerManager.shared
 
-    @Published private(set) var rows: [LogRow] = []
+    @Published private(set) var groups: [LogGroup] = []
     @Published private(set) var isConnected = false
     @Published var isPaused = false
     @Published var filterText = ""
 
-    private var rowsById: [String: Int] = [:]
-    private var pendingBuffer: [LogEntry] = []
+    private var groupsById: [String: Int] = [:]
+    private var pendingBuffer: [LogGroup] = []
     private var loadingBodies: Set<Int> = []
     private var streamTask: Task<Void, Never>?
     private var stateCancellable: AnyCancellable?
     private let maxRows = 500
 
-    var displayedRows: [LogRow] {
-        guard !filterText.isEmpty else { return rows }
+    var displayedGroups: [LogGroup] {
+        guard !filterText.isEmpty else { return groups }
         let f = filterText.lowercased()
-        return rows.filter { row in
-            row.method.lowercased().contains(f)
-                || row.path.lowercased().contains(f)
-                || (row.status.map { String($0).contains(f) } ?? false)
+        return groups.filter { group in
+            group.method.lowercased().contains(f)
+                || group.path.lowercased().contains(f)
+                || (group.status.map { String($0).contains(f) } ?? false)
         }
     }
 
@@ -182,21 +174,21 @@ final class LogsViewModel: ObservableObject {
     func togglePause() {
         isPaused.toggle()
         if !isPaused {
-            for entry in pendingBuffer { apply(entry) }
+            for group in pendingBuffer { apply(group) }
             pendingBuffer.removeAll()
         }
     }
 
     func clear() {
-        rows.removeAll()
-        rowsById.removeAll()
+        groups.removeAll()
+        groupsById.removeAll()
         loadingBodies.removeAll()
     }
 
     /// History entries never carry bodies (the server omits them from /logs JSON),
     /// so fetch a single row's bodies on demand via /logs/<id> when the row is shown.
-    func loadBodies(for rowID: LogRow.ID?) {
-        guard let rowID, let idx = rowsById[rowID], let dbId = rows[idx].dbId else { return }
+    func loadBodies(for rowID: LogGroup.ID?) {
+        guard let rowID, let idx = groupsById[rowID], let dbId = groups[idx].dbId else { return }
         guard !loadingBodies.contains(dbId) else { return }
         loadingBodies.insert(dbId)
         let port = server.port
@@ -204,14 +196,14 @@ final class LogsViewModel: ObservableObject {
         Task { [weak self] in
             defer { self?.loadingBodies.remove(dbId) }
             guard let detail = try? await APIClient.getLogDetail(port: port, key: key, id: dbId) else { return }
-            guard let self, let idx = self.rowsById[rowID] else { return }
-            self.rows[idx].requestBody = detail.requestBody ?? self.rows[idx].requestBody
-            self.rows[idx].responseBody = detail.responseBody ?? self.rows[idx].responseBody
+            guard let self, let idx = self.groupsById[rowID] else { return }
+            self.groups[idx].requestBody = detail.requestBody ?? self.groups[idx].requestBody
+            self.groups[idx].responseBody = detail.responseBody ?? self.groups[idx].responseBody
         }
     }
 
-    func isLoadingBodies(for rowID: LogRow.ID?) -> Bool {
-        guard let rowID, let idx = rowsById[rowID], let dbId = rows[idx].dbId else { return false }
+    func isLoadingBodies(for rowID: LogGroup.ID?) -> Bool {
+        guard let rowID, let idx = groupsById[rowID], let dbId = groups[idx].dbId else { return false }
         return loadingBodies.contains(dbId)
     }
 
@@ -221,7 +213,7 @@ final class LogsViewModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             if let entries = try? await APIClient.getLogEntries(port: self.server.port, key: self.authKey()) {
-                for entry in entries { self.apply(entry) }
+                for group in entries { self.apply(group) }
             }
             self.connect()
         }
@@ -270,8 +262,8 @@ final class LogsViewModel: ObservableObject {
         var dataLines: [String] = []
         for try await line in bytes.lines {
             if line.isEmpty {
-                if eventName == "log", let entry = parseLogEntry(dataLines.joined(separator: "\n")) {
-                    handle(entry)
+                if eventName == "log", let group = parseLogGroup(dataLines.joined(separator: "\n")) {
+                    handle(group)
                 }
                 eventName = ""
                 dataLines = []
@@ -285,24 +277,24 @@ final class LogsViewModel: ObservableObject {
 
     // MARK: Entry handling
 
-    private func handle(_ entry: LogEntry) {
+    private func handle(_ group: LogGroup) {
         if isPaused {
-            pendingBuffer.append(entry)
+            pendingBuffer.append(group)
             if pendingBuffer.count > 200 { pendingBuffer.removeFirst() }
             return
         }
-        apply(entry)
+        apply(group)
     }
 
-    private func apply(_ entry: LogEntry) {
-        if let idx = rowsById[entry.requestId] {
-            rows[idx].merge(entry)
+    private func apply(_ group: LogGroup) {
+        if let idx = groupsById[group.requestId] {
+            groups[idx].merge(group)
             objectWillChange.send()
         } else {
-            rows.append(LogRow(entry: entry))
-            rowsById[entry.requestId] = rows.count - 1
-            if rows.count > maxRows {
-                rows.removeFirst(rows.count - maxRows)
+            groups.append(group)
+            groupsById[group.requestId] = groups.count - 1
+            if groups.count > maxRows {
+                groups.removeFirst(groups.count - maxRows)
                 rebuildIndex()
             }
             objectWillChange.send()
@@ -310,15 +302,16 @@ final class LogsViewModel: ObservableObject {
     }
 
     private func rebuildIndex() {
-        rowsById.removeAll()
-        for (i, row) in rows.enumerated() {
-            rowsById[row.requestId] = i
+        groupsById.removeAll()
+        for (i, group) in groups.enumerated() {
+            groupsById[group.requestId] = i
         }
     }
 
-    private func parseLogEntry(_ json: String) -> LogEntry? {
-        guard let data = json.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(LogEntry.self, from: data)
+    private func parseLogGroup(_ json: String) -> LogGroup? {
+        guard let data = json.data(using: .utf8),
+              let event = try? JSONDecoder().decode(LogEvent.self, from: data) else { return nil }
+        return LogGroup(event: event)
     }
 
     private func authKey() -> String {
