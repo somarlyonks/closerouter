@@ -4,12 +4,14 @@ import {router, needsCookie, withMethod, MAX_BODY, handleHTML, applyUsageObject,
 import {recordUsage, loadUsage, loadUsageBody} from './db'
 import {indexHTML} from './index.html'
 
-export interface LogEntry {
+export interface LogGroup {
     id: string
     phase: 'request' | 'response'
     time: number
     method: string
     path: string
+    provider?: string
+    model?: string
     status?: number
     durationMs?: number
     ttftMs?: number
@@ -37,11 +39,11 @@ function hasUsage (usage: TokenUsage | undefined): boolean {
     )
 }
 
-type LogListener = (entry: LogEntry) => void
+type LogListener = (entry: LogGroup) => void
 
 const listeners: LogListener[] = []
 
-export function publishLog (entry: LogEntry): void {
+export function publishLog (entry: LogGroup): void {
     for (const listener of listeners) listener(entry)
 }
 
@@ -145,12 +147,15 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
             : extractTokenUsage(responseLog?.body)
         const firstTokenAt = responseLog?.firstTokenAt
         const lastTokenAt = responseLog?.lastTokenAt
+
         publishLog({
             id,
             phase: 'response',
             time: Date.now(),
             method: req.method!,
             path: req.url!,
+            provider: responseLog?.provider,
+            model: responseLog?.model,
             status: responseLog?.status ?? (res.headersSent ? res.statusCode : undefined),
             durationMs: Date.now() - startedAt,
             ttftMs: firstTokenAt !== undefined ? firstTokenAt - startedAt : undefined,
@@ -158,6 +163,8 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             cachedTokens: usage.cachedTokens,
+            requestBody: readRequestBody(),
+            requestHeaders: req.headers,
             responseBody: responseLog?.body,
             responseHeaders: responseLog?.headers,
         })
