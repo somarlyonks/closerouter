@@ -27,6 +27,8 @@ CloseRouter:
         [x] config field
         [x] in momery
         [x] persistent
+    test:
+        [x] mock provider server
     app:
         scaffold:
             [x] xcode project
