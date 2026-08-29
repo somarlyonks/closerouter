@@ -33,13 +33,19 @@ CloseRouter:
         scaffold:
             [x] xcode project
             [x] bundle closerouter binary
-            [x] menu bar icon + empty window
+            [x] icon
             [x] run script build wiring
+            [ ] fix zed language server
         process core:
             [x] ServerManager (spawn/monitor/restart)
-            [x] health check via /status
             [x] menu bar start/stop + open window
             [x] default config in Application Support
+        overview:
+            [x] status banner
+            [x] usage totals
+            [x] provider/model list
+            [x] health check via /status
+            [x] notify when starting with occupied port
         config editor:
             [x] CodeTextView (NSTextView)
             [x] schema completions
@@ -49,16 +55,11 @@ CloseRouter:
             [x] SSE stream view
             [x] pause/filter/clear
             [x] history on open
-        polish:
+        settings:
             [x] launch at login (SMAppService)
             [x] notifications on crash/start
-            [x] settings
             [x] hide dock icon (accessory mode, menu bar + background server stay alive)
-        overview:
-            [x] status banner
-            [x] usage totals
-            [x] provider/model list
-        updates:
-            [x] UpdateChecker (GitHub releases API, semver compare)
-            [x] Settings > Updates section (Check Now, auto-check toggle, download link)
-            [x] auto-check on launch via AppDelegate
+            updates:
+                [x] UpdateChecker (GitHub releases API, semver compare)
+                [x] Settings > Updates section (Check Now, auto-check toggle, download link)
+                [x] auto-check on launch via AppDelegate

@@ -34,6 +34,14 @@ final class ServerManager: ObservableObject {
     private var healthTask: Task<Void, Never>?
     private var stopRequested = false
     private var restartBackoff: TimeInterval = 1.0
+    /// Byte offset in the stderr log where the current child's output begins, so a
+    /// port-conflict from an earlier start can't be misread as the current child's.
+    private var stderrStartOffset: UInt64 = 0
+
+    private var stderrPath: String {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("closerouter-stderr.log").path
+    }
 
     private var binaryURL: URL? {
         Bundle.main.url(forResource: "closerouter", withExtension: nil)
@@ -82,7 +90,24 @@ final class ServerManager: ObservableObject {
         process.executableURL = binaryURL
         process.arguments = ["server", "-c", ConfigStore.configURL.path]
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        // Capture stderr to a log file so we can diagnose why the child exited
+        // (e.g. the port already being in use) instead of restart-looping blind.
+        // The log is append-only and retained across runs — past failures stay
+        // readable for later diagnosis. Record where this run's output begins so
+        // only the current child's stderr is examined when the child exits.
+        if !FileManager.default.fileExists(atPath: stderrPath) {
+            FileManager.default.createFile(atPath: stderrPath, contents: nil)
+        }
+        if let handle = FileHandle(forWritingAtPath: stderrPath) {
+            handle.seekToEndOfFile()
+            let marker = "\n----- \(Date()) server start -----\n"
+            if let data = marker.data(using: .utf8) { handle.write(data) }
+            stderrStartOffset = handle.offsetInFile
+            process.standardError = handle
+        } else {
+            stderrStartOffset = UInt64.max
+            process.standardError = FileHandle.nullDevice
+        }
         process.terminationHandler = { [weak self] proc in
             Task { @MainActor in
                 self?.processDidExit(proc)
@@ -147,6 +172,16 @@ final class ServerManager: ObservableObject {
             stopRequested = false
             state = .stopped
         } else {
+            // Port conflict is a user action (another process holds the port), not a
+            // crash — surface it and stay stopped instead of restart-looping.
+            if failedDueToPortConflict() {
+                AppNotifications.post(
+                    title: "Couldn't start CloseRouter server",
+                    body: "Port \(port) is already in use. Stop the other process or change the port in Config."
+                )
+                state = .stopped
+                return
+            }
             // Unexpected exit — restart with backoff.
             AppNotifications.post(
                 title: "CloseRouter server stopped",
@@ -161,6 +196,21 @@ final class ServerManager: ObservableObject {
                 self.start()
             }
         }
+    }
+
+    /// True when the current child failed to bind because the port is already taken.
+    /// Node's server.listen emits an unhandled EADDRINUSE error to stderr before exiting.
+    /// Only this run's segment of the retained log is inspected.
+    private func failedDueToPortConflict() -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: stderrPath) else { return false }
+        defer { try? handle.close() }
+        let end = handle.seekToEndOfFile()
+        guard end > stderrStartOffset else { return false }
+        handle.seek(toFileOffset: stderrStartOffset)
+        let length = Int(end - stderrStartOffset)
+        guard let data = try? handle.read(upToCount: length),
+              let text = String(data: data, encoding: .utf8) else { return false }
+        return text.contains("EADDRINUSE") || text.contains("address already in use")
     }
 
     private func startHealthMonitoring() {
