@@ -35,7 +35,7 @@ CloseRouter:
             [x] bundle closerouter binary
             [x] icon
             [x] run script build wiring
-            [ ] fix zed language server
+            [x] fix zed language server
         process core:
             [x] ServerManager (spawn/monitor/restart)
             [x] menu bar start/stop + open window

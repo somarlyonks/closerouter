@@ -36,8 +36,10 @@ final class UpdateChecker: ObservableObject {
     }
 
     static let shared = UpdateChecker()
-    static let repo = "somarlyonks/closerouter"
-    private static let latestReleaseURL = URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
+    nonisolated private static var repo: String { "somarlyonks/closerouter" }
+    nonisolated private static var latestReleaseURL: URL {
+        URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
+    }
 
     @Published private(set) var state: State = .idle
 
