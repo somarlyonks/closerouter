@@ -88,12 +88,17 @@ app/CloseRouter/
 - **Auth**: `Bearer` for `/config`, `/usage`, `/v1/models`; `Cookie: cr-key=` for `/logs` (SSE + JSON).
   Read the key from `ConfigStore.read().key`, never prompt.
 - **JSONSchema is a `final class`** (not a struct) — it recursively contains itself.
-- **Deployment target is 14.0** (`MACOSX_DEPLOYMENT_TARGET` in both project configs).
-- **`project.pbxproj` is hand-written** (no xcodegen). Any new file must be registered manually in 4
-  places: a PBXFileReference, a PBXBuildFile, the owning PBXGroup `children`, and the Sources (or
-  Resources) phase. Keep IDs as unique 24-char hex strings (the file uses `0000000000000000000000XX`).
-- **The schema** is referenced in-place as `../../closerouter-schema.json` (relative to the
-  `CloseRouter` group) and copied to Resources, so it stays in sync with the repo root automatically.
+- **Deployment target is 14.0** (`MACOSX_DEPLOYMENT_TARGET` in `app/project.yml`).
+- **The app project is xcodegen-generated**: `app/project.yml` is the source of truth, and
+  `app/CloseRouter.xcodeproj` is a **generated, gitignored artifact** — never edit it by hand, and it
+  isn't in the repo. `xcodegen` is a required prerequisite (`brew install xcodegen`). Regenerate with
+  `npm run prebuild:app` (also runs automatically before `npm run build:app`); on a fresh
+  checkout run it once before opening Xcode or using sourcekit-lsp/xcode-build-server. To add a new
+  Swift file just drop it under `app/CloseRouter/` (the `sources` glob picks it up); to add/change a
+  resource edit `project.yml` (some resources are out-of-tree: `../closerouter.json`,
+  `../closerouter-schema.json`, `../assets/logo.svg`).
+- **The schema** is referenced from `project.yml` as `../closerouter-schema.json` and copied to
+  Resources, so it stays in sync with the repo root automatically.
 - When adding a sidebar page: add a case to `AppSection` (defined in `MainView.swift`), give it
   `title` + `systemImage`, and add a `case` to the detail switch.
 - Track every change in `closerouter.todo` (see the `todo` skill).

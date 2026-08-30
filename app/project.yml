@@ -1,0 +1,80 @@
+name: CloseRouter
+options:
+    createIntermediateGroups: true
+    deploymentTarget:
+        macOS: "14.0"
+
+targets:
+    CloseRouter:
+        type: application
+        platform: macOS
+        deploymentTarget: "14.0"
+        sources:
+            - path: CloseRouter
+              excludes:
+                  - "**/Info.plist"
+                  - "**/*.json"
+                  - "**/*.svg"
+                  - "**/*.xcassets"
+            - path: CloseRouter/Assets.xcassets
+              buildPhase: resources
+            - path: ../closerouter.json
+              buildPhase: resources
+            - path: ../closerouter-schema.json
+              buildPhase: resources
+            - path: ../assets/logo.svg
+              buildPhase: resources
+        settings:
+            base:
+                PRODUCT_BUNDLE_IDENTIFIER: com.somarlyonks.closerouter
+                PRODUCT_NAME: "$(TARGET_NAME)"
+                MARKETING_VERSION: 0.3.0
+                CURRENT_PROJECT_VERSION: 1
+                SWIFT_VERSION: "5.0"
+                CODE_SIGN_STYLE: Manual
+                CODE_SIGN_IDENTITY: "-"
+                GENERATE_INFOPLIST_FILE: NO
+                INFOPLIST_FILE: CloseRouter/Info.plist
+                COMBINE_HIDPI_IMAGES: YES
+                LD_RUNPATH_SEARCH_PATHS:
+                    - "$(inherited)"
+                    - "@executable_path/../Frameworks"
+                ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+            configs:
+                Debug:
+                    SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+                    ONLY_ACTIVE_ARCH: YES
+                    ENABLE_TESTABILITY: YES
+                    MTL_ENABLE_DEBUG_INFO: INCLUDE_SOURCE
+                    DEBUG_INFORMATION_FORMAT: dwarf
+                Release:
+                    SWIFT_OPTIMIZATION_LEVEL: "-O"
+                    SWIFT_COMPILATION_MODE: wholemodule
+                    ENABLE_NS_ASSERTIONS: NO
+                    VALIDATE_PRODUCT: YES
+                    MTL_ENABLE_DEBUG_INFO: NO
+                    DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+        postBuildScripts:
+            - name: Embed closerouter binary
+              basedOnDependencyAnalysis: false
+              script: |
+                  set -e
+                  cd "$SRCROOT/.."
+                  if [ ! -f "dist/closerouter" ]; then
+                    echo "building closerouter..."
+                    npm run build:cli
+                  fi
+                  RES="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
+                  mkdir -p "$RES"
+                  cp "dist/closerouter" "$RES/closerouter"
+                  codesign --force --sign - "$RES/closerouter"
+
+schemes:
+    CloseRouter:
+        build:
+            targets:
+                CloseRouter: all
+        run:
+            config: Debug
+        archive:
+            config: Release
