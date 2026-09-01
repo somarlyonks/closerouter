@@ -10,7 +10,7 @@ test('handleListModels fetches and normalizes models from each provider', async 
         res.end(JSON.stringify({data: [{id: 'm1'}, {id: 'm2', owned_by: 'vendor'}]}))
     })
     const config: RuntimeConfig = {
-        path: '', port: 6712, key: 'k',
+        raw: '', dbPath: '', port: 6712, key: 'k',
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
     }
     const srv = await startHandlerServer(handleListModels, {config})
@@ -40,7 +40,7 @@ test('handleListModels falls back to config models when the backend returns a no
         res.end('err')
     })
     const config: RuntimeConfig = {
-        path: '', port: 6712, key: 'k',
+        raw: '', dbPath: '', port: 6712, key: 'k',
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: ['fallback-a', {id: 'fallback-b'}]}},
     }
     const srv = await startHandlerServer(handleListModels, {config})
@@ -66,7 +66,7 @@ test('handleListModels falls back to config models when the backend response is 
         res.end(JSON.stringify({notdata: 1}))
     })
     const config: RuntimeConfig = {
-        path: '', port: 6712, key: 'k',
+        raw: '', dbPath: '', port: 6712, key: 'k',
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: [{id: 'cfg-model'}]}},
     }
     const srv = await startHandlerServer(handleListModels, {config})
