@@ -14,7 +14,7 @@
     "scripts": {
         "test:db": "scriptc build test/db.test.ts --ffi native/ffi.json -o dist/db-test && ./dist/db-test",
         "pretest": "node build.ts",
-        "test": "node --import ./test/loader.mjs --test",
+        "test": "node --import ./test/loader.mjs --test \"test/**/*.test.ts\"",
         "prestart": "node build.ts",
         "start": "scriptc run lib/cli.ts --ffi native/ffi.json",
         "prebuild:cli": "node build.ts",
