@@ -16,8 +16,8 @@ tracked in **`closerouter.todo`** (see the `todo` skill). This skill is the impl
 ## Build & run
 
 - **Release app (canonical):** `npm run build` — runs `build:cli` (compiles the closerouter binary to
-  `dist/closerouter`) then `xcodebuild -scheme CloseRouter -configuration Release`. Output lands in
-  `~/Library/Developer/Xcode/DerivedData/CloseRouter-*/Build/Products/Release/CloseRouter.app`.
+  `dist/closerouter`) then `build:app`. Output lands in **`dist/CloseRouter.app`** (built under
+  `dist/xcodebuild/` and copied up for easy access).
 - **Binary only:** `npm run build:cli` (`scriptc build lib/cli.ts --ffi native/ffi.json -o dist/closerouter`).
 - **Debug (fast):** `xcodebuild -project app/CloseRouter.xcodeproj -scheme CloseRouter -configuration Debug -derivedDataPath app/build/DerivedData build` then run
   `app/build/DerivedData/Build/Products/Debug/CloseRouter.app`.
