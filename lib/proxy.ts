@@ -3,6 +3,7 @@ import * as https from 'https'
 import {ClientRequest, IncomingMessage, ServerResponse} from 'http'
 import {appendResponseBody, feedStreamUsage, logResponse} from './util'
 import type {ResponseLog, RequestContext, UsageCounts} from './util'
+import type {ProviderConfig} from './config'
 
 function getPort (targetUrl: URL, isHttps: boolean): number {
     const host = targetUrl.host
@@ -254,6 +255,7 @@ export function proxyModelRequest (
             try {
                 const parsed = JSON.parse(body)
                 parsed.model = realModel
+                if (isGoogleProvider(provider)) return injectGoogleThoughtSignature(JSON.stringify(parsed))
                 return JSON.stringify(parsed)
             } catch {
                 return body
@@ -284,4 +286,57 @@ export function proxyModelRequest (
             }))
         }
     })
+}
+
+export function isGoogleProvider ({base_url}: Pick<ProviderConfig, 'base_url'>): boolean {
+    return base_url.includes('generativelanguage.googleapis.com')
+        || base_url.includes('aiplatform.googleapis.com')
+}
+
+export function injectGoogleThoughtSignature (body: string): string {
+    let parsed: Record<string, unknown>
+    try {
+        parsed = JSON.parse(body) as Record<string, unknown>
+    } catch {
+        return body
+    }
+    const sentinel = 'skip_thought_signature_validator'
+    const messages = parsed.messages
+    if (!Array.isArray(messages)) return body
+    const msgs = messages as Array<Record<string, unknown>>
+    const newMessages: Array<Record<string, unknown>> = []
+    for (let i = 0; i < msgs.length; i++) {
+        const m = msgs[i]
+        if (typeof m !== 'object' || m === null) {
+            newMessages.push(m)
+            continue
+        }
+        if (m.role !== 'assistant') {
+            newMessages.push(m)
+            continue
+        }
+        const tcs = m.tool_calls
+        if (!Array.isArray(tcs)) {
+            newMessages.push(m)
+            continue
+        }
+        const tcArr = tcs as Array<Record<string, unknown>>
+        const newTcs: Array<Record<string, unknown>> = []
+        for (let j = 0; j < tcArr.length; j++) {
+            const t = tcArr[j]
+            if (typeof t !== 'object' || t === null) {
+                newTcs.push(t)
+                continue
+            }
+            const g = (t.extra_content as Record<string, unknown> | undefined)?.google as Record<string, unknown> | undefined
+            if (typeof g?.thought_signature === 'string') {
+                newTcs.push(t)
+                continue
+            }
+            newTcs.push({...t, extra_content: {google: {thought_signature: sentinel}}})
+        }
+        newMessages.push({...m, tool_calls: newTcs})
+    }
+    parsed.messages = newMessages
+    return JSON.stringify(parsed)
 }

@@ -2,6 +2,7 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import type {RuntimeConfig} from '../lib/config'
 import {v1Router} from '../lib/server/v1'
+import {isGoogleProvider, injectGoogleThoughtSignature} from '../lib/proxy'
 import {startMockBackend, startHandlerServer} from './helpers'
 
 function configFor (baseUrl: string): RuntimeConfig {
@@ -82,6 +83,81 @@ test('v1 router forwards POST /v1/responses with the provider prefix stripped', 
 
         const sent = JSON.parse(backend.requests[0].body) as {model: string}
         assert.equal(sent.model, 'gpt')
+    } finally {
+        await srv.close()
+        await backend.close()
+    }
+})
+
+test('isGoogleProvider detects Google base URLs only', () => {
+    assert.equal(isGoogleProvider({base_url: 'https://generativelanguage.googleapis.com/v1beta/openai'}), true)
+    assert.equal(isGoogleProvider({base_url: 'https://us-central1-aiplatform.googleapis.com/v1'}), true)
+    assert.equal(isGoogleProvider({base_url: 'https://api.deepseek.com/v1'}), false)
+    assert.equal(isGoogleProvider({base_url: 'https://api.openai.com/v1'}), false)
+})
+
+test('injectGoogleThoughtSignature signs unsigned calls, leaves signed calls alone', () => {
+    const body = JSON.stringify({
+        model: 'gpt',
+        messages: [
+            {role: 'user', content: 'hi'},
+            {
+                role: 'assistant',
+                tool_calls: [
+                    {id: 'a', type: 'function', function: {name: 'read', arguments: '{}'}},
+                    {id: 'b', type: 'function', function: {name: 'read', arguments: '{}'}},
+                ],
+            },
+            {role: 'tool', tool_call_id: 'a', content: 'out'},
+        ],
+    })
+    // pre-sign the second call
+    const parsed = JSON.parse(body) as {messages: Array<{role: string, tool_calls?: Array<{id: string, extra_content?: unknown}>}>}
+    parsed.messages[1].tool_calls![1].extra_content = {google: {thought_signature: 'already-signed'}}
+
+    const out = injectGoogleThoughtSignature(JSON.stringify(parsed))
+
+    const result = JSON.parse(out) as {messages: Array<{role: string, tool_calls?: Array<{id: string, extra_content?: {google: {thought_signature: string}}}>}>}
+    const calls = result.messages.find(m => m.role === 'assistant')!.tool_calls!
+    assert.equal(calls[0].extra_content?.google?.thought_signature, 'skip_thought_signature_validator')
+    assert.equal(calls[1].extra_content?.google?.thought_signature, 'already-signed')
+})
+
+test('injectGoogleThoughtSignature ignores non-assistant and non-tool-call messages', () => {
+    const body = JSON.stringify({
+        model: 'gpt',
+        messages: [
+            {role: 'user', content: 'hi'},
+            {role: 'assistant', content: 'plain text'},
+            {role: 'tool', tool_call_id: 'a', content: 'out'},
+        ],
+    })
+    assert.equal(injectGoogleThoughtSignature(body), body)
+})
+
+test('v1 router only injects the sentinel for Google providers', async () => {
+    const backend = await startMockBackend((req, res) => {
+        res.writeHead(200, {'content-type': 'application/json'})
+        res.end(JSON.stringify({id: 'chatcmpl-1', choices: []}))
+    })
+    const srv = await startHandlerServer(v1Router, {config: configFor(backend.baseUrl)})
+    try {
+        const body = {
+            model: 'p/gpt',
+            messages: [
+                {role: 'assistant', tool_calls: [{id: 'a', type: 'function', function: {name: 'read', arguments: '{}'}}]},
+            ],
+        }
+        const res = await request(srv.port, '/v1/chat/completions', {
+            method: 'POST',
+            body: JSON.stringify(body),
+            headers: {'content-type': 'application/json'},
+        })
+        assert.equal(res.status, 200)
+        // non-Google provider (mock base URL): forwarded body must be untouched
+        const sent = JSON.parse(backend.requests[0].body) as {messages: Array<{role: string, tool_calls?: Array<Record<string, unknown>>}>}
+        const call = sent.messages.find(m => m.role === 'assistant')!.tool_calls![0]
+        assert.equal('extra_content' in call, false)
     } finally {
         await srv.close()
         await backend.close()
