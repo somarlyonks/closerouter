@@ -308,12 +308,11 @@ final class LogsViewModel: ObservableObject {
             groups[idx].merge(group)
             objectWillChange.send()
         } else {
-            groups.append(group)
-            groupsById[group.requestId] = groups.count - 1
+            groups.insert(group, at: 0)
             if groups.count > maxRows {
-                groups.removeFirst(groups.count - maxRows)
-                rebuildIndex()
+                groups.removeLast(groups.count - maxRows)
             }
+            rebuildIndex()
             objectWillChange.send()
         }
     }
