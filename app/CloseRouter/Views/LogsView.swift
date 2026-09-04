@@ -99,48 +99,50 @@ struct LogsView: View {
 
     // MARK: Detail inspector
 
+    /// Split detail inspector: request body on the left, response body on the right.
     private func detailInspector(_ row: LogGroup) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                if let bodyText = row.requestBody, !bodyText.isEmpty {
-                    section("Request", prettyBody(bodyText))
-                }
-                if let bodyText = row.responseBody, !bodyText.isEmpty {
-                    section("Response", prettyBody(bodyText))
-                }
-                if row.requestBody == nil || row.requestBody?.isEmpty == true,
-                   row.responseBody == nil || row.responseBody?.isEmpty == true {
-                    if viewModel.isLoadingBodies(for: row.id) {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text("Loading bodies…")
-                                .foregroundStyle(.secondary)
-                        }
-                        .font(.callout)
-                    } else {
-                        Text("No request/response bodies captured for this request.")
-                            .foregroundStyle(.secondary)
-                            .font(.callout)
-                    }
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(alignment: .top, spacing: 0) {
+            detailPane("Request", body: row.requestBody, row: row)
+            Divider()
+            detailPane("Response", body: row.responseBody, row: row)
         }
-        .frame(height: 160)
+        .frame(height: 200)
     }
 
-    private func section(_ title: String, _ bodyText: String) -> some View {
+    /// One side of the split detail inspector — a scrollable body or a placeholder.
+    private func detailPane(_ title: String, body: String?, row: LogGroup) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
-            Text(bodyText)
-                .font(.system(.caption, design: .monospaced))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if let body, !body.isEmpty {
+                ScrollView {
+                    Text(prettyBody(body))
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                }
+            } else {
+                VStack(spacing: 6) {
+                    Spacer()
+                    if viewModel.isLoadingBodies(for: row.id) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading \(title.lowercased()) body…")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("No \(title.lowercased()) body.")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .font(.callout)
+            }
         }
+        .padding(10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func prettyBody(_ text: String) -> String {
