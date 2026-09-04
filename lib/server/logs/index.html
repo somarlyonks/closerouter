@@ -199,7 +199,7 @@
             flips[key] = requestAnimationFrame(tick)
         }
 
-        function trim() {while (logEl.childNodes.length > MAX_ENTRIES) logEl.removeChild(logEl.firstChild)}
+        function trim() {while (logEl.childNodes.length > MAX_ENTRIES) logEl.removeChild(logEl.lastChild)}
 
         function classify(status) {
             if (status === undefined) return 'info'
@@ -320,7 +320,7 @@
                 ),
             )
 
-            logEl.appendChild(group)
+            logEl.insertBefore(group, logEl.firstChild)
             trim()
             groups.set(entry.id, {group})
 
@@ -350,7 +350,7 @@
             if (!groupEntry) {
                 const group = createElement('div', {className: 'group'}, createElement('div', {className: 'line res'}))
                 groupEntry = {group}
-                logEl.appendChild(group)
+                logEl.insertBefore(group, logEl.firstChild)
 
                 trim()
             }

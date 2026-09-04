@@ -53,11 +53,6 @@ export function initUsage (): void {
 export function loadUsage (limit = 500): UsageEntry[] {
     if (!initialized) return []
     try {
-        // Inner query keeps only the newest `limit` ids; outer sorts oldest-first
-        // so the page renders chronologically with the live SSE stream after it.
-        // Bodies are deliberately omitted: each can be up to MAX_BODY (1MB), so
-        // shipping them for every row dominates the transfer. The logs page
-        // fetches a single entry's body on demand via loadUsageBody.
         return all(
             'SELECT id, request_id, time, method, path, provider, model, status, duration_ms, ttft_ms, generation_ms, input_tokens, output_tokens, cached_tokens FROM (SELECT * FROM usage ORDER BY id DESC LIMIT ?) ORDER BY id ASC',
             [limit],
