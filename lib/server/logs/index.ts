@@ -206,7 +206,7 @@ function extractTokenUsage (body: string | undefined): TokenUsage {
     try {
         applyUsageObject(result, JSON.parse(body) as Record<string, unknown>)
     } catch {
-        // Not a single JSON document — fall through to SSE line parsing below.
+        // Not a single JSON document - fall through to SSE line parsing below.
     }
 
     if (result.inputTokens === undefined || result.outputTokens === undefined) {

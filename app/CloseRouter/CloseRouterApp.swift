@@ -3,7 +3,7 @@ import SwiftUI
 // The main window is owned by AppKit rather than a WindowGroup: closing a
 // WindowGroup window destroys it, which made reopening impossible (openWindow
 // actions go stale, and SwiftUI clears any NSWindowDelegate we install).
-// Keeping one NSWindow alive forever — "close" just orders it out — sidesteps
+// Keeping one NSWindow alive forever - "close" just orders it out - sidesteps
 // all of that while the status-bar item and server stay running.
 @MainActor
 final class MainWindowController: NSObject, NSWindowDelegate {

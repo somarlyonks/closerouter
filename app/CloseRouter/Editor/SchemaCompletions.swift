@@ -136,7 +136,7 @@ enum ConfigCompletionEngine {
     private static func valueCompletions(for schema: JSONSchema) -> [CompletionItem] {
         var items: [CompletionItem] = []
         if let enums = schema.enumValues {
-            // An enum is authoritative — don't also offer type-based suggestions.
+            // An enum is authoritative - don't also offer type-based suggestions.
             for v in enums {
                 if let s = v as? String {
                     items.append(CompletionItem(label: s, detail: "enum", isQuoted: true))
@@ -273,7 +273,7 @@ enum ConfigCompletionEngine {
         if prev == ":" {
             position = .propertyValue(key: lastKeyInObject ?? "")
         } else if prev == "\"" {
-            // Inside a quoted token — decide key vs value by scanning back for ':' vs '{'/','/'['.
+            // Inside a quoted token - decide key vs value by scanning back for ':' vs '{'/','/'['.
             var q = p - 1
             var result: Context.Position = .objectKey
             while q >= 0 {

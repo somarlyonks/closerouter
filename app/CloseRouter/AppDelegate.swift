@@ -3,7 +3,7 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     // @NSApplicationDelegateAdaptor wraps us in SwiftUI.AppDelegate, so NSApp.delegate
-    // casts to AppDelegate fail — reach the real one through here.
+    // casts to AppDelegate fail - reach the real one through here.
     static var shared: AppDelegate!
 
     func applicationDidFinishLaunching(_ notification: Notification) {

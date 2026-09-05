@@ -1,12 +1,12 @@
 ---
 name: todo
-description: Manage the closerouter.todo planning file — read its format, add and arrange pending items when asked to make a plan, and mark work as done. Use whenever the user asks to make a plan, track progress, or update the todo list.
+description: Manage the closerouter.todo planning file. Read its format, add and arrange pending items when asked to make a plan, and mark work as done. Use whenever the user asks to make a plan, track progress, or update the todo list.
 disable-model-invocation: true
 ---
 
 # Todo Tracking
 
-The repository tracks work in `closerouter.todo` (at the repo root). This file is the source of truth for planning and progress — arrange and track all work here.
+The repository tracks work in `closerouter.todo` (at the repo root). This file is the source of truth for planning and progress - arrange and track all work here.
 
 ## When to use
 

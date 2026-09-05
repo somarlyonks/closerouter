@@ -1,6 +1,6 @@
 ---
 name: app
-description: Guide for developing the CloseRouter macOS app (SwiftUI/Xcode) in app/ — build process, architecture, file map, server API contract, conventions, and known pitfalls. Use whenever working on the macOS app, adding features, or touching app/ code.
+description: Guide for developing the CloseRouter macOS app (SwiftUI/Xcode) in app/ - build process, architecture, file map, server API contract, conventions, and known pitfalls. Use whenever working on the macOS app, adding features, or touching app/ code.
 disable-model-invocation: true
 ---
 
@@ -15,7 +15,7 @@ tracked in **`closerouter.todo`** (see the `todo` skill). This skill is the impl
 
 ## Build & run
 
-- **Release app (canonical):** `npm run build` — runs `build:cli` (compiles the closerouter binary to
+- **Release app (canonical):** `npm run build` - runs `build:cli` (compiles the closerouter binary to
   `dist/closerouter`) then `build:app`. Output lands in **`dist/CloseRouter.app`** (built under
   `dist/xcodebuild/` and copied up for easy access).
 - **Binary only:** `npm run build:cli` (`scriptc build lib/cli.ts --ffi native/ffi.json -o dist/closerouter`).
@@ -37,7 +37,7 @@ CloseRouter.app
 ```
 
 - The app **owns the config file**: `~/Library/Application Support/CloseRouter/closerouter.json`
-  (`ConfigStore`), so it reads the `key` from disk to authenticate — no prompts.
+  (`ConfigStore`), so it reads the `key` from disk to authenticate - no prompts.
 - Config storage is strict JSON (server's `parseConfig` uses `JSON.parse`). No JSON5.
 - Menu bar is the **dominant surface** (SFM-style): `.accessory` activation + window closed when
   launched as a login item; the status-bar menu has Start/Stop, status, Open, Quit.
@@ -87,10 +87,10 @@ app/CloseRouter/
 - **UI → data** goes through `ServerManager` (state) + `APIClient`; views never spawn processes.
 - **Auth**: `Bearer` for `/config`, `/usage`, `/v1/models`; `Cookie: cr-key=` for `/logs` (SSE + JSON).
   Read the key from `ConfigStore.read().key`, never prompt.
-- **JSONSchema is a `final class`** (not a struct) — it recursively contains itself.
+- **JSONSchema is a `final class`** (not a struct) - it recursively contains itself.
 - **Deployment target is 14.0** (`MACOSX_DEPLOYMENT_TARGET` in `app/project.yml`).
 - **The app project is xcodegen-generated**: `app/project.yml` is the source of truth, and
-  `app/CloseRouter.xcodeproj` is a **generated, gitignored artifact** — never edit it by hand, and it
+  `app/CloseRouter.xcodeproj` is a **generated, gitignored artifact** - never edit it by hand, and it
   isn't in the repo. `xcodegen` is a required prerequisite (`brew install xcodegen`). Regenerate with
   `npm run prebuild:app` (also runs automatically before `npm run build:app`); on a fresh
   checkout run it once before opening Xcode or using sourcekit-lsp/xcode-build-server. To add a new
@@ -106,17 +106,17 @@ app/CloseRouter/
 ## Interactive GUI debugging (Accessibility API + CGEvent)
 
 For UI bugs you can't reproduce headlessly ("can't click / can't type / layout broken"), drive the
-running app over the Accessibility API from a throwaway `swift` script — no Xcode, no UI test target.
+running app over the Accessibility API from a throwaway `swift` script - no Xcode, no UI test target.
 Used this way to find and fix the config editor being unclickable (zero-height text view, below).
 
 **Prereq:** `AXIsProcessTrusted()` must be true (the terminal/shell running the script needs
 Accessibility permission). If `osascript` System Events says "not allowed assistive access", the
-AX API from a compiled `swift` script can still work — check it, don't trust osascript's verdict.
+AX API from a compiled `swift` script can still work - check it, don't trust osascript's verdict.
 
 Key facts learned the hard way:
 
 - **AX coordinates are TOP-LEFT origin in global screen space.** Feed `kAXPositionAttribute`
-  straight into CGEvent clicks. Do NOT flip `y` (screenH - y) — a flipped click will hit the wrong
+  straight into CGEvent clicks. Do NOT flip `y` (screenH - y) - a flipped click will hit the wrong
   part of the window (it once hit the close button and closed the window).
 - **`AXPress` on a SwiftUI sidebar row "succeeds" but doesn't select.** For `NavigationSplitView`
   rows, post a real mouse down/up at the row's center instead (`AXUIElementPerformAction` returns
@@ -151,7 +151,7 @@ body loading was verified).
 valid `provider/model`, so a fake OpenAI-format backend is the only safe way to produce real history
 with bodies.
 
-**Mock backend + config:** `test/mock-server.js` — zero-dep Node, streams an SSE chat completion
+**Mock backend + config:** `test/mock-server.js` - zero-dep Node, streams an SSE chat completion
 on `/v1/chat/completions`, serves `{ok:true}` otherwise. It owns the closerouter test config:
 `node test/mock-server.js [mockPort]` starts the backend (default 9999) and writes the matching
 `test/mock-server.config.json` (gitignored; closerouter port via `CR_PORT`, default 6799). Test
@@ -169,14 +169,14 @@ curl --max-time 5 -sN -H "Accept: text/event-stream" -H "Cookie: cr-key=$KEY" ht
 
 **Full app-level test:**
 1. Back up the config: `cp ~/Library/Application Support/CloseRouter/closerouter.json /tmp/…bak`
-   — **restore after**.
+   - **restore after**.
 2. Point Application Support config at the mock (port 6712, same key) so the app boots the bundled
    `dist/closerouter` against it.
 3. `open app/build/DerivedData/Build/Products/Debug/CloseRouter.app`; click the **Start** button in
-   Overview via AX (server doesn't auto-start with `startServerOnLaunch` off) — `curl
+   Overview via AX (server doesn't auto-start with `startServerOnLaunch` off) - `curl
    http://127.0.0.1:6712/status` confirms it's up.
 4. Seed 1-2 history rows via POST `/v1/chat/completions` to 6712.
-5. AX: click the **Logs** sidebar row (real mouse down/up at row center — `AXPress` won't select),
+5. AX: click the **Logs** sidebar row (real mouse down/up at row center - `AXPress` won't select),
    click a history table row, then assert the detail inspector shows the pretty-printed JSON request
    body + raw SSE response body. This proves the on-demand `/logs/<id>` fetch.
 6. `osascript -e 'tell application "CloseRouter" to quit'`, restore the config backup, kill the
@@ -193,13 +193,13 @@ down.post(tap: .cghidEventTap); usleep(80000); up.post(tap: .cghidEventTap)
 
 **Facts this workflow surfaced:** `/logs` JSON history omits bodies **by design** (each can be up to
 1MB; fetched per row via `/logs/<id>`), live SSE entries carry both, history `/logs/<id>` needs the
-`cr-key` **cookie** auth, and `timeout` may not exist on macOS — use `curl --max-time N`.
+`cr-key` **cookie** auth, and `timeout` may not exist on macOS - use `curl --max-time N`.
 
 ## Known pitfalls (learned the hard way)
 
 - **NSTextView in a programmatic `NSScrollView` lays out at ZERO height** unless you set
   `isVerticallyResizable = true`, `minSize`/`maxSize`, and `autoresizingMask = [.width]`. Symptom:
-  the scroll view is correctly sized but its documentView is invisible and unclickable — clicks
+  the scroll view is correctly sized but its documentView is invisible and unclickable - clicks
   never focus it and typing does nothing. The AX tree reports the `AXScrollArea` at full size but
   its `AXTextArea` at `height: 0`. This is what made the config editor uneditable.
 - **Dirty status flips on load.** `.onChange(of: text)` fires *after* `onAppear`'s `loadConfig()`
@@ -211,7 +211,7 @@ down.post(tap: .cghidEventTap); usleep(80000); up.post(tap: .cghidEventTap)
 - **Token usage covers non-streaming responses.** Streaming usage is extracted live by the proxy
   (`feedStreamUsage` parses `data:` frames into `responseLog.usage`); non-streaming leaves `usage` as
   an empty `{}`, and `logMiddleware` (`lib/server/logs/index.ts`) falls back to
-  `extractTokenUsage(responseLog?.body)` — which only worked once `hasUsage` stopped treating the
+  `extractTokenUsage(responseLog?.body)` - which only worked once `hasUsage` stopped treating the
   empty `{}` as authoritative. If token counts look missing again, check that fallback path.
 - **`/config` needs `Accept: application/json`** or it returns the HTML page.
 - **Model addressing is `provider/model`** (e.g. `mock/mock-1`), not bare model ids.
@@ -220,8 +220,8 @@ down.post(tap: .cghidEventTap); usleep(80000); up.post(tap: .cghidEventTap)
 - **NSTextView completion**: the partial word range excludes the opening `"`, so `insertCompletion`
   extends the replacement range to include it, and quoted inserts land cleanly. Trigger is ⌃Space/F5
   (`CompletingTextView.performKeyEquivalent`).
-- **SwiftUI gotchas**: struct views can't `[weak self]` in Combine sinks (capture directly — `@State`
-  is reference-backed); `Text(x, format: .dateTime…second(.standard))` doesn't compile — use
+- **SwiftUI gotchas**: struct views can't `[weak self]` in Combine sinks (capture directly - `@State`
+  is reference-backed); `Text(x, format: .dateTime…second(.standard))` doesn't compile - use
   `x.formatted(date: .omitted, time: .standard)`.
 - **Restart on port change**: after saving a config with a new `port`, call `ServerManager.restart()`
   (the server only logs "restart for the new port to take effect" otherwise).
@@ -236,5 +236,5 @@ down.post(tap: .cghidEventTap); usleep(80000); up.post(tap: .cghidEventTap)
   working). The single `NSWindow` hosts `MainView` via `NSHostingView`, is `isReleasedWhenClosed =
   false`, and its delegate turns close into `orderOut`. Reopening is just `makeKeyAndOrderFront`.
 - **`NSApp.delegate` is `SwiftUI.AppDelegate`, not your `@NSApplicationDelegateAdaptor` class.**
-  `(NSApp.delegate as? AppDelegate)` always fails — use the `AppDelegate.shared` static set in
+  `(NSApp.delegate as? AppDelegate)` always fails - use the `AppDelegate.shared` static set in
   `applicationDidFinishLaunching`.

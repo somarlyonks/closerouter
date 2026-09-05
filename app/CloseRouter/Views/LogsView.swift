@@ -115,7 +115,7 @@ struct LogsView: View {
         .frame(height: 200)
     }
 
-    /// One side of the split detail inspector — a scrollable body or a placeholder.
+    /// One side of the split detail inspector - a scrollable body or a placeholder.
     private func detailPane(_ title: String, body: String?, row: LogGroup) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
@@ -216,7 +216,7 @@ struct LogsView: View {
     }
 
     private func msText(_ v: Int?) -> String {
-        guard let v else { return "—" }
+        guard let v else { return "-" }
         if v >= 1000 { return String(format: "%.2fs", Double(v) / 1000) }
         return "\(v) ms"
     }
@@ -224,7 +224,7 @@ struct LogsView: View {
     private func tokensText(_ row: LogGroup) -> String {
         let input = row.inputTokens ?? 0
         let output = row.outputTokens ?? 0
-        if input == 0 && output == 0 { return "—" }
+        if input == 0 && output == 0 { return "-" }
         let base = "\(input) in · \(output) out"
         if let cached = row.cachedTokens, cached > 0 {
             return "\(base) · \(cached) cached"

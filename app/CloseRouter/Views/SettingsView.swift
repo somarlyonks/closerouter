@@ -105,7 +105,7 @@ struct SettingsView: View {
     }
 
     private var versionLabel: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
     }
 
     private var updateStatusText: some View {

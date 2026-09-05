@@ -158,7 +158,7 @@ struct OverviewView: View {
     }
 
     private var cacheRateText: String {
-        guard let usage, usage.inTokens > 0 else { return "—" }
+        guard let usage, usage.inTokens > 0 else { return "-" }
         let rate = Double(usage.cachedTokens ?? 0) / Double(usage.inTokens)
         return String(format: "%.2f", rate * 100)
     }
