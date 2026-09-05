@@ -68,6 +68,12 @@ struct LogsView: View {
                     .truncationMode(.middle)
             }
 
+            TableColumn("Model") { row in
+                Text(row.model ?? "-")
+                    .foregroundStyle(.secondary)
+            }
+            .width(min: 80, ideal: 120)
+
             TableColumn("Status") { row in
                 Text(statusText(row.status))
                     .monospacedDigit()
