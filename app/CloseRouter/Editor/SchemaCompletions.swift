@@ -4,6 +4,7 @@ import Foundation
 
 /// Minimal JSON Schema model covering what closerouter-schema.json uses:
 /// object properties, required, items, enum, oneOf, additionalProperties and $ref/$defs.
+@MainActor
 final class JSONSchema {
     var type: String?
     var description: String?
@@ -43,6 +44,7 @@ final class JSONSchema {
     }
 }
 
+@MainActor
 enum JSONSchemaStore {
     static private(set) var root: JSONSchema?
     static private(set) var defs: [String: JSONSchema] = [:]
@@ -88,6 +90,7 @@ struct CompletionItem {
     }
 }
 
+@MainActor
 enum ConfigCompletionEngine {
     struct Context {
         enum Position {
