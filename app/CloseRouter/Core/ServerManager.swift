@@ -92,7 +92,7 @@ final class ServerManager: ObservableObject {
         process.standardOutput = FileHandle.nullDevice
         // Capture stderr to a log file so we can diagnose why the child exited
         // (e.g. the port already being in use) instead of restart-looping blind.
-        // The log is append-only and retained across runs — past failures stay
+        // The log is append-only and retained across runs - past failures stay
         // readable for later diagnosis. Record where this run's output begins so
         // only the current child's stderr is examined when the child exits.
         if !FileManager.default.fileExists(atPath: stderrPath) {
@@ -173,7 +173,7 @@ final class ServerManager: ObservableObject {
             state = .stopped
         } else {
             // Port conflict is a user action (another process holds the port), not a
-            // crash — surface it and stay stopped instead of restart-looping.
+            // crash - surface it and stay stopped instead of restart-looping.
             if failedDueToPortConflict() {
                 AppNotifications.post(
                     title: "Couldn't start CloseRouter server",
@@ -182,7 +182,7 @@ final class ServerManager: ObservableObject {
                 state = .stopped
                 return
             }
-            // Unexpected exit — restart with backoff.
+            // Unexpected exit - restart with backoff.
             AppNotifications.post(
                 title: "CloseRouter server stopped",
                 body: "It stopped unexpectedly and will restart."

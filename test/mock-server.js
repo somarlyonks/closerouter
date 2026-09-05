@@ -49,7 +49,7 @@ const chunks = [
 export function startMockServer (port = DEFAULT_MOCK_PORT) {
     const server = http.createServer((req, res) => {
         let body = ''
-        req.on('data', c => { body += c })
+        req.on('data', (c) => {body += c})
         req.on('end', () => {
             setTimeout(() => {
                 if (req.url === '/v1/chat/completions') {
@@ -64,7 +64,7 @@ export function startMockServer (port = DEFAULT_MOCK_PORT) {
         })
     })
 
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
         server.listen(port, '127.0.0.1', () => {
             const bound = server.address().port
             resolve({
@@ -94,7 +94,7 @@ export function startMockServer (port = DEFAULT_MOCK_PORT) {
                     if (typeof content === 'string') return content
                 }
             } catch {
-                // Not JSON (or empty) — falls through to the default delay.
+                // Not JSON (or empty) - falls through to the default delay.
             }
             return ''
         }

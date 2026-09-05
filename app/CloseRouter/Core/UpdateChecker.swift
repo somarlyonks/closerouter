@@ -59,7 +59,7 @@ final class UpdateChecker: ObservableObject {
                 if Preferences.notificationsEnabled && Preferences.checkForUpdatesAutomatically {
                     AppNotifications.post(
                         title: "CloseRouter update available",
-                        body: "\(release.tagName) is out — you're on v\(Self.currentVersion)."
+                        body: "\(release.tagName) is out - you're on v\(Self.currentVersion)."
                     )
                 }
             } else {

@@ -20,7 +20,7 @@ function printVersion (): void {
 
 function printHelp (): void {
     console.log(`
-closerouter — LLM proxy/router
+closerouter - LLM proxy/router
 
 Usage:
   closerouter [server] [-c|--config <path>] [-d|--detach]   Start the proxy server

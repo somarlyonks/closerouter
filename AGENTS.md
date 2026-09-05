@@ -6,11 +6,11 @@
 
 ## Key Constraints
 
-- **Zero runtime dependencies** — use only Node.js built-in modules.
-- **Compiled via `scriptc`** — the project is built with `scriptc`, which compiles TypeScript to a native binary. Keep code compatible with whatever Node.js API surface `scriptc` supports.
-- **JSON config only** — no YAML, TOML, or other formats. Config file is `closerouter.json` by default, overridable via the `-c`/`--config <path>` CLI argument.
-- **Streaming is critical** — `/v1/chat/completions` must support SSE streaming. Proxy responses should stream chunks back to the client without buffering the entire response.
-- **OpenAI-format only** — only proxy providers that speak the OpenAI API format. The router itself only exposes `/v1/chat/completions`, `/v1/responses`, and `/v1/models`.
+- **Zero runtime dependencies** - use only Node.js built-in modules.
+- **Compiled via `scriptc`** - the project is built with `scriptc`, which compiles TypeScript to a native binary. Keep code compatible with whatever Node.js API surface `scriptc` supports.
+- **JSON config only** - no YAML, TOML, or other formats. Config file is `closerouter.json` by default, overridable via the `-c`/`--config <path>` CLI argument.
+- **Streaming is critical** - `/v1/chat/completions` must support SSE streaming. Proxy responses should stream chunks back to the client without buffering the entire response.
+- **OpenAI-format only** - only proxy providers that speak the OpenAI API format. The router itself only exposes `/v1/chat/completions`, `/v1/responses`, and `/v1/models`.
 
 ## Version Control
 
@@ -20,7 +20,7 @@
 
 ```
 lib/
-  cli.ts             # Main entrypoint — routes commands
+  cli.ts             # Main entrypoint - routes commands
   config.ts          # Config loading
   proxy.ts           # HTTP/HTTPS request forwarding with streaming
   util.ts            # Shared types or functions
@@ -46,7 +46,7 @@ Shared assets live in the root `assets/` directory (`index.css`, `logo.svg`, `to
 A file inside an assets dir is inlined into the HTML via a marker comment `/* @asset <name> */` (e.g. `/* @asset index.css */`, `/* @asset footer.html */`). The marker is replaced with the file's contents (trimmed) during the build step, so shared styles, scripts, and fragments live in one place with no runtime requests.
 
 Rules for authored HTML:
-- The rendered HTML must **not contain `\${`** — no template variables, since the content becomes a template literal.
+- The rendered HTML must **not contain `\${`** - no template variables, since the content becomes a template literal.
 - To add a shared fragment (like a footer) to multiple pages: create the fragment in `assets/`, reference it with `/* @asset <name> */` in each `.html`, and run `node assets/build.ts`.
 
 ### Page layout

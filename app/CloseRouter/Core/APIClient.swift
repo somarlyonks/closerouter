@@ -45,7 +45,7 @@ enum APIClient {
         let models: [ModelEntry]?
     }
 
-    /// A config model entry — either a bare id string or an object with an `id`.
+    /// A config model entry - either a bare id string or an object with an `id`.
     struct ModelEntry: Decodable {
         let id: String?
 
@@ -79,7 +79,6 @@ enum APIClient {
         URL(string: "http://127.0.0.1:\(port)/\(path)")!
     }
 
-    /// PUT /config — validates and applies the config server-side.
     static func putConfig(_ raw: String, port: Int, key: String) async throws {
         var req = URLRequest(url: url(port: port, path: "config"))
         req.httpMethod = "PUT"
@@ -95,7 +94,6 @@ enum APIClient {
         }
     }
 
-    /// GET /logs as JSON — historical log entries from the usage DB.
     static func getLogEntries(port: Int, key: String) async throws -> [LogGroup] {
         var req = URLRequest(url: url(port: port, path: "logs"))
         req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -110,7 +108,6 @@ enum APIClient {
         return payload.entries.map(LogGroup.init(history:))
     }
 
-    /// GET /logs/<id> — request/response bodies for a single history row.
     static func getLogDetail(port: Int, key: String, id: Int) async throws -> LogBodyDetail {
         var req = URLRequest(url: url(port: port, path: "logs/\(id)"))
         req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -124,17 +121,14 @@ enum APIClient {
         return try JSONDecoder().decode(LogBodyDetail.self, from: data)
     }
 
-    /// GET /usage — aggregate token totals from the usage DB.
     static func getUsage(port: Int, key: String) async throws -> UsageTotals {
         try await getJSON(path: "usage", port: port, key: key)
     }
 
-    /// GET /config — current port, key and providers.
     static func getConfig(port: Int, key: String) async throws -> ConfigInfo {
         try await getJSON(path: "config", port: port, key: key)
     }
 
-    /// GET /v1/models — the provider/model list.
     static func getModels(port: Int, key: String) async throws -> [ModelInfo] {
         let payload: ModelsResponse = try await getJSON(path: "v1/models", port: port, key: key)
         return payload.data

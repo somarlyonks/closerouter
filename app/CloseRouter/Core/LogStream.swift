@@ -229,7 +229,7 @@ final class LogsViewModel: ObservableObject {
                 do {
                     try await self.runStreamOnce(port: port, key: key)
                 } catch {
-                    // Connection dropped — fall through and retry.
+                    // Connection dropped - fall through and retry.
                 }
                 if Task.isCancelled { break }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
