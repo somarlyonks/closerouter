@@ -27,7 +27,8 @@ final class ServerManager: ObservableObject {
     static let shared = ServerManager()
 
     @Published private(set) var state: State = .stopped
-    @Published private(set) var port: Int = 6712
+    @Published private(set) var port: Int = ConfigStore.defaultPort
+    @Published private(set) var key: String = ConfigStore.runtimeDefaultKey
     @Published private(set) var startedAt: Date?
 
     private var process: Process?
@@ -48,7 +49,9 @@ final class ServerManager: ObservableObject {
     }
 
     private init() {
-        port = (try? ConfigStore.read())?.port ?? 6712
+        let config = try? ConfigStore.read()
+        port = config?.port ?? ConfigStore.defaultPort
+        key = config?.key ?? ConfigStore.runtimeDefaultKey
     }
 
     func toggle() {
@@ -57,6 +60,12 @@ final class ServerManager: ObservableObject {
         case .running: stop()
         case .starting, .stopping: break
         }
+    }
+
+    func refreshConfig() {
+        guard let config = try? ConfigStore.read() else { return }
+        port = config.port
+        key = config.key
     }
 
     /// Stops the server and starts it again once it has fully stopped.
@@ -80,7 +89,9 @@ final class ServerManager: ObservableObject {
         }
         do {
             try ConfigStore.ensureConfigFile()
-            port = try ConfigStore.read().port
+            let config = try ConfigStore.read()
+            port = config.port
+            key = config.key
         } catch {
             NSLog("failed to prepare config: \(error.localizedDescription)")
             return

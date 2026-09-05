@@ -11,6 +11,9 @@ enum ConfigStore {
         appSupportDirectory.appendingPathComponent("closerouter.json")
     }
 
+    static let defaultPort = 6712
+    static let runtimeDefaultKey = "sk-cr-kee9itsecr1t"
+
     /// Creates the config directory and a default config file when missing.
     static func ensureConfigFile() throws {
         try FileManager.default.createDirectory(at: appSupportDirectory, withIntermediateDirectories: true)
@@ -18,12 +21,11 @@ enum ConfigStore {
         try DefaultConfig.make().write(to: configURL, atomically: true, encoding: .utf8)
     }
 
-    /// Port and key as currently configured on disk.
     static func read() throws -> (port: Int, key: String) {
         let data = try Data(contentsOf: configURL)
         let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        let port = obj["port"] as? Int ?? 6712
-        let key = obj["key"] as? String ?? "sk-cr-kee9itsecr1t"
+        let port = obj["port"] as? Int ?? defaultPort
+        let key = (obj["key"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? runtimeDefaultKey
         return (port, key)
     }
 
@@ -35,7 +37,7 @@ enum ConfigStore {
     /// Extracts the port from a raw config string.
     static func port(of raw: String) throws -> Int {
         let obj = try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]
-        return obj?["port"] as? Int ?? 6712
+        return obj?["port"] as? Int ?? defaultPort
     }
 }
 
@@ -47,8 +49,8 @@ enum DefaultConfig {
             return """
             {
                 "$schema": "https://raw.githubusercontent.com/somarlyonks/closerouter/refs/tags/v\(UpdateChecker.currentVersion)/closerouter-schema.json",
-                "port": 6712,
-                "key": "sk-cr-kee9itsecr1t",
+                "port": \(ConfigStore.defaultPort),
+                "key": "\(ConfigStore.runtimeDefaultKey)",
                 "providers": {}
             }
             """

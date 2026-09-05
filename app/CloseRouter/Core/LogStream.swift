@@ -192,7 +192,7 @@ final class LogsViewModel: ObservableObject {
         guard !loadingBodies.contains(dbId) else { return }
         loadingBodies.insert(dbId)
         let port = server.port
-        let key = authKey()
+        let key = server.key
         Task { [weak self] in
             defer { self?.loadingBodies.remove(dbId) }
             guard let detail = try? await APIClient.getLogDetail(port: port, key: key, id: dbId) else { return }
@@ -212,7 +212,7 @@ final class LogsViewModel: ObservableObject {
     private func loadHistoryAndConnect() {
         Task { [weak self] in
             guard let self else { return }
-            if let entries = try? await APIClient.getLogEntries(port: self.server.port, key: self.authKey()) {
+            if let entries = try? await APIClient.getLogEntries(port: self.server.port, key: self.server.key) {
                 for group in entries { self.apply(group) }
             }
             self.connect()
@@ -222,7 +222,7 @@ final class LogsViewModel: ObservableObject {
     private func connect() {
         guard streamTask == nil, server.state.isRunning else { return }
         let port = server.port
-        let key = authKey()
+        let key = server.key
         streamTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, self.server.state.isRunning else { break }
@@ -328,9 +328,5 @@ final class LogsViewModel: ObservableObject {
         guard let data = json.data(using: .utf8),
               let event = try? JSONDecoder().decode(LogEvent.self, from: data) else { return nil }
         return LogGroup(event: event)
-    }
-
-    private func authKey() -> String {
-        (try? ConfigStore.read().key) ?? "sk-cr-kee9itsecr1t"
     }
 }

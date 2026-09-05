@@ -59,6 +59,7 @@ CloseRouter:
             [x] launch at login (SMAppService)
             [x] notifications on crash/start
             [x] hide dock icon (accessory mode, menu bar + background server stay alive)
+            [x] copy runtime key
             updates:
                 [x] UpdateChecker (GitHub releases API, semver compare)
                 [x] Settings > Updates section (Check Now, auto-check toggle, download link)

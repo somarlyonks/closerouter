@@ -218,7 +218,7 @@ struct OverviewView: View {
         }
         isLoading = true
         let port = server.port
-        let key = (try? ConfigStore.read().key) ?? "sk-cr-kee9itsecr1t"
+        let key = server.key
         Task {
             if let u = try? await APIClient.getUsage(port: port, key: key) { usage = u }
             if let c = try? await APIClient.getConfig(port: port, key: key) { config = c }

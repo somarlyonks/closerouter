@@ -146,11 +146,12 @@ struct ConfigEditorView: View {
         if server.state.isRunning {
             Task {
                 do {
-                    let key = (try? ConfigStore.read().key) ?? "sk-cr-kee9itsecr1t"
-                    try await APIClient.putConfig(text, port: server.port, key: key)
+                    try await APIClient.putConfig(text, port: server.port, key: server.key)
                     try ConfigStore.save(text)
                     if newPort != oldPort {
                         server.restart() // new port only takes effect after a restart
+                    } else {
+                        server.refreshConfig() // keep the runtime key in sync with the saved config
                     }
                     saveState = .saved("Saved")
                 } catch {
@@ -160,6 +161,7 @@ struct ConfigEditorView: View {
         } else {
             do {
                 try ConfigStore.save(text)
+                server.refreshConfig()
                 saveState = .saved("Saved")
             } catch {
                 saveState = .error(error.localizedDescription)
