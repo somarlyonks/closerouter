@@ -2,13 +2,13 @@ name: CloseRouter
 options:
     createIntermediateGroups: true
     deploymentTarget:
-        macOS: "14.0"
+        macOS: "26.0"
 
 targets:
     CloseRouter:
         type: application
         platform: macOS
-        deploymentTarget: "14.0"
+        deploymentTarget: "26.0"
         sources:
             - path: CloseRouter
               excludes:
@@ -30,7 +30,7 @@ targets:
                 PRODUCT_NAME: "$(TARGET_NAME)"
                 MARKETING_VERSION: 0.4.0
                 CURRENT_PROJECT_VERSION: 1
-                SWIFT_VERSION: "5.0"
+                SWIFT_VERSION: "6.0"
                 CODE_SIGN_STYLE: Manual
                 CODE_SIGN_IDENTITY: "-"
                 GENERATE_INFOPLIST_FILE: NO

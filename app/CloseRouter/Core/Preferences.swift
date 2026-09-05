@@ -11,7 +11,8 @@ struct UserDefault<T> {
     }
 }
 
-/// App preferences, backed by UserDefaults.
+/// App preferences, backed by UserDefaults. All reads/writes are on the main thread.
+@MainActor
 enum Preferences {
     @UserDefault(key: "launchAtLogin", defaultValue: false) static var launchAtLogin
     @UserDefault(key: "startServerOnLaunch", defaultValue: false) static var startServerOnLaunch
