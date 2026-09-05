@@ -75,6 +75,56 @@ enum APIClient {
         }
     }
 
+    // MARK: Analytics DTOs
+
+    struct AnalyticsBucket: Decodable, Identifiable {
+        let bucket: Int64
+        var id: Int64 { bucket }
+        let count: Int
+        let inTokens: Int
+        let outTokens: Int
+        let cachedTokens: Int
+    }
+
+    struct AnalyticsGroup: Decodable, Identifiable {
+        let key: String
+        var id: String { key }
+        let count: Int
+        let inTokens: Int
+        let outTokens: Int
+        let cachedTokens: Int
+    }
+
+    struct SeriesModelPoint: Decodable, Identifiable {
+        let bucket: Int64
+        let model: String
+        let count: Int
+        let inTokens: Int
+        let outTokens: Int
+        var id: String { "\(bucket)-\(model)" }
+    }
+
+    struct AnalyticsStats: Decodable {
+        let count: Int
+        let inTokens: Int
+        let outTokens: Int
+        let cachedTokens: Int
+        let avgDurationMs: Int
+        let avgTtftMs: Int
+        let errorCount: Int
+        let series: [AnalyticsBucket]
+        let byProvider: [AnalyticsGroup]
+        let byModel: [AnalyticsGroup]
+        var seriesByModel: [SeriesModelPoint] { _seriesByModel ?? [] }
+        private let _seriesByModel: [SeriesModelPoint]?
+
+        enum CodingKeys: String, CodingKey {
+            case count, inTokens, outTokens, cachedTokens, avgDurationMs, avgTtftMs, errorCount
+            case series, byProvider, byModel
+            case _seriesByModel = "seriesByModel"
+        }
+    }
+
     static func url(port: Int, path: String) -> URL {
         URL(string: "http://127.0.0.1:\(port)/\(path)")!
     }
@@ -123,6 +173,27 @@ enum APIClient {
 
     static func getUsage(port: Int, key: String) async throws -> UsageTotals {
         try await getJSON(path: "usage", port: port, key: key)
+    }
+
+    /// GET /usage with analytics filters as query params (from/to as Date, optional provider/model).
+    static func getAnalytics(port: Int, key: String, from: Date?, to: Date?, provider: String?, model: String?) async throws -> AnalyticsStats {
+        var components = URLComponents(url: url(port: port, path: "usage"), resolvingAgainstBaseURL: false)!
+        var items: [URLQueryItem] = []
+        if let from { items.append(URLQueryItem(name: "from", value: String(Int64(from.timeIntervalSince1970 * 1000)))) }
+        if let to { items.append(URLQueryItem(name: "to", value: String(Int64(to.timeIntervalSince1970 * 1000)))) }
+        if let provider { items.append(URLQueryItem(name: "provider", value: provider)) }
+        if let model { items.append(URLQueryItem(name: "model", value: model)) }
+        if !items.isEmpty { components.queryItems = items }
+        var req = URLRequest(url: components.url!)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.timeoutInterval = 10
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw APIClientError.badResponse }
+        guard http.statusCode == 200 else {
+            throw APIClientError.server(status: http.statusCode, message: extractError(data) ?? "Failed to load analytics (HTTP \(http.statusCode))")
+        }
+        return try JSONDecoder().decode(AnalyticsStats.self, from: data)
     }
 
     static func getConfig(port: Int, key: String) async throws -> ConfigInfo {

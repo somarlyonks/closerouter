@@ -1,12 +1,22 @@
 import {needsAuth, withMethod} from '../util'
-import {getUsageTotals} from './logs/db'
+import {loadUsageStats} from './logs/db'
 
-export const handleUsage = withMethod('GET')(needsAuth((_ctx, res) => {
-    const totals = getUsageTotals()
+export const handleUsage = withMethod('GET')(needsAuth((ctx, res) => {
+    const url = new URL('http://localhost' + (ctx.req.url ?? '/'))
+    const num = (name: string): number | undefined => {
+        const v = url.searchParams.get(name)
+        return v !== null && /^\d+$/.test(v) ? Number(v) : undefined
+    }
+    const stats = loadUsageStats({
+        from: num('from'),
+        to: num('to'),
+        provider: url.searchParams.get('provider') ?? undefined,
+        model: url.searchParams.get('model') ?? undefined,
+    })
     res.writeHead(200, {
         'content-type': 'application/json',
         'cache-control': 'no-cache',
         'access-control-allow-origin': '*',
     })
-    res.end(JSON.stringify(totals ?? {count: 0, inTokens: 0, outTokens: 0}))
+    res.end(JSON.stringify(stats))
 }))

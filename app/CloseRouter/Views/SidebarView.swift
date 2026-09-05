@@ -13,6 +13,9 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+        // Fixed column: NSSplitView would otherwise steal/give width to the
+        // sidebar whenever the detail view's minimum width changes (e.g. the
+        // analytics filter bar during reloads).
+        .navigationSplitViewColumnWidth(200)
     }
 }
