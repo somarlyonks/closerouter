@@ -4,17 +4,22 @@
 //
 // The closerouter test config that points a "mock" provider here lives in
 // `mockConfig()` (below). Running the script directly writes it to
-// `mock-server.config.json` in this directory, so a test runner can find the
-// config alongside the backend:
+// `mock-server.config.json` in this directory with a persistent `db: test.db`
+// (committed and pre-seeded), so usage data survives server restarts:
 //
 //   node test/mock-server.js [mockPort]      # starts backend, writes config
 //   ./dist/closerouter server -c test/mock-server.config.json
+//
+// To regenerate/refresh the usage data in test/test.db, see
+// `test/seed-usage.js` (`npm run test:seed`).
 //
 // A test runner can also import the pieces directly:
 //   import {mockConfig, startMockServer} from './mock-server.js'
 //
 // Mock port: argv[2] or MOCK_PORT, default 9999. Closerouter port in the
-// generated config: CR_PORT, default 6799.
+// generated config: CR_PORT, default 6799. The config exposes two providers
+// (mock, mock2) pointing at the same backend, so analytics provider/model
+// filters have data to slice on.
 
 import http from 'http'
 import {writeFileSync} from 'fs'
@@ -25,16 +30,15 @@ const DEFAULT_MOCK_PORT = 9999
 const DEFAULT_CR_PORT = 6799
 const KEY = 'sk-cr-testkey123'
 
-export function mockConfig (mockPort = DEFAULT_MOCK_PORT, crPort = DEFAULT_CR_PORT) {
+export function mockConfig (mockPort = DEFAULT_MOCK_PORT, crPort = DEFAULT_CR_PORT, db = undefined) {
+    const baseURL = `http://127.0.0.1:${mockPort}/v1`
     return {
         port: crPort,
         key: KEY,
+        ...(db ? {db} : {}),
         providers: {
-            mock: {
-                base_url: `http://127.0.0.1:${mockPort}/v1`,
-                api_key: 'sk-mock',
-                models: ['mock-1'],
-            },
+            mock: {base_url: baseURL, api_key: 'sk-mock', models: ['mock-1', 'mock-2']},
+            mock2: {base_url: baseURL, api_key: 'sk-mock', models: ['mock-1']},
         },
     }
 }
@@ -49,7 +53,9 @@ const chunks = [
 export function startMockServer (port = DEFAULT_MOCK_PORT) {
     const server = http.createServer((req, res) => {
         let body = ''
-        req.on('data', (c) => {body += c})
+        req.on('data', (c) => {
+            body += c
+        })
         req.on('end', () => {
             setTimeout(() => {
                 if (req.url === '/v1/chat/completions') {
@@ -101,13 +107,13 @@ export function startMockServer (port = DEFAULT_MOCK_PORT) {
     }
 }
 
-// Standalone entry: start the backend and write the matching config file.
+// Standalone entry: start the backend and write a persistent config.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     const mockPort = Number(process.argv[2] ?? process.env.MOCK_PORT ?? DEFAULT_MOCK_PORT)
     const crPort = Number(process.env.CR_PORT ?? DEFAULT_CR_PORT)
     const configPath = join(dirname(fileURLToPath(import.meta.url)), 'mock-server.config.json')
-    writeFileSync(configPath, JSON.stringify(mockConfig(mockPort, crPort), null, 4) + '\n')
+    writeFileSync(configPath, JSON.stringify(mockConfig(mockPort, crPort, 'test.db'), null, 4) + '\n')
     const {port} = await startMockServer(mockPort)
     console.log(`mock backend on http://127.0.0.1:${port}`)
-    console.log(`closerouter config -> ${configPath}`)
+    console.log(`closerouter config -> ${configPath} (db: test/test.db)`)
 }
