@@ -211,7 +211,8 @@
 
         function timeText(time) {
             const date = new Date(time)
-            return isNaN(date.getTime()) ? '' : date.toISOString().slice(11, 19)
+            if (isNaN(date.getTime())) return ''
+            return date.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false})
         }
 
         function buildDetails(entry, side) {
