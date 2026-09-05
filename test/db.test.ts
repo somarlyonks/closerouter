@@ -6,7 +6,7 @@ import {
     sqliteAvailable, openDatabase, closeDatabase, run, all, get,
     messageCollector, encodeParams, decodeValue,
 } from '../lib/db'
-import {initUsage, recordUsage, loadUsage, loadUsageBody} from '../lib/server/logs/db'
+import {initUsage, recordUsage, loadUsage, loadUsageBody, loadUsageStats} from '../lib/server/logs/db'
 
 // The SQL tests need the native SQLite symbols, which only exist when this
 // file is compiled by scriptc with --ffi, e.g.
@@ -234,6 +234,58 @@ function sqlTests (): void {
         // idempotent schema
         initUsage()
         assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, 2)
+    })
+
+    test('loadUsageStats aggregates totals, filters, series and breakdowns', () => {
+        openDatabase('')
+        initUsage()
+        const DAY = 86_400_000
+        const base = Date.now() - 10 * DAY
+        const row = (id: string, time: number, provider: string, model: string, status: number, inTok: number, outTok: number) =>
+            recordUsage({
+                requestId: id, time, method: 'POST', path: '/v1/chat/completions',
+                provider, model, status, durationMs: 100, ttftMs: 10,
+                inputTokens: inTok, outputTokens: outTok, cachedTokens: Math.floor(inTok / 10),
+            })
+        row('s1', base, 'p1', 'm1', 200, 10, 20)
+        row('s2', base + DAY, 'p1', 'm1', 200, 30, 40)
+        row('s3', base + 2 * DAY, 'p2', 'm2', 500, 50, 60)
+
+        const stats = loadUsageStats()
+        assert.equal(stats.count, 3)
+        assert.equal(stats.inTokens, 90)
+        assert.equal(stats.outTokens, 120)
+        assert.equal(stats.cachedTokens, 9) // 1 + 3 + 5
+        assert.equal(stats.errorCount, 1)
+        assert.equal(stats.avgDurationMs, 100)
+        assert.equal(stats.series.length, 3) // one row per day-bucket
+        assert.equal(stats.byProvider.length, 2)
+        assert.equal(stats.byModel.length, 2)
+        assert.equal(stats.byProvider[0].key, 'p1') // sorted by count desc
+        assert.equal(stats.byProvider[0].count, 2)
+
+        const p1 = loadUsageStats({provider: 'p1'})
+        assert.equal(p1.count, 2)
+        assert.equal(p1.inTokens, 40)
+
+        const m2 = loadUsageStats({model: 'm2'})
+        assert.equal(m2.count, 1)
+
+        const from = loadUsageStats({from: base + 2 * DAY})
+        assert.equal(from.count, 1)
+
+        const to = loadUsageStats({to: base + DAY})
+        assert.equal(to.count, 2) // inclusive: s1 and s2
+
+        const range = loadUsageStats({from: base + DAY, to: base + DAY})
+        assert.equal(range.count, 1)
+
+        const fromAndProvider = loadUsageStats({from: base, provider: 'p2'})
+        assert.equal(fromAndProvider.count, 1)
+
+        // <= 3-day span buckets hourly; 3 rows on distinct days -> 3 buckets
+        const hourly = loadUsageStats({from: base, to: base + 2 * DAY})
+        assert.equal(hourly.series.length, 3)
     })
 }
 

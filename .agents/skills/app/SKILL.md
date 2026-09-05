@@ -154,8 +154,14 @@ with bodies.
 **Mock backend + config:** `test/mock-server.js` - zero-dep Node, streams an SSE chat completion
 on `/v1/chat/completions`, serves `{ok:true}` otherwise. It owns the closerouter test config:
 `node test/mock-server.js [mockPort]` starts the backend (default 9999) and writes the matching
-`test/mock-server.config.json` (gitignored; closerouter port via `CR_PORT`, default 6799). Test
-runners can also `import {mockConfig, startMockServer} from './test/mock-server.js'`.
+`test/mock-server.config.json` (gitignored; closerouter port via `CR_PORT`, default 6799) with a
+**persistent `db: test.db`** (gitignored `test/test.db*`). The config exposes two providers
+(`mock` with models `mock-1`/`mock-2`, `mock2` with `mock-1`) pointing at the same backend, so
+analytics provider/model filters have real data to slice on. Test runners can also
+`import {mockConfig, startMockServer} from './test/mock-server.js'`.
+
+**Usage stats unit tests:** `test/db.test.ts` covers `loadUsageStats` (totals, from/to/provider/model
+filters, hourly/daily series bucketing, byProvider/byModel); run with `npm run test:db`.
 
 **Server-only check** (no app): `node test/mock-server.js` + `./dist/closerouter server -c
 test/mock-server.config.json`, then POST `/v1/chat/completions` (model `mock/mock-1`, Bearer

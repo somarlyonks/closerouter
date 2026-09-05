@@ -29,6 +29,8 @@ CloseRouter:
         [x] persistent
     test:
         [x] mock provider server
+        [x] persistent test.db (test config db)
+        [x] seed/backfill mock usage via mock server
     app:
         scaffold:
             [x] xcode project

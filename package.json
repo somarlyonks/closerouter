@@ -13,6 +13,7 @@
     ],
     "scripts": {
         "test:db": "scriptc build test/db.test.ts --ffi native/ffi.json -o dist/db-test && ./dist/db-test",
+        "test:seed": "node test/seed-usage.js --seed 20 --backfill",
         "pretest": "node build.ts",
         "test": "node --import ./test/loader.mjs --test \"test/**/*.test.ts\"",
         "prestart": "node build.ts",
