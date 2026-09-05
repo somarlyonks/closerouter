@@ -4,6 +4,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     case overview
     case config
     case logs
+    case analytics
     case settings
 
     var id: Self { self }
@@ -13,6 +14,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .overview: "Overview"
         case .config: "Config"
         case .logs: "Logs"
+        case .analytics: "Analytics"
         case .settings: "Settings"
         }
     }
@@ -22,6 +24,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .overview: "text.and.command.macwindow"
         case .config: "doc.badge.gearshape"
         case .logs: "terminal"
+        case .analytics: "chart.bar.xaxis"
         case .settings: "gearshape"
         }
     }
@@ -43,6 +46,7 @@ struct MainView: View {
             case .overview: OverviewView()
             case .config: ConfigEditorView()
             case .logs: LogsView()
+            case .analytics: AnalyticsView()
             case .settings: SettingsView()
             case .none: EmptyView()
             }

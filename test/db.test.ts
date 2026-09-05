@@ -264,6 +264,20 @@ function sqlTests (): void {
         assert.equal(stats.byProvider[0].key, 'p1') // sorted by count desc
         assert.equal(stats.byProvider[0].count, 2)
 
+        // per-bucket per-model series: m1 spans 2 buckets, m2 1 -> 3 points
+        assert.equal(stats.seriesByModel.length, 3)
+        const sbm = (bucket: number, model: string) =>
+            stats.seriesByModel.find(p => p.bucket === Math.floor(bucket / DAY) * DAY && p.model === model)
+        const s1 = sbm(base, 'm1')
+        assert.ok(s1)
+        assert.equal(s1!.count, 1)
+        assert.equal(s1!.inTokens, 10)
+        assert.equal(s1!.outTokens, 20)
+        assert.ok(sbm(base + DAY, 'm2') === undefined)
+        const hourly = loadUsageStats({from: base, to: base + 2 * DAY})
+        assert.equal(hourly.series.length, 3)
+        assert.equal(hourly.seriesByModel.length, 3) // same buckets, model split preserved
+
         const p1 = loadUsageStats({provider: 'p1'})
         assert.equal(p1.count, 2)
         assert.equal(p1.inTokens, 40)
@@ -282,10 +296,52 @@ function sqlTests (): void {
 
         const fromAndProvider = loadUsageStats({from: base, provider: 'p2'})
         assert.equal(fromAndProvider.count, 1)
+    })
 
-        // <= 3-day span buckets hourly; 3 rows on distinct days -> 3 buckets
-        const hourly = loadUsageStats({from: base, to: base + 2 * DAY})
-        assert.equal(hourly.series.length, 3)
+    test('loadUsageStats merges series beyond 45 buckets', () => {
+        openDatabase('')
+        initUsage()
+        const DAY = 86_400_000
+        const base = Math.floor((Date.now() - 150 * DAY) / DAY) * DAY + 4 * 3_600_000 // day-aligned mid-day
+        const row = (id: string, time: number, provider: string, model: string, status: number, inTok: number, outTok: number) =>
+            recordUsage({
+                requestId: id, time, method: 'POST', path: '/v1/chat/completions',
+                provider, model, status, durationMs: 100, ttftMs: 10,
+                inputTokens: inTok, outputTokens: outTok, cachedTokens: 0,
+            })
+        // 120 daily rows across two models, alternating so each model has 60 buckets
+        for (let d = 0; d < 120; d++) {
+            row(`m${d}`, base + d * DAY, 'p1', d % 2 === 0 ? 'mA' : 'mB', 200, 10, 20)
+        }
+
+        const stats = loadUsageStats({from: base - DAY, to: base + 121 * DAY})
+        // 120 daily buckets -> group size = ceil(120/45) = 3 -> 40 groups
+        assert.equal(stats.series.length, 40)
+        assert.equal(stats.series.length, Math.ceil(120 / Math.ceil(120 / 45)))
+        // bucket = first member of the group
+        assert.equal(stats.series[0].bucket, Math.floor(base / DAY) * DAY)
+        assert.equal(stats.series[1].bucket, Math.floor((base + 3 * DAY) / DAY) * DAY)
+        // all rows preserved through the merge
+        assert.equal(stats.series.reduce((n, b) => n + b.count, 0), 120)
+        assert.equal(stats.series.reduce((n, b) => n + b.inTokens, 0), 1200)
+        assert.equal(stats.series.reduce((n, b) => n + b.outTokens, 0), 2400)
+        // seriesByModel follows the same grouping: 40 groups x 2 models
+        assert.equal(stats.seriesByModel.length, 80)
+        const pt = (bucket: number, model: string) =>
+            stats.seriesByModel.find(p => p.bucket === bucket && p.model === model)
+        const g0mA = pt(stats.series[0].bucket, 'mA')
+        assert.ok(g0mA)
+        assert.equal(g0mA!.count, 2) // days 0 and 2 of the group
+        assert.equal(g0mA!.inTokens, 20)
+        const g0mB = pt(stats.series[0].bucket, 'mB')
+        assert.ok(g0mB)
+        assert.equal(g0mB!.count, 1) // day 1
+        assert.equal(g0mB!.inTokens, 10)
+        // totals survive per-model too
+        assert.equal(stats.seriesByModel.reduce((n, p) => n + p.count, 0), 120)
+        // short spans are never merged
+        const small = loadUsageStats({from: base - DAY, to: base + 2 * DAY})
+        assert.equal(small.series.length, 3)
     })
 }
 

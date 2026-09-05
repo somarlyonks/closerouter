@@ -49,7 +49,7 @@ CloseRouter.app
 | `GET /status` | none | health check → `{version, status}` |
 | `GET /config` | `Bearer <key>` | overview providers; requires `Accept: application/json` |
 | `PUT /config` | `Bearer <key>` | save config (validates server-side) |
-| `GET /usage` | `Bearer <key>` | `{count, inTokens, outTokens, cachedTokens}` |
+| `GET /usage` | `Bearer <key>` | analytics; optional `?from&to&provider&model` → totals, `series`, `byProvider`, `byModel` |
 | `GET /v1/models` | `Bearer <key>` | `{object, data:[{id:"provider/model",owned_by}]}` |
 | `GET /logs` SSE | `Cookie: cr-key=<key>` | live log events + 3s `event: ping` |
 | `GET /logs` JSON | `Cookie: cr-key=<key>` | history → `{entries:[...]}` |
@@ -76,6 +76,7 @@ app/CloseRouter/
     MainView.swift            NavigationSplitView shell + AppSection enum + AppState (section switch)
     SidebarView.swift         sidebar list
     OverviewView.swift        dashboard (status banner, stat cards, providers, models)
+    AnalyticsView.swift       analytics (date range + provider/model filters, chart, breakdowns)
     LogsView.swift            live SSE table + detail inspector
     SettingsView.swift        launch-at-login (SMAppService), prefs, server controls, about
 ```

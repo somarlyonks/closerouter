@@ -19,7 +19,8 @@ CloseRouter:
             [x] config
             [x] logs
             [x] status
-            [x] usage
+            usage:
+                [x] filters
     db:
         [x] SQLite ABI
         [x] sql interface functions
@@ -57,6 +58,30 @@ CloseRouter:
             [x] SSE stream view
             [x] pause/filter/clear
             [x] history on open
+        analytics:
+            server:
+                [x] /usage query params (from/to/provider/model)
+                [x] time-series
+                [x] provider/model breakdown aggregation
+            date range:
+                [x] Day, Week, Month presets
+                [x] custom pickers with overlay
+                [x] time range navigation
+            provider/model filters:
+               [x] model-then-provider
+               [x] provider-then-model
+               [x] the other selector's menu is constrained to compatible options
+            [x] stat cards
+            chart:
+                [x] aggregate series to at most 45 buckets
+                [x] line chart for requests
+                histogram chart for tokens:
+                    [x] split by model
+                    [x] stable name-based model colors (sorted domain + fixed palette)
+                    [x] tokens chart hover
+                [ ] heatmap
+            [x] breakdown lists
+            [x] responsive layout
         settings:
             [x] launch at login (SMAppService)
             [x] notifications on crash/start

@@ -66,7 +66,6 @@ struct OverviewView: View {
             .buttonStyle(.bordered)
             .disabled(server.state.isTransitioning)
         }
-        .padding(14)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
     }
 
@@ -153,7 +152,7 @@ struct OverviewView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(.vertical, 14)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
     }
 

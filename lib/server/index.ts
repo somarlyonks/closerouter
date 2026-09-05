@@ -28,7 +28,7 @@ export function startServer (config: RuntimeConfig): Server {
             router(c => !!c.req.url?.startsWith('/v1/'), handleOpenAIRequest,
             router(c => c.req.url === '/status', handleStatus,
             router(c => c.req.url === '/logs' || !!c.req.url?.startsWith('/logs/'), handleLogs,
-            router(c => c.req.url === '/usage', handleUsage,
+            router(c => !!c.req.url?.startsWith('/usage'), handleUsage,
             router(c => c.req.url === '/config', handleConfig,
         )))))))(ctx, res)/* eslint-enable @stylistic/indent */
     })
