@@ -13,6 +13,7 @@ struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
     @State private var loginItemStatus = SMAppService.mainApp.status
     @State private var loginItemError: String?
+    @State private var keyCopied = false
 
     var body: some View {
         Form {
@@ -42,6 +43,23 @@ struct SettingsView: View {
                     Text(statusLabel).foregroundStyle(statusColor)
                 }
                 LabeledContent("Port", value: "\(server.port)")
+                LabeledContent("Key") {
+                    HStack(spacing: 8) {
+                        Text(String(repeating: "*", count: server.key.count))
+                            .font(.system(.body, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Button {
+                            copyKey()
+                        } label: {
+                            Image(systemName: keyCopied ? "checkmark" : "doc.on.doc")
+                                .foregroundStyle(keyCopied ? Color.green : Color.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(keyCopied ? "Copied" : "Copy the API key")
+                    }
+                }
+                .help("The runtime auth key: the configured one, or the shared default. Copy it with the button.")
                 LabeledContent("Config file", value: ConfigStore.configURL.path)
                 HStack {
                     Button("Open in editor") {
@@ -144,5 +162,15 @@ struct SettingsView: View {
                 : "Couldn't unregister login item: \(error.localizedDescription)"
         }
         loginItemStatus = SMAppService.mainApp.status
+    }
+
+    private func copyKey() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(server.key, forType: .string)
+        keyCopied = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            keyCopied = false
+        }
     }
 }
