@@ -72,9 +72,11 @@ final class AnalyticsViewModel: ObservableObject {
         load()
     }
 
-    /// Shift the current window by one period (−1 past, +1 future). Calendar
-    /// presets only — custom has no fixed step. Adding the component to `to`
-    /// (which sits 1ms before the next period) keeps the window aligned.
+    /// Shift the window by one period (−1 past, +1 future). Semantic: the
+    /// target window is recomputed as the full aligned period containing
+    /// `from ± period`, so month navigation always yields whole calendar
+    /// months (Feb → Mar is a full 31-day March, not Mar 28). Custom has no
+    /// fixed step and is a no-op.
     func navigate(_ direction: Int) {
         let component: Calendar.Component
         switch preset {
@@ -83,10 +85,10 @@ final class AnalyticsViewModel: ObservableObject {
         case .month: component = .month
         case .custom: return
         }
-        guard let newFrom = Calendar.current.date(byAdding: component, value: direction, to: from),
-              let newTo = Calendar.current.date(byAdding: component, value: direction, to: to) else { return }
-        from = newFrom
-        to = newTo
+        guard let shifted = Calendar.current.date(byAdding: component, value: direction, to: from),
+              let window = periodWindow(containing: shifted, preset: preset) else { return }
+        from = window.0
+        to = window.1
         load()
     }
 
@@ -104,38 +106,37 @@ final class AnalyticsViewModel: ObservableObject {
         load()
     }
 
-    /// Calendar-aligned ranges: day = 00:00 to end of today, week = this
-    /// week's Monday 00:00 to Sunday end, month = 1st 00:00 to end of month.
-    /// `to` sits 1ms before the next period's start so the inclusive
-    /// `time <= to` filter can't bleed into the next period.
+    /// Calendar-aligned ranges:
+    ///     day = 00:00 to end of day,
+    ///     week = Monday 00:00 to Sunday end,
+    ///     month = 1st 00:00 to end of month.
+    /// `to` sits 1ms before the next period's start so the inclusive `time <= to` filter can't bleed into the next period.
+    /// `applyPreset` anchors at now; `navigate` anchors at the shifted `from`.
     private func applyPreset(_ p: RangePreset) {
-        let cal = Calendar.current
         let now = Date()
-        switch p {
+        if p != .custom, let window = periodWindow(containing: now, preset: p) {
+            from = window.0
+            to = window.1
+        }
+    }
+
+    private func periodWindow(containing anchor: Date, preset: RangePreset) -> (Date, Date)? {
+        let cal = Calendar.current
+        switch preset {
         case .day:
-            let start = cal.startOfDay(for: now)
-            from = start
-            to = (cal.date(byAdding: .day, value: 1, to: start) ?? now).addingTimeInterval(-0.001)
+            let start = cal.startOfDay(for: anchor)
+            guard let next = cal.date(byAdding: .day, value: 1, to: start) else { return nil }
+            return (start, next.addingTimeInterval(-0.001))
         case .week:
             var week = cal
             week.firstWeekday = 2 // Monday
-            if let interval = week.dateInterval(of: .weekOfYear, for: now) {
-                from = interval.start
-                to = interval.end.addingTimeInterval(-0.001)
-            } else {
-                from = now.addingTimeInterval(-7 * 86_400)
-                to = now
-            }
+            guard let interval = week.dateInterval(of: .weekOfYear, for: anchor) else { return nil }
+            return (interval.start, interval.end.addingTimeInterval(-0.001))
         case .month:
-            if let interval = cal.dateInterval(of: .month, for: now) {
-                from = interval.start
-                to = interval.end.addingTimeInterval(-0.001)
-            } else {
-                from = now.addingTimeInterval(-30 * 86_400)
-                to = now
-            }
+            guard let interval = cal.dateInterval(of: .month, for: anchor) else { return nil }
+            return (interval.start, interval.end.addingTimeInterval(-0.001))
         case .custom:
-            break
+            return nil
         }
     }
 
@@ -663,7 +664,7 @@ struct AnalyticsView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 8)
-                    Text("\u{2191}\(compact(p.inTokens)) \u{2193}\(compact(p.outTokens)) \u{00b7} \(p.count) req")
+                    Text("\u{2191}\(compact(p.inTokens)) \u{2193}\(compact(p.outTokens)) \u{00b7}")
                         .font(.caption)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
