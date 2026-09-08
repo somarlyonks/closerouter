@@ -176,6 +176,7 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
             where.push('model = ?')
             params.push(filters.model)
         }
+        where.push('(status IS NULL OR status < 400 OR status >= 500)')
         const clause = where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''
 
         const total = all(
@@ -265,7 +266,6 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
         let seriesByModelOut = seriesByModel
         if (series.length > MAX_BUCKETS) {
             const groupSize = Math.ceil(series.length / MAX_BUCKETS)
-            const groupCount = Math.ceil(series.length / groupSize)
             const grouped: UsageBucket[] = []
             const groupStartOfBucket = new Map<number, number>()
             for (let i = 0; i < series.length; i++) {
@@ -275,7 +275,7 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
                 groupStartOfBucket.set(src.bucket, start)
                 const g = grouped.length > gi
                     ? grouped[gi]
-                    : { bucket: src.bucket, count: 0, inTokens: 0, outTokens: 0, cachedTokens: 0 }
+                    : {bucket: src.bucket, count: 0, inTokens: 0, outTokens: 0, cachedTokens: 0}
                 g.count += src.count
                 g.inTokens += src.inTokens
                 g.outTokens += src.outTokens
@@ -289,7 +289,7 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
                 const key = `${start}|${p.model}`
                 const g = groupedByModel.get(key)
                 if (g === undefined) {
-                    groupedByModel.set(key, { bucket: start, model: p.model, count: p.count, inTokens: p.inTokens, outTokens: p.outTokens })
+                    groupedByModel.set(key, {bucket: start, model: p.model, count: p.count, inTokens: p.inTokens, outTokens: p.outTokens})
                 } else {
                     g.count += p.count
                     g.inTokens += p.inTokens

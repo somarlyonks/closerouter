@@ -21,6 +21,8 @@ CloseRouter:
             [x] status
             usage:
                 [x] filters
+                [x] exclude 4xx client error responses
+                [x] provider/model breakdown aggregation
     db:
         [x] SQLite ABI
         [x] sql interface functions
@@ -59,10 +61,6 @@ CloseRouter:
             [x] pause/filter/clear
             [x] history on open
         analytics:
-            server:
-                [x] /usage query params (from/to/provider/model)
-                [x] time-series
-                [x] provider/model breakdown aggregation
             date range:
                 [x] Day, Week, Month, Year presets
                 [x] time range navigation
