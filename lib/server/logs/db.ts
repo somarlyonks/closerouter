@@ -151,6 +151,14 @@ const emptyStats = (): UsageStats => ({
 const asNum = (v: SqlParam): number => typeof v === 'number' ? v : 0
 const asStr = (v: SqlParam): string | undefined => typeof v === 'string' ? v : undefined
 
+/** Local-midnight epoch ms for a timestamp, in the server's local timezone.
+ *  getTimezoneOffset() is per-instant (DST-aware); scriptc has no lowering for
+ *  the local-time `new Date(y, m, d)` constructor, so we avoid it. */
+function localMidnightEpoch (ms: number): number {
+    const offset = new Date(ms).getTimezoneOffset() * 60_000
+    return Math.floor((ms - offset) / DAY) * DAY + offset
+}
+
 /** Aggregate usage rows into totals, a time series, and per-provider/model breakdowns.
  *  Filters are AND-combined. Bucket width is hourly for spans <= 3 days, daily otherwise;
  *  series longer than 45 buckets are merged into consecutive groups of ceil(n / 45)
@@ -316,6 +324,59 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
     } catch (e) {
         console.error('usage stats failed:', e instanceof Error ? e.message : String(e))
         return emptyStats()
+    }
+}
+
+/**
+ * Sparse per-calendar-day buckets for the heatmap. Same filters as
+ * loadUsageStats (AND-combined, success-only). Days with no rows are absent
+ * from the result on purpose - the client treats a missing day as zero, so
+ * the server never zero-fills. Each bucket's timestamp is the local-midnight
+ * epoch ms of its calendar day. Rows are bucketed in JS because SQLite's
+ * local-tz date helpers return strings that scriptc can't round-trip.
+ */
+export function loadUsageHeatmap (filters: UsageFilters = {}): UsageBucket[] {
+    if (!initialized) return []
+    try {
+        const where: string[] = []
+        const params: SqlParam[] = []
+        if (filters.from !== undefined) {
+            where.push('time >= ?')
+            params.push(filters.from)
+        }
+        if (filters.to !== undefined) {
+            where.push('time <= ?')
+            params.push(filters.to)
+        }
+        if (filters.provider) {
+            where.push('provider = ?')
+            params.push(filters.provider)
+        }
+        if (filters.model) {
+            where.push('model = ?')
+            params.push(filters.model)
+        }
+        where.push('(status IS NULL OR status < 400 OR status >= 500)')
+        const clause = where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''
+
+        const rows = all(
+            `SELECT time, input_tokens, output_tokens, cached_tokens FROM usage${clause}`,
+            params,
+        )
+        const byDay = new Map<number, UsageBucket>()
+        for (const row of rows) {
+            const day = localMidnightEpoch(asNum(row.time))
+            const b = byDay.get(day) ?? {bucket: day, count: 0, inTokens: 0, outTokens: 0, cachedTokens: 0}
+            b.count++
+            b.inTokens += asNum(row.input_tokens)
+            b.outTokens += asNum(row.output_tokens)
+            b.cachedTokens += asNum(row.cached_tokens)
+            byDay.set(day, b)
+        }
+        return [...byDay.values()].sort((a, b) => a.bucket - b.bucket)
+    } catch (e) {
+        console.error('usage heatmap failed:', e instanceof Error ? e.message : String(e))
+        return []
     }
 }
 

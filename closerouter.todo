@@ -23,6 +23,7 @@ CloseRouter:
                 [x] filters
                 [x] exclude 4xx client error responses
                 [x] provider/model breakdown aggregation
+                [x] heatmap daily buckets, sparse
     db:
         [x] SQLite ABI
         [x] sql interface functions
@@ -76,7 +77,11 @@ CloseRouter:
                     [x] split by model
                     [x] stable name-based model colors (sorted domain + fixed palette)
                     [x] tokens chart hover
-                [ ] heatmap
+                heatmap:
+                    [x] render only when date range year selected
+                    [x] implement with RectangleMark Chart (week x weekday, Monday on top)
+                    [x] year grid labels: months on top + Mon/Wed/Fri + Less/More legend
+                    [x] hover tooltip
             [x] breakdown lists
             [x] responsive layout
         settings:

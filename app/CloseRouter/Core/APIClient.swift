@@ -104,6 +104,18 @@ enum APIClient {
         var id: String { "\(bucket)-\(model)" }
     }
 
+    /// Sparse per-calendar-day bucket for the year heatmap. Days with no
+    /// requests are absent from the server payload - the client treats a
+    /// missing day as zero when it expands the full year grid.
+    struct HeatmapDay: Decodable, Identifiable {
+        let bucket: Int64
+        var id: Int64 { bucket }
+        let count: Int
+        let inTokens: Int
+        let outTokens: Int
+        let cachedTokens: Int
+    }
+
     struct AnalyticsStats: Decodable {
         let count: Int
         let inTokens: Int
@@ -117,11 +129,15 @@ enum APIClient {
         let byModel: [AnalyticsGroup]
         var seriesByModel: [SeriesModelPoint] { _seriesByModel ?? [] }
         private let _seriesByModel: [SeriesModelPoint]?
+        /// Present only when the server supports /usage ?heatmap=1.
+        var heatmap: [HeatmapDay] { _heatmap ?? [] }
+        private let _heatmap: [HeatmapDay]?
 
         enum CodingKeys: String, CodingKey {
             case count, inTokens, outTokens, cachedTokens, avgDurationMs, avgTtftMs, errorCount
             case series, byProvider, byModel
             case _seriesByModel = "seriesByModel"
+            case _heatmap = "heatmap"
         }
     }
 
@@ -183,6 +199,9 @@ enum APIClient {
         if let to { items.append(URLQueryItem(name: "to", value: String(Int64(to.timeIntervalSince1970 * 1000)))) }
         if let provider { items.append(URLQueryItem(name: "provider", value: provider)) }
         if let model { items.append(URLQueryItem(name: "model", value: model)) }
+        // Always request the sparse daily heatmap buckets; the payload is tiny
+        // outside a year and the year view is the only one that renders them.
+        items.append(URLQueryItem(name: "heatmap", value: "1"))
         if !items.isEmpty { components.queryItems = items }
         var req = URLRequest(url: components.url!)
         req.setValue("application/json", forHTTPHeaderField: "Accept")
