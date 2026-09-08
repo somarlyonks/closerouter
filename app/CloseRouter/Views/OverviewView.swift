@@ -66,7 +66,6 @@ struct OverviewView: View {
             .buttonStyle(.bordered)
             .disabled(server.state.isTransitioning)
         }
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
     }
 
     private var statusTitle: String {
@@ -153,7 +152,6 @@ struct OverviewView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 14)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
     }
 
     private var cacheRateText: String {

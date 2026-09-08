@@ -395,7 +395,6 @@ struct AnalyticsView: View {
         content()
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 14)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
     }
 
     // MARK: Stat cards
@@ -426,7 +425,6 @@ struct AnalyticsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 14)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
     }
 
     // MARK: Chart
