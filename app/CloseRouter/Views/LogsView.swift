@@ -50,23 +50,22 @@ struct LogsView: View {
     private var table: some View {
         Table(viewModel.displayedGroups, selection: $selection) {
             TableColumn("Time") { row in
-                Text(row.time.formatted(date: .omitted, time: .standard))
+                Text(Self.timeFormatter.string(from: row.time))
                     .monospacedDigit()
             }
-            .width(min: 80, ideal: 90)
-
-            TableColumn("Method") { row in
-                Text(row.method)
-                    .monospaced()
-                    .foregroundStyle(.secondary)
-            }
-            .width(min: 60, ideal: 72)
+            .width(min: 56, ideal: 64)
 
             TableColumn("Path") { row in
-                Text(row.path)
+                Text(Self.strippedPath(row.path))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
+
+            TableColumn("Provider") { row in
+                Text(row.provider ?? "-")
+                    .foregroundStyle(.secondary)
+            }
+            .width(min: 60, ideal: 80)
 
             TableColumn("Model") { row in
                 Text(row.model ?? "-")
@@ -185,6 +184,17 @@ struct LogsView: View {
 
     // MARK: Helpers
 
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
+    private static func strippedPath(_ path: String) -> String {
+        path.hasPrefix("/v1/") ? String(path.dropFirst(4)) : path
+    }
+
     private var selectedRow: LogGroup? {
         guard let selection else { return nil }
         return viewModel.displayedGroups.first { $0.id == selection }
@@ -225,10 +235,10 @@ struct LogsView: View {
         let input = row.inputTokens ?? 0
         let output = row.outputTokens ?? 0
         if input == 0 && output == 0 { return "-" }
-        let base = "\(input) in · \(output) out"
-        if let cached = row.cachedTokens, cached > 0 {
-            return "\(base) · \(cached) cached"
-        }
-        return base
+        return "\(compactTokens(input)) in · \(compactTokens(output)) out"
+    }
+
+    private func compactTokens(_ n: Int) -> String {
+        n.formatted(.number.notation(.compactName))
     }
 }
