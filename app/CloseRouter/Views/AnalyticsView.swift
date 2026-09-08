@@ -303,6 +303,9 @@ struct AnalyticsView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     statCards(stats)
                     chartCard(stats)
+                    if viewModel.preset == .year, !stats.heatmap.isEmpty {
+                        heatmapCard(stats)
+                    }
                     breakdownSection(stats)
                 }
                 .padding(20)
@@ -607,7 +610,7 @@ struct AnalyticsView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 8)
-                    Text("\u{2191}\(compact(p.inTokens)) \u{2193}\(compact(p.outTokens)) \u{00b7}")
+                    Text("\u{2191}\(compact(p.inTokens)) \u{2193}\(compact(p.outTokens))")
                         .font(.caption)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
@@ -643,17 +646,17 @@ struct AnalyticsView: View {
         let hour: Int64 = 3_600_000
         let day: Int64 = 86_400_000
         switch viewModel.preset {
-        case .day:
-            return hour
-        default:
-            return day
+            case .day:
+                return hour
+            default:
+                return day
         }
     }
 
     private var axisFormat: Date.FormatStyle {
         switch viewModel.preset {
-        case .day: .dateTime.hour()
-        default: .dateTime.month().day()
+            case .day: .dateTime.hour()
+            default: .dateTime.month().day()
         }
     }
 
@@ -676,6 +679,18 @@ struct AnalyticsView: View {
         let domain = Array(Set(stats.seriesByModel.map(\.model))).sorted()
         guard let index = domain.firstIndex(of: model) else { return .accentColor }
         return modelPalette[index % modelPalette.count]
+    }
+
+    // MARK: Heatmap (Year only)
+
+    private func heatmapCard(_ stats: APIClient.AnalyticsStats) -> some View {
+        card {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Activity heatmap")
+                    .font(.headline)
+                UsageHeatmapView(days: stats.heatmap, from: viewModel.from, to: viewModel.to)
+            }
+        }
     }
 
     // MARK: Breakdown
