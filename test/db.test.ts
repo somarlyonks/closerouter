@@ -343,6 +343,32 @@ function sqlTests (): void {
         const small = loadUsageStats({from: base - DAY, to: base + 2 * DAY})
         assert.equal(small.series.length, 3)
     })
+
+    test('loadUsageStats excludes 4xx responses but keeps null statuses and 5xx', () => {
+        openDatabase('')
+        initUsage()
+        const DAY = 86_400_000
+        const base = Math.floor(Date.now() / DAY) * DAY
+        const row = (id: string, time: number, provider: string, model: string, status: number | undefined, inTok: number, outTok: number) =>
+            recordUsage({
+                requestId: id, time, method: 'POST', path: '/v1/chat/completions',
+                provider, model, status, durationMs: 100, ttftMs: 10,
+                inputTokens: inTok, outputTokens: outTok, cachedTokens: 0,
+            })
+        row('ok1', base, 'p1', 'm1', 200, 10, 20)
+        row('nf1', base + DAY, 'p1', 'm2', 404, 10, 20)
+        row('bad', base + DAY + 1, 'p1', 'm2', 401, 10, 20)
+        row('err', base + 2 * DAY, 'p1', 'm1', 500, 10, 20)
+        row('null', base + 3 * DAY, 'p1', 'm1', undefined, 10, 20)
+
+        const stats = loadUsageStats({from: base - DAY, to: base + 4 * DAY})
+        assert.equal(stats.count, 3) // 200, 500, null — 404 & 401 excluded
+        assert.equal(stats.inTokens, 30)
+        assert.equal(stats.errorCount, 1) // only the 500; 4xx doesn't pollute errors
+        assert.equal(stats.series.length, 3) // 4xx buckets dropped
+        assert.equal(stats.byModel.length, 1) // 4xx m2 excluded -> only m1
+        assert.equal(stats.seriesByModel.length, 3)
+    })
 }
 
 if (available) {
