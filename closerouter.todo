@@ -68,9 +68,9 @@ CloseRouter:
                 [x] custom pickers with overlay
                 [x] time range navigation
             provider/model filters:
-               [x] model-then-provider
-               [x] provider-then-model
-               [x] the other selector's menu is constrained to compatible options
+                [x] model-then-provider
+                [x] provider-then-model
+                [x] the other selector's menu is constrained to compatible options
             [x] stat cards
             chart:
                 [x] aggregate series to at most 45 buckets
