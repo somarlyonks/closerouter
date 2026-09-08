@@ -127,7 +127,9 @@ final class LogsViewModel: ObservableObject {
 
     private var groupsById: [String: Int] = [:]
     private var pendingBuffer: [LogGroup] = []
-    private var loadingBodies: Set<Int> = []
+    /// dbIds currently fetching bodies for. @Published so the detail pane re-renders
+    /// when a fetch starts (spinner) and when it ends (falls through to "No body").
+    @Published private(set) var loadingBodies: Set<Int> = []
     private var streamTask: Task<Void, Never>?
     private var stateCancellable: AnyCancellable?
     private let maxRows = 500
