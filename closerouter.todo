@@ -64,8 +64,7 @@ CloseRouter:
                 [x] time-series
                 [x] provider/model breakdown aggregation
             date range:
-                [x] Day, Week, Month presets
-                [x] custom pickers with overlay
+                [x] Day, Week, Month, Year presets
                 [x] time range navigation
             provider/model filters:
                 [x] model-then-provider

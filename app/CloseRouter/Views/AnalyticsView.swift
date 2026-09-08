@@ -10,7 +10,7 @@ final class AnalyticsViewModel: ObservableObject {
         case day = "Day"
         case week = "Week"
         case month = "Month"
-        case custom = "Custom"
+        case year = "Year"
         var id: Self { self }
     }
 
@@ -60,22 +60,14 @@ final class AnalyticsViewModel: ObservableObject {
 
     func selectPreset(_ p: RangePreset) {
         preset = p
-        if p != .custom {
-            applyPreset(p)
-            load()
-        }
-    }
-
-    /// User edited a custom from/to date directly.
-    func customDateChanged() {
-        preset = .custom
+        applyPreset(p)
         load()
     }
 
     /// Shift the window by one period (−1 past, +1 future). Semantic: the
     /// target window is recomputed as the full aligned period containing
     /// `from ± period`, so month navigation always yields whole calendar
-    /// months (Feb → Mar is a full 31-day March, not Mar 28). Custom has no
+    /// months (Feb → Mar is a full 31-day March, not Mar 28).
     /// fixed step and is a no-op.
     func navigate(_ direction: Int) {
         let component: Calendar.Component
@@ -83,7 +75,7 @@ final class AnalyticsViewModel: ObservableObject {
         case .day: component = .day
         case .week: component = .weekOfYear
         case .month: component = .month
-        case .custom: return
+        case .year: component = .year
         }
         guard let shifted = Calendar.current.date(byAdding: component, value: direction, to: from),
               let window = periodWindow(containing: shifted, preset: preset) else { return }
@@ -109,12 +101,13 @@ final class AnalyticsViewModel: ObservableObject {
     /// Calendar-aligned ranges:
     ///     day = 00:00 to end of day,
     ///     week = Monday 00:00 to Sunday end,
-    ///     month = 1st 00:00 to end of month.
+    ///     month = 1st 00:00 to end of month,
+    ///     year = Jan 1st 00:00 to end of year.
     /// `to` sits 1ms before the next period's start so the inclusive `time <= to` filter can't bleed into the next period.
     /// `applyPreset` anchors at now; `navigate` anchors at the shifted `from`.
     private func applyPreset(_ p: RangePreset) {
         let now = Date()
-        if p != .custom, let window = periodWindow(containing: now, preset: p) {
+        if let window = periodWindow(containing: now, preset: p) {
             from = window.0
             to = window.1
         }
@@ -135,8 +128,9 @@ final class AnalyticsViewModel: ObservableObject {
         case .month:
             guard let interval = cal.dateInterval(of: .month, for: anchor) else { return nil }
             return (interval.start, interval.end.addingTimeInterval(-0.001))
-        case .custom:
-            return nil
+        case .year:
+            guard let interval = cal.dateInterval(of: .year, for: anchor) else { return nil }
+            return (interval.start, interval.end.addingTimeInterval(-0.001))
         }
     }
 
@@ -171,7 +165,6 @@ struct AnalyticsView: View {
 
     @StateObject private var viewModel = AnalyticsViewModel()
     @State private var chartMetric: ChartMetric = .requests
-    @State private var showCustomRange = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -222,35 +215,7 @@ struct AnalyticsView: View {
     /// shoves the sidebar off the window's left edge.
     private let compactWidth: CGFloat = 660
 
-    private var customRangeEditor: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Custom range")
-                .font(.headline)
-            HStack(spacing: 8) {
-                Text("From")
-                    .frame(width: 44, alignment: .leading)
-                    .foregroundStyle(.secondary)
-                DatePicker("", selection: $viewModel.from, in: ...viewModel.to, displayedComponents: .date)
-                    .labelsHidden()
-                    .onChange(of: viewModel.from) { _ in viewModel.customDateChanged() }
-            }
-            HStack(spacing: 8) {
-                Text("To")
-                    .frame(width: 44, alignment: .leading)
-                    .foregroundStyle(.secondary)
-                DatePicker("", selection: $viewModel.to, in: viewModel.from..., displayedComponents: .date)
-                    .labelsHidden()
-                    .onChange(of: viewModel.to) { _ in viewModel.customDateChanged() }
-            }
-        }
-        .padding(16)
-        .frame(width: 200, alignment: .leading)
-    }
-
     private let rangePickerWidth: CGFloat = 300
-    private var rangeSegmentWidth: CGFloat {
-        rangePickerWidth / CGFloat(AnalyticsViewModel.RangePreset.allCases.count)
-    }
 
     private var rangePicker: some View {
         Picker("Range", selection: Binding(
@@ -264,27 +229,6 @@ struct AnalyticsView: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .frame(minWidth: 250, idealWidth: rangePickerWidth, maxWidth: rangePickerWidth, alignment: .leading)
-        .overlay(alignment: .trailing) {
-            Color.clear
-                .frame(width: rangeSegmentWidth)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    viewModel.selectPreset(.custom)
-                    showCustomRange = true
-                }
-        }
-        .background(alignment: .trailing) {
-            Color.clear
-                .frame(width: 1)
-                .popover(isPresented: $showCustomRange, arrowEdge: .bottom) {
-                    customRangeEditor
-                }
-                .padding(.trailing, rangeSegmentWidth / 2)
-        }
-        .onChange(of: viewModel.preset) { p in
-            guard p != .custom else { return }
-            DispatchQueue.main.async { showCustomRange = false }
-        }
     }
 
     private var filterTrailing: some View {
@@ -510,7 +454,7 @@ struct AnalyticsView: View {
                                 }
                         }
                     }
-                    .onChange(of: chartMetric) { _ in hoveredBucket = nil }
+                    .onChange(of: chartMetric) { hoveredBucket = nil }
                 }
             }
         }
@@ -585,19 +529,18 @@ struct AnalyticsView: View {
         case .day: "day"
         case .week: "week"
         case .month: "month"
-        case .custom: "range"
+        case .year: "year"
         }
     }
 
     private var canNavigateBack: Bool {
-        viewModel.preset != .custom
+        true
     }
 
     /// Forward is off once the window already includes the present -
     /// there is no data in the future.
     private var canNavigateForward: Bool {
-        guard viewModel.preset != .custom else { return false }
-        return viewModel.to < Date()
+        viewModel.to < Date()
     }
 
     // MARK: Chart hover (tokens)
@@ -702,9 +645,6 @@ struct AnalyticsView: View {
         switch viewModel.preset {
         case .day:
             return hour
-        case .custom:
-            let span = Int64(viewModel.to.timeIntervalSince(viewModel.from) * 1000)
-            return span > 0 && span <= 3 * day ? hour : day
         default:
             return day
         }
