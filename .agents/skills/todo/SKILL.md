@@ -44,3 +44,4 @@ CloseRouter:
 4. **Remove superseded work.** Delete items that are no longer planned instead of leaving dead checkboxes.
 5. **Keep it tidy.** Preserve 4-space indentation, one checkbox per item, consistent grouping, and no duplicates. Don't reformat unrelated sections.
 6. **Report changes.** When you update the file, briefly note in your final message which items you added, moved, or checked off.
+7. **Split before completing.** When asked to work on a todo item, first try to split it into smaller independently verifiable sub-items in the todo (replace the item with a category holding children, carrying its checkbox state forward), then ask for approval before starting any implementation work. Don't begin the work until the split is approved.

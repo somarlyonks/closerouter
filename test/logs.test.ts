@@ -1,10 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import * as http from 'http'
-import {once} from 'events'
-import {handleLogs, publishLog, type LogGroup} from '../lib/server/logs'
-import {getFreePort, startCrServer, startHandlerServer, startMockBackend, sampleConfig} from './helpers'
-import type {RuntimeConfig} from '../lib/config'
+import {handleLogs, extractTokenUsage} from '../lib/server/logs'
+import {startHandlerServer, sampleConfig} from './helpers'
 
 test('GET /logs serves the HTML page without auth', async () => {
     const srv = await startHandlerServer(handleLogs, {config: sampleConfig({key: 'logkey'})})
@@ -15,16 +12,17 @@ test('GET /logs serves the HTML page without auth', async () => {
         const body = await res.text()
         assert.match(body, /<!doctype html>/i)
         assert.match(body, /Logs/)
+        assert.match(body, /Refresh/)
     } finally {
         await srv.close()
     }
 })
 
-test('GET /logs with SSE accept but no auth is rejected with 401', async () => {
+test('GET /logs JSON history requires the API key', async () => {
     const srv = await startHandlerServer(handleLogs, {config: sampleConfig({key: 'logkey'})})
     try {
         const res = await fetch(`http://127.0.0.1:${srv.port}/logs`, {
-            headers: {accept: 'text/event-stream'},
+            headers: {accept: 'application/json'},
         })
         assert.equal(res.status, 401)
         const json = await res.json() as {error: {type: string}}
@@ -34,28 +32,63 @@ test('GET /logs with SSE accept but no auth is rejected with 401', async () => {
     }
 })
 
-test('GET /logs SSE with wrong cookie is rejected with 401', async () => {
+test('GET /logs JSON history with a wrong key is rejected with 401', async () => {
     const srv = await startHandlerServer(handleLogs, {config: sampleConfig({key: 'logkey'})})
     try {
-        const res = await new Promise<http.IncomingMessage>((resolve, reject) => {
-            const req = http.request(`http://127.0.0.1:${srv.port}/logs`, {
-                method: 'GET',
-                headers: {accept: 'text/event-stream', cookie: 'cr-key=wrong'},
-            }, resolve)
-            req.on('error', reject)
-            req.end()
+        const res = await fetch(`http://127.0.0.1:${srv.port}/logs`, {
+            headers: {accept: 'application/json', authorization: 'Bearer wrong'},
         })
-        assert.equal(res.statusCode, 401)
-        const body = await new Promise<string>((resolve, reject) => {
-            let buf = ''
-            res.on('data', (c: Buffer) => {
-                buf += c.toString('utf-8')
-            })
-            res.on('end', () => resolve(buf))
-            res.on('error', reject)
-        })
-        const json = JSON.parse(body) as {error: {type: string}}
+        assert.equal(res.status, 401)
+        const json = await res.json() as {error: {type: string}}
         assert.equal(json.error.type, 'authentication_error')
+    } finally {
+        await srv.close()
+    }
+})
+
+test('GET /logs JSON history with a valid key returns the entries list', async () => {
+    const srv = await startHandlerServer(handleLogs, {config: sampleConfig({key: 'logkey'})})
+    try {
+        // No DB in a plain-node handler test - the list is empty but well-formed.
+        const res = await fetch(`http://127.0.0.1:${srv.port}/logs`, {
+            headers: {accept: 'application/json', authorization: 'Bearer logkey'},
+        })
+        assert.equal(res.status, 200)
+        assert.equal(res.headers.get('content-type'), 'application/json')
+        const json = await res.json() as {entries: unknown[]}
+        assert.ok(Array.isArray(json.entries))
+    } finally {
+        await srv.close()
+    }
+})
+
+test('GET /logs/<id> detail requires the API key', async () => {
+    const srv = await startHandlerServer(handleLogs, {config: sampleConfig({key: 'logkey'})})
+    try {
+        const res = await fetch(`http://127.0.0.1:${srv.port}/logs/1`, {
+            headers: {accept: 'application/json'},
+        })
+        assert.equal(res.status, 401)
+    } finally {
+        await srv.close()
+    }
+})
+
+test('GET /logs/<id> detail 404s for unknown or invalid ids', async () => {
+    const srv = await startHandlerServer(handleLogs, {config: sampleConfig({key: 'logkey'})})
+    try {
+        for (const path of ['/logs/1', '/logs/999999']) {
+            const res = await fetch(`http://127.0.0.1:${srv.port}${path}`, {
+                headers: {accept: 'application/json', authorization: 'Bearer logkey'},
+            })
+            assert.equal(res.status, 404, `expected 404 for ${path}`)
+        }
+        for (const path of ['/logs/0', '/logs/-3', '/logs/abc']) {
+            const res = await fetch(`http://127.0.0.1:${srv.port}${path}`, {
+                headers: {accept: 'application/json', authorization: 'Bearer logkey'},
+            })
+            assert.equal(res.status, 404, `expected 404 for ${path}`)
+        }
     } finally {
         await srv.close()
     }
@@ -74,335 +107,36 @@ test('POST /logs is rejected with 405', async () => {
     }
 })
 
-test('GET /logs SSE stream delivers published log events', async () => {
-    const srv = await startHandlerServer(handleLogs, {config: sampleConfig({key: 'logkey'})})
-    try {
-        const entry: LogGroup = {
-            id: 'test',
-            phase: 'response',
-            time: 1767225600000,
-            method: 'GET',
-            path: '/v1/models',
-            status: 200,
-            durationMs: 5,
-        }
-
-        const received = await new Promise<string>((resolve, reject) => {
-            let done = false
-            const req = http.request(`http://127.0.0.1:${srv.port}/logs`, {
-                method: 'GET',
-                headers: {accept: 'text/event-stream', cookie: 'cr-key=logkey'},
-            }, (res) => {
-                if (res.statusCode !== 200) {
-                    reject(new Error(`expected status 200, got ${res.statusCode}`))
-                    return
-                }
-                let buf = ''
-                res.on('data', (chunk: Buffer) => {
-                    buf += chunk.toString('utf-8')
-                    if (buf.includes('"path":"/v1/models"')) {
-                        done = true
-                        req.destroy()
-                        resolve(buf)
-                    }
-                })
-                res.on('end', () => resolve(buf))
-                res.on('error', reject)
-            })
-            req.on('error', reject)
-            req.end()
-
-            // The server registers its SSE listener synchronously while
-            // processing the request, but under load that may take a few ticks
-            // to reach the front of the event loop. Retry publishing until the
-            // client acknowledges receipt (or the safety timeout elapses).
-            const publisher = setInterval(() => {
-                if (!done) publishLog(entry)
-            }, 20)
-            publisher.unref()
-            const safety = setTimeout(() => {
-                clearInterval(publisher)
-                done = true
-                req.destroy()
-                resolve('')
-            }, 2000)
-            safety.unref()
-        })
-
-        assert.match(received, /event: log\n/)
-        assert.match(received, /"path":"\/v1\/models"/)
-        assert.match(received, /"status":200/)
-    } finally {
-        await srv.close()
-    }
-})
-
-test('server logs capture request and response bodies', async () => {
-    const backend = await startMockBackend((_req, res) => {
-        res.writeHead(200, {'content-type': 'text/event-stream'})
-        res.write('data: {"choices":[]}\n\n')
-        setTimeout(() => {
-            res.write('data: [DONE]\n\n')
-            res.end()
-        }, 5)
+test('extractTokenUsage reads chat completions usage from a JSON body', () => {
+    const body = JSON.stringify({
+        usage: {prompt_tokens: 9, completion_tokens: 12, total_tokens: 21},
+        choices: [],
     })
-    const port = await getFreePort()
-    const config: RuntimeConfig = {
-        raw: '',
-        port,
-        key: 'logkey',
-        dbPath: '',
-        providers: {
-            p: {base_url: backend.baseUrl, api_key: 'bk', models: [{id: 'm'}]},
-        },
-    }
-    const srv = await startCrServer(config)
-    try {
-        let resolveEntries!: (entries: LogGroup[]) => void
-        let rejectEntries!: (err: Error) => void
-        const entriesPromise = new Promise<LogGroup[]>((resolve, reject) => {
-            resolveEntries = resolve
-            rejectEntries = reject
-        })
-
-        const sseReq = http.request(`http://127.0.0.1:${srv.port}/logs`, {
-            headers: {accept: 'text/event-stream', cookie: 'cr-key=logkey'},
-        }, (res) => {
-            let buf = ''
-            const timeout = setTimeout(() => {
-                sseReq.destroy()
-                rejectEntries(new Error('timed out waiting for log entries'))
-            }, 3000)
-            timeout.unref()
-            let requestEntry: LogGroup | undefined
-            let responseEntry: LogGroup | undefined
-            res.on('data', (chunk: Buffer) => {
-                buf += chunk.toString('utf-8')
-                for (const entry of parseLogEvents(buf)) {
-                    if (entry.path !== '/v1/chat/completions') continue
-                    if (entry.phase === 'request') requestEntry = entry
-                    if (entry.phase === 'response') responseEntry = entry
-                }
-                if (requestEntry && responseEntry) {
-                    clearTimeout(timeout)
-                    sseReq.destroy()
-                    resolveEntries([requestEntry, responseEntry])
-                }
-            })
-            res.on('error', rejectEntries)
-        })
-        sseReq.on('error', rejectEntries)
-        sseReq.end()
-
-        await once(sseReq, 'response')
-
-        const res = await fetch(`http://127.0.0.1:${srv.port}/v1/chat/completions`, {
-            method: 'POST',
-            headers: {
-                'content-type': 'application/json',
-                'authorization': 'Bearer logkey',
-                'x-client-request-id': 'client-abc-123',
-            },
-            body: JSON.stringify({model: 'p/m', messages: []}),
-        })
-        assert.equal(res.status, 200)
-        assert.equal(res.headers.get('x-closerouter-request-id'), 'client-abc-123')
-        await res.text()
-
-        const [requestEntry, responseEntry] = await entriesPromise
-        assert.equal(requestEntry.id, 'client-abc-123')
-        assert.equal(requestEntry.requestBody, JSON.stringify({model: 'p/m', messages: []}))
-        assert.equal(responseEntry.status, 200)
-        assert.equal(responseEntry.id, 'client-abc-123')
-        assert.match(responseEntry.responseBody ?? '', /data: \{"choices":\[\]\}/)
-        assert.equal(responseEntry.responseHeaders?.['content-type'], 'text/event-stream')
-        assert.equal(typeof responseEntry.generationMs, 'number')
-        assert.ok((responseEntry.generationMs ?? 0) >= 0)
-        assert.equal(typeof responseEntry.ttftMs, 'number')
-        assert.ok((responseEntry.ttftMs ?? 0) >= 0)
-    } finally {
-        await srv.close()
-        await backend.close()
-    }
-})
-
-test('responses stream usage is captured and recorded in logs', async () => {
-    const backend = await startMockBackend((_req, res) => {
-        res.writeHead(200, {'content-type': 'text/event-stream'})
-        res.write('event: response.output_text.delta\n')
-        res.write('data: {"delta":"hi"}\n\n')
-        setTimeout(() => {
-            res.write('event: response.completed\n')
-            res.write('data: {"type":"response.completed","id":"resp_1","status":"completed","output":[],"usage":{"input_tokens":125,"input_tokens_details":{"cached_tokens":100},"output_tokens":45,"total_tokens":170}}\n\n')
-            res.end()
-        }, 5)
+    assert.deepEqual(extractTokenUsage(body), {
+        inputTokens: 9,
+        outputTokens: 12,
     })
-    const port = await getFreePort()
-    const config: RuntimeConfig = {
-        raw: '',
-        port,
-        key: 'logkey',
-        dbPath: '',
-        providers: {
-            p: {base_url: backend.baseUrl, api_key: 'bk', models: [{id: 'm'}]},
-        },
-    }
-    const srv = await startCrServer(config)
-    try {
-        let resolveEntries!: (entries: LogGroup[]) => void
-        let rejectEntries!: (err: Error) => void
-        const entriesPromise = new Promise<LogGroup[]>((resolve, reject) => {
-            resolveEntries = resolve
-            rejectEntries = reject
-        })
-
-        const sseReq = http.request(`http://127.0.0.1:${srv.port}/logs`, {
-            headers: {accept: 'text/event-stream', cookie: 'cr-key=logkey'},
-        }, (res) => {
-            let buf = ''
-            const timeout = setTimeout(() => {
-                sseReq.destroy()
-                rejectEntries(new Error('timed out waiting for log entries'))
-            }, 3000)
-            timeout.unref()
-            let requestEntry: LogGroup | undefined
-            let responseEntry: LogGroup | undefined
-            res.on('data', (chunk: Buffer) => {
-                buf += chunk.toString('utf-8')
-                for (const entry of parseLogEvents(buf)) {
-                    if (entry.path !== '/v1/responses') continue
-                    if (entry.phase === 'request') requestEntry = entry
-                    if (entry.phase === 'response') responseEntry = entry
-                }
-                if (requestEntry && responseEntry) {
-                    clearTimeout(timeout)
-                    sseReq.destroy()
-                    resolveEntries([requestEntry, responseEntry])
-                }
-            })
-            res.on('error', rejectEntries)
-        })
-        sseReq.on('error', rejectEntries)
-        sseReq.end()
-
-        await once(sseReq, 'response')
-
-        const res = await fetch(`http://127.0.0.1:${srv.port}/v1/responses`, {
-            method: 'POST',
-            headers: {
-                'content-type': 'application/json',
-                'authorization': 'Bearer logkey',
-            },
-            body: JSON.stringify({model: 'p/gpt', stream: true, input: 'hi'}),
-        })
-        assert.equal(res.status, 200)
-        await res.text()
-
-        const [, responseEntry] = await entriesPromise
-        assert.equal(responseEntry.status, 200)
-        assert.equal(responseEntry.inputTokens, 125)
-        assert.equal(responseEntry.outputTokens, 45)
-        assert.equal(responseEntry.cachedTokens, 100)
-        assert.match(responseEntry.responseBody ?? '', /response\.completed/)
-    } finally {
-        await srv.close()
-        await backend.close()
-    }
 })
 
-test('non-streaming chat completion token usage is captured and recorded in logs', async () => {
-    const backend = await startMockBackend((_req, res) => {
-        res.writeHead(200, {'content-type': 'application/json'})
-        res.end(JSON.stringify({
-            id: 'chatcmpl-1',
-            object: 'chat.completion',
-            model: 'm',
-            usage: {prompt_tokens: 9, completion_tokens: 12, total_tokens: 21},
-            choices: [{index: 0, message: {role: 'assistant', content: 'hi'}, finish_reason: 'stop'}],
-        }))
+test('extractTokenUsage reads responses API usage from SSE frames', () => {
+    const body = [
+        'event: response.output_text.delta',
+        'data: {"delta":"hi"}',
+        '',
+        'event: response.completed',
+        'data: {"type":"response.completed","usage":{"input_tokens":125,"input_tokens_details":{"cached_tokens":100},"output_tokens":45}}',
+        '',
+    ].join('\n')
+    assert.deepEqual(extractTokenUsage(body), {
+        inputTokens: 125,
+        outputTokens: 45,
+        cachedTokens: 100,
     })
-    const port = await getFreePort()
-    const config: RuntimeConfig = {
-        raw: '',
-        port,
-        key: 'logkey',
-        dbPath: '',
-        providers: {
-            p: {base_url: backend.baseUrl, api_key: 'bk', models: [{id: 'm'}]},
-        },
-    }
-    const srv = await startCrServer(config)
-    try {
-        let resolveEntries!: (entries: LogGroup[]) => void
-        let rejectEntries!: (err: Error) => void
-        const entriesPromise = new Promise<LogGroup[]>((resolve, reject) => {
-            resolveEntries = resolve
-            rejectEntries = reject
-        })
-
-        const sseReq = http.request(`http://127.0.0.1:${srv.port}/logs`, {
-            headers: {accept: 'text/event-stream', cookie: 'cr-key=logkey'},
-        }, (res) => {
-            let buf = ''
-            const timeout = setTimeout(() => {
-                sseReq.destroy()
-                rejectEntries(new Error('timed out waiting for log entries'))
-            }, 3000)
-            timeout.unref()
-            let requestEntry: LogGroup | undefined
-            let responseEntry: LogGroup | undefined
-            res.on('data', (chunk: Buffer) => {
-                buf += chunk.toString('utf-8')
-                for (const entry of parseLogEvents(buf)) {
-                    if (entry.path !== '/v1/chat/completions') continue
-                    if (entry.phase === 'request') requestEntry = entry
-                    if (entry.phase === 'response') responseEntry = entry
-                }
-                if (requestEntry && responseEntry) {
-                    clearTimeout(timeout)
-                    sseReq.destroy()
-                    resolveEntries([requestEntry, responseEntry])
-                }
-            })
-            res.on('error', rejectEntries)
-        })
-        sseReq.on('error', rejectEntries)
-        sseReq.end()
-
-        await once(sseReq, 'response')
-
-        const res = await fetch(`http://127.0.0.1:${srv.port}/v1/chat/completions`, {
-            method: 'POST',
-            headers: {
-                'content-type': 'application/json',
-                'authorization': 'Bearer logkey',
-            },
-            body: JSON.stringify({model: 'p/m', messages: []}),
-        })
-        assert.equal(res.status, 200)
-        await res.text()
-
-        const [, responseEntry] = await entriesPromise
-        assert.equal(responseEntry.status, 200)
-        assert.equal(responseEntry.inputTokens, 9)
-        assert.equal(responseEntry.outputTokens, 12)
-        assert.match(responseEntry.responseBody ?? '', /"usage"/)
-    } finally {
-        await srv.close()
-        await backend.close()
-    }
 })
 
-function parseLogEvents (raw: string): LogGroup[] {
-    const entries: LogGroup[] = []
-    for (const block of raw.split('\n\n')) {
-        const dataLine = block.split('\n').find(line => line.startsWith('data: '))
-        if (!dataLine) continue
-        try {
-            entries.push(JSON.parse(dataLine.slice(6)) as LogGroup)
-        } catch {
-            // partial SSE frame; keep waiting for the rest
-        }
-    }
-    return entries
-}
+test('extractTokenUsage returns empty for bodies without usage', () => {
+    assert.deepEqual(extractTokenUsage(undefined), {})
+    assert.deepEqual(extractTokenUsage(''), {})
+    assert.deepEqual(extractTokenUsage(JSON.stringify({foo: 'bar'})), {})
+    assert.deepEqual(extractTokenUsage('data: {"delta":"hi"}\n\ndata: [DONE]\n\n'), {})
+})

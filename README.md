@@ -21,7 +21,7 @@ Options:
 
 API endpoint: `http://localhost:6712/v1`
 
-Live logs at: `http://localhost:6712/logs`
+Logs at: `http://localhost:6712/logs`
 
 ## Configuration
 

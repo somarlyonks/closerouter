@@ -1,24 +1,8 @@
 import Combine
 import Foundation
 
-struct LogEvent: Decodable {
-    let id: String
-    let time: Double
-    let method: String
-    let path: String
-    let provider: String?
-    let model: String?
-    let status: Int?
-    let durationMs: Int?
-    let ttftMs: Int?
-    let generationMs: Int?
-    let inputTokens: Int?
-    let outputTokens: Int?
-    let cachedTokens: Int?
-    let requestBody: String?
-    let responseBody: String?
-}
-
+/// One row of the batched GET /logs history (the usage DB). Bodies are never
+/// included - fetch them per row via /logs/<id>.
 struct LogHistory: Decodable {
     let id: Int
     let requestId: String
@@ -39,10 +23,9 @@ struct LogHistory: Decodable {
 }
 
 struct LogGroup: Identifiable, Equatable {
-    let requestId: String
-    var id: String { requestId }
-    /// Numeric usage-DB row id (from history); nil for live events.
-    var dbId: Int?
+    /// Numeric usage-DB row id. The stable identity of a row, matching the web
+    /// UI's dedup key; also used to fetch bodies on demand via /logs/<id>.
+    let id: Int
     let time: Date
     let method: String
     let path: String
@@ -58,28 +41,8 @@ struct LogGroup: Identifiable, Equatable {
     var requestBody: String?
     var responseBody: String?
 
-    init(event: LogEvent) {
-        requestId = event.id
-        dbId = nil
-        time = Date(timeIntervalSince1970: event.time / 1000)
-        method = event.method
-        path = event.path
-        provider = event.provider
-        model = event.model
-        status = event.status
-        durationMs = event.durationMs
-        ttftMs = event.ttftMs
-        generationMs = event.generationMs
-        inputTokens = event.inputTokens
-        outputTokens = event.outputTokens
-        cachedTokens = event.cachedTokens
-        requestBody = event.requestBody
-        responseBody = event.responseBody
-    }
-
     init(history: LogHistory) {
-        requestId = history.requestId
-        dbId = history.id
+        id = history.id
         time = Date(timeIntervalSince1970: history.time / 1000)
         method = history.method
         path = history.path
@@ -96,11 +59,10 @@ struct LogGroup: Identifiable, Equatable {
         responseBody = history.responseBody
     }
 
-    /// Fold a newer group for the same request into this one. The response phase
-    /// is self-contained, so this overwrites the optional response-side fields;
-    /// the fallbacks keep a filled row intact if an update ever omits a field.
+    /// Adopt a refreshed history row for the same id. Rows are immutable
+    /// once recorded, so this is effectively a no-op; it exists to keep the
+    /// dedup merge stable if a row ever changes.
     mutating func merge(_ other: LogGroup) {
-        dbId = other.dbId ?? dbId
         provider = other.provider ?? provider
         model = other.model ?? model
         status = other.status ?? status
@@ -115,22 +77,20 @@ struct LogGroup: Identifiable, Equatable {
     }
 }
 
-/// Consumes the /logs SSE stream and maintains a live, filterable list of log groups.
+/// Maintains the logs table by on-demand GET /logs history fetches (manual
+/// Refresh), deduplicating rows by usage-DB row id.
 @MainActor
 final class LogsViewModel: ObservableObject {
     private let server = ServerManager.shared
 
     @Published private(set) var groups: [LogGroup] = []
-    @Published private(set) var isConnected = false
-    @Published var isPaused = false
+    @Published private(set) var lastUpdated: Date?
     @Published var filterText = ""
 
-    private var groupsById: [String: Int] = [:]
-    private var pendingBuffer: [LogGroup] = []
+    private var groupsById: [Int: Int] = [:]
     /// dbIds currently fetching bodies for. @Published so the detail pane re-renders
     /// when a fetch starts (spinner) and when it ends (falls through to "No body").
     @Published private(set) var loadingBodies: Set<Int> = []
-    private var streamTask: Task<Void, Never>?
     private var stateCancellable: AnyCancellable?
     private let maxRows = 500
 
@@ -151,33 +111,25 @@ final class LogsViewModel: ObservableObject {
         stateCancellable = server.$state.sink { [weak self] state in
             Task { @MainActor in
                 guard let self else { return }
-                if state.isRunning {
-                    if self.streamTask == nil {
-                        self.loadHistoryAndConnect()
-                    }
-                } else {
-                    self.disconnect()
-                }
+                if state.isRunning { self.refresh() }
             }
         }
         if server.state.isRunning {
-            loadHistoryAndConnect()
+            refresh()
         }
     }
 
     func stop() {
-        disconnect()
         stateCancellable?.cancel()
         stateCancellable = nil
     }
 
     // MARK: Controls
 
-    func togglePause() {
-        isPaused.toggle()
-        if !isPaused {
-            for group in pendingBuffer { apply(group) }
-            pendingBuffer.removeAll()
+    func refresh() {
+        guard server.state.isRunning else { return }
+        Task { [weak self] in
+            await self?.load()
         }
     }
 
@@ -190,14 +142,14 @@ final class LogsViewModel: ObservableObject {
     /// History entries never carry bodies (the server omits them from /logs JSON),
     /// so fetch a single row's bodies on demand via /logs/<id> when the row is shown.
     func loadBodies(for rowID: LogGroup.ID?) {
-        guard let rowID, let idx = groupsById[rowID], let dbId = groups[idx].dbId else { return }
-        guard !loadingBodies.contains(dbId) else { return }
-        loadingBodies.insert(dbId)
+        guard let rowID, groupsById[rowID] != nil else { return }
+        guard !loadingBodies.contains(rowID) else { return }
+        loadingBodies.insert(rowID)
         let port = server.port
         let key = server.key
         Task { [weak self] in
-            defer { self?.loadingBodies.remove(dbId) }
-            guard let detail = try? await APIClient.getLogDetail(port: port, key: key, id: dbId) else { return }
+            defer { self?.loadingBodies.remove(rowID) }
+            guard let detail = try? await APIClient.getLogDetail(port: port, key: key, id: rowID) else { return }
             guard let self, let idx = self.groupsById[rowID] else { return }
             self.groups[idx].requestBody = detail.requestBody ?? self.groups[idx].requestBody
             self.groups[idx].responseBody = detail.responseBody ?? self.groups[idx].responseBody
@@ -205,108 +157,23 @@ final class LogsViewModel: ObservableObject {
     }
 
     func isLoadingBodies(for rowID: LogGroup.ID?) -> Bool {
-        guard let rowID, let idx = groupsById[rowID], let dbId = groups[idx].dbId else { return false }
-        return loadingBodies.contains(dbId)
+        guard let rowID, groupsById[rowID] != nil else { return false }
+        return loadingBodies.contains(rowID)
     }
 
-    // MARK: Connection
+    // MARK: Loading
 
-    private func loadHistoryAndConnect() {
-        Task { [weak self] in
-            guard let self else { return }
-            if let entries = try? await APIClient.getLogEntries(port: self.server.port, key: self.server.key) {
-                for group in entries { self.apply(group) }
-            }
-            self.connect()
-        }
-    }
-
-    private func connect() {
-        guard streamTask == nil, server.state.isRunning else { return }
-        let port = server.port
-        let key = server.key
-        streamTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self, self.server.state.isRunning else { break }
-                do {
-                    try await self.runStreamOnce(port: port, key: key)
-                } catch {
-                    // Connection dropped - fall through and retry.
-                }
-                if Task.isCancelled { break }
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-            }
-            self?.streamTask = nil
-        }
-    }
-
-    private func disconnect() {
-        streamTask?.cancel()
-        streamTask = nil
-        isConnected = false
-    }
-
-    private func runStreamOnce(port: Int, key: String) async throws {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/logs") else { return }
-        var request = URLRequest(url: url)
-        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        request.setValue("cr-key=\(key)", forHTTPHeaderField: "Cookie")
-        request.timeoutInterval = 30
-
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        isConnected = true
-        defer { isConnected = false }
-
-        // Read raw bytes and split into lines ourselves: URLSession's `bytes.lines`
-        // (AsyncLineSequence) silently drops blank lines, so `line.isEmpty` would
-        // never fire and SSE frames (separated by blank lines) would never decode.
-        var eventName = ""
-        var dataLines: [String] = []
-        var lineBytes: [UInt8] = []
-        lineBytes.reserveCapacity(1024)
-        for try await byte in bytes {
-            if byte == 10 { // \n
-                let line = String(bytes: lineBytes, encoding: .utf8) ?? ""
-                processSSELine(line, eventName: &eventName, dataLines: &dataLines)
-                lineBytes.removeAll(keepingCapacity: true)
-            } else if byte != 13 { // strip \r
-                lineBytes.append(byte)
-            }
-        }
-    }
-
-    /// Feed one SSE line (without the trailing newline) into the frame accumulator.
-    /// A blank line closes the current frame; only `event: log` frames are handled.
-    private func processSSELine(_ line: String, eventName: inout String, dataLines: inout [String]) {
-        if line.isEmpty {
-            if eventName == "log", let group = parseLogGroup(dataLines.joined(separator: "\n")) {
-                handle(group)
-            }
-            eventName = ""
-            dataLines = []
-        } else if line.hasPrefix("event:") {
-            eventName = line.dropFirst("event:".count).trimmingCharacters(in: .whitespaces)
-        } else if line.hasPrefix("data:") {
-            dataLines.append(line.dropFirst("data:".count).trimmingCharacters(in: .whitespaces))
-        }
+    private func load() async {
+        guard server.state.isRunning else { return }
+        guard let entries = try? await APIClient.getLogEntries(port: server.port, key: server.key) else { return }
+        for group in entries { apply(group) }
+        lastUpdated = Date()
     }
 
     // MARK: Entry handling
 
-    private func handle(_ group: LogGroup) {
-        if isPaused {
-            pendingBuffer.append(group)
-            if pendingBuffer.count > 200 { pendingBuffer.removeFirst() }
-            return
-        }
-        apply(group)
-    }
-
     private func apply(_ group: LogGroup) {
-        if let idx = groupsById[group.requestId] {
+        if let idx = groupsById[group.id] {
             groups[idx].merge(group)
             objectWillChange.send()
         } else {
@@ -322,13 +189,7 @@ final class LogsViewModel: ObservableObject {
     private func rebuildIndex() {
         groupsById.removeAll()
         for (i, group) in groups.enumerated() {
-            groupsById[group.requestId] = i
+            groupsById[group.id] = i
         }
-    }
-
-    private func parseLogGroup(_ json: String) -> LogGroup? {
-        guard let data = json.data(using: .utf8),
-              let event = try? JSONDecoder().decode(LogEvent.self, from: data) else { return nil }
-        return LogGroup(event: event)
     }
 }

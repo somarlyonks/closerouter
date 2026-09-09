@@ -72,32 +72,6 @@ export function needsAuth (handler: RequestHandler) {
     )
 }
 
-export function needsCookie (handler: RequestHandler) {
-    return router(
-        ctx => cookieValue(ctx.req, 'cr-key') === ctx.env.config.key,
-        handler,
-        (_ctx, res) => {
-            res.writeHead(401, {'content-type': 'application/json'})
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Invalid or missing API key. Use the cr-key cookie',
-                    type: 'authentication_error',
-                },
-            }))
-        },
-    )
-
-    function cookieValue (req: IncomingMessage, name: string): string | undefined {
-        const c = req.headers.cookie
-        if (typeof c !== 'string') return undefined
-        for (const part of c.split(';')) {
-            const p = part.trim()
-            if (p.startsWith(name + '=')) return p.slice(name.length + 1)
-        }
-        return undefined
-    }
-}
-
 function handleNotFound ({req}: RequestContext, res: ServerResponse): void {
     res.writeHead(404, {'content-type': 'application/json'})
     res.end(JSON.stringify({

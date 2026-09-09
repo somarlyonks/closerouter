@@ -9,7 +9,7 @@ CloseRouter:
         [x] version
     server:
         [x] router
-        [x] auth (bearer key, cookie)
+        [x] auth by bearer key
         [x] proxy forwarding with SSE streaming
         routes:
             v1:
@@ -17,8 +17,13 @@ CloseRouter:
                 [x] models
                 [x] responses
             [x] config
-            [x] logs
-            [x] status
+            logs:
+                [x] manual refresh against batched GET /logs results and deduplicate by database row/request ID
+                [x] integration tests
+            status:
+                [x] server ok
+                [x] server version
+                [x] sqlite version when db configured
             usage:
                 [x] filters
                 [x] exclude 4xx client error responses
@@ -58,8 +63,8 @@ CloseRouter:
             [x] validation + format
             [x] save via PUT /config
         logs:
-            [x] SSE stream view
-            [x] pause/filter/clear
+            [x] manual GET /logs refresh that deduplicates rows
+            [ ] filter/clear
             [x] history on open
         analytics:
             date range:

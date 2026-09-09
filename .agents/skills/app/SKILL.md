@@ -51,8 +51,8 @@ CloseRouter.app
 | `PUT /config` | `Bearer <key>` | save config (validates server-side) |
 | `GET /usage` | `Bearer <key>` | analytics; optional `?from&to&provider&model` → totals, `series`, `byProvider`, `byModel` |
 | `GET /v1/models` | `Bearer <key>` | `{object, data:[{id:"provider/model",owned_by}]}` |
-| `GET /logs` SSE | `Cookie: cr-key=<key>` | live log events + 3s `event: ping` |
-| `GET /logs` JSON | `Cookie: cr-key=<key>` | history → `{entries:[...]}` |
+| `GET /logs` | `Bearer <key>` | history → `{entries:[...]}` (fetch per row via `/logs/<id>`) |
+| `GET /logs/<id>` | `Bearer <key>` | one row's request/response bodies |
 
 ## File map
 
@@ -64,8 +64,8 @@ app/CloseRouter/
   Core/
     ServerManager.swift       spawn/monitor/restart child, /status health, uptime, notifications
     ConfigStore.swift         config path, defaults, read/save/port helpers
-    APIClient.swift           HTTP client (Bearer + cookie auth) + Overview DTOs + ConfigValidator
-    LogStream.swift           LogEntry/LogHistoryEntry models + LogsViewModel (SSE, pause/filter)
+    APIClient.swift           HTTP client + Overview DTOs + ConfigValidator
+    LogStream.swift           LogHistory/LogGroup models + LogsViewModel (refresh, filter, clear)
     Preferences.swift         UserDefaults-backed prefs (launchAtLogin, startServerOnLaunch, ...)
     AppNotifications.swift    UNUserNotificationCenter wrapper
   Editor/
@@ -77,7 +77,7 @@ app/CloseRouter/
     SidebarView.swift         sidebar list
     OverviewView.swift        dashboard (status banner, stat cards, providers, models)
     AnalyticsView.swift       analytics (date range + provider/model filters, chart, breakdowns)
-    LogsView.swift            live SSE table + detail inspector
+    LogsView.swift            history table + detail inspector
     SettingsView.swift        launch-at-login (SMAppService), prefs, server controls, about
 ```
 
@@ -86,7 +86,7 @@ app/CloseRouter/
 - **All Core singletons are `@MainActor`** and accessed as `X.shared` (`ServerManager.shared`,
   `StatusBarController.shared`). View models are `@MainActor final class … ObservableObject`.
 - **UI → data** goes through `ServerManager` (state) + `APIClient`; views never spawn processes.
-- **Auth**: `Bearer` for `/config`, `/usage`, `/v1/models`; `Cookie: cr-key=` for `/logs` (SSE + JSON).
+- **Auth**: `Bearer` for `/config`, `/usage`, `/v1/models`, `/logs` (history + detail).
   Read the key from `ConfigStore.read().key`, never prompt.
 - **JSONSchema is a `final class`** (not a struct) - it recursively contains itself.
 - **Deployment target is 14.0** (`MACOSX_DEPLOYMENT_TARGET` in `app/project.yml`).
@@ -169,9 +169,8 @@ test/mock-server.config.json`, then POST `/v1/chat/completions` (model `mock/moc
 `sk-cr-testkey123`) to seed history:
 
 ```bash
-curl -s -H "Accept: application/json" -H "Cookie: cr-key=$KEY" http://127.0.0.1:6799/logs  # NO requestBody/responseBody
-curl -s -H "Cookie: cr-key=$KEY" http://127.0.0.1:6799/logs/1                             # bodies are here
-curl --max-time 5 -sN -H "Accept: text/event-stream" -H "Cookie: cr-key=$KEY" http://127.0.0.1:6799/logs  # live entries carry bodies
+curl -s -H "Accept: application/json" -H "Authorization: Bearer $KEY" http://127.0.0.1:6799/logs  # NO requestBody/responseBody
+curl -s -H "Authorization: Bearer $KEY" http://127.0.0.1:6799/logs/1                                   # bodies are here
 ```
 
 **Full app-level test:**
@@ -198,9 +197,7 @@ let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosi
 down.post(tap: .cghidEventTap); usleep(80000); up.post(tap: .cghidEventTap)
 ```
 
-**Facts this workflow surfaced:** `/logs` JSON history omits bodies **by design** (each can be up to
-1MB; fetched per row via `/logs/<id>`), live SSE entries carry both, history `/logs/<id>` needs the
-`cr-key` **cookie** auth, and `timeout` may not exist on macOS - use `curl --max-time N`.
+**Facts this workflow surfaced:** `/logs` JSON history omits bodies **by design**. Fetched per row via `/logs/<id>`, each can be up to 1MB.
 
 ## Known pitfalls (learned the hard way)
 
@@ -212,9 +209,9 @@ down.post(tap: .cghidEventTap); usleep(80000); up.post(tap: .cghidEventTap)
 - **Dirty status flips on load.** `.onChange(of: text)` fires *after* `onAppear`'s `loadConfig()`
   resets `isDirty`, so a pristine config showed "Unsaved changes" with an enabled Save. Guard the
   load-time swap with a `suppressNextChange` flag instead of tracking dirty purely off `text`.
-- **`/logs` JSON history ≠ live SSE shape.** History entries come from the usage DB: numeric `id`,
-  the request UUID in `requestId`, and **no `phase`** field. Decode with `LogHistoryEntry` (map to
-  `LogEntry` via `requestId`), not `LogEntry`.
+- **`/logs` JSON history is the only read shape** (live SSE was removed). History entries come from the
+  usage DB: numeric `id`, the request UUID in `requestId`. Decode with `LogHistory` (map to `LogGroup`
+  via the numeric `id`). Clients fetch `/logs` on demand and deduplicate by the DB row `id`.
 - **Token usage covers non-streaming responses.** Streaming usage is extracted live by the proxy
   (`feedStreamUsage` parses `data:` frames into `responseLog.usage`); non-streaming leaves `usage` as
   an empty `{}`, and `logMiddleware` (`lib/server/logs/index.ts`) falls back to
