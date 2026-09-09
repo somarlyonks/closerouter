@@ -63,7 +63,7 @@ async function seedChatCompletions (count, port) {
         const model = SEED_MODELS[i % SEED_MODELS.length]
         await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
             method: 'POST',
-            headers: {Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json'},
+            headers: {'Authorization': `Bearer ${KEY}`, 'Content-Type': 'application/json'},
             body: JSON.stringify({model, messages: [{role: 'user', content: `seed ${i + 1}`}]}),
         }).catch(() => {})
         await new Promise(r => setTimeout(r, 30))

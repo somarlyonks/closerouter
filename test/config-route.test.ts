@@ -1,6 +1,5 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {readFileSync} from 'fs'
 import {loadConfig} from '../lib/config'
 import {getFreePort, startCrServer, writeTempConfig} from './helpers'
 
