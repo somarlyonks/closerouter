@@ -2,7 +2,7 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'http'
 import {once} from 'events'
-import {handleLogs, publishLog, type LogEntry} from '../lib/server/logs'
+import {handleLogs, publishLog, type LogGroup} from '../lib/server/logs'
 import {getFreePort, startCrServer, startHandlerServer, startMockBackend, sampleConfig} from './helpers'
 import type {RuntimeConfig} from '../lib/config'
 
@@ -77,7 +77,7 @@ test('POST /logs is rejected with 405', async () => {
 test('GET /logs SSE stream delivers published log events', async () => {
     const srv = await startHandlerServer(handleLogs, {config: sampleConfig({key: 'logkey'})})
     try {
-        const entry: LogEntry = {
+        const entry: LogGroup = {
             id: 'test',
             phase: 'response',
             time: 1767225600000,
@@ -158,9 +158,9 @@ test('server logs capture request and response bodies', async () => {
     }
     const srv = await startCrServer(config)
     try {
-        let resolveEntries!: (entries: LogEntry[]) => void
+        let resolveEntries!: (entries: LogGroup[]) => void
         let rejectEntries!: (err: Error) => void
-        const entriesPromise = new Promise<LogEntry[]>((resolve, reject) => {
+        const entriesPromise = new Promise<LogGroup[]>((resolve, reject) => {
             resolveEntries = resolve
             rejectEntries = reject
         })
@@ -174,8 +174,8 @@ test('server logs capture request and response bodies', async () => {
                 rejectEntries(new Error('timed out waiting for log entries'))
             }, 3000)
             timeout.unref()
-            let requestEntry: LogEntry | undefined
-            let responseEntry: LogEntry | undefined
+            let requestEntry: LogGroup | undefined
+            let responseEntry: LogGroup | undefined
             res.on('data', (chunk: Buffer) => {
                 buf += chunk.toString('utf-8')
                 for (const entry of parseLogEvents(buf)) {
@@ -249,9 +249,9 @@ test('responses stream usage is captured and recorded in logs', async () => {
     }
     const srv = await startCrServer(config)
     try {
-        let resolveEntries!: (entries: LogEntry[]) => void
+        let resolveEntries!: (entries: LogGroup[]) => void
         let rejectEntries!: (err: Error) => void
-        const entriesPromise = new Promise<LogEntry[]>((resolve, reject) => {
+        const entriesPromise = new Promise<LogGroup[]>((resolve, reject) => {
             resolveEntries = resolve
             rejectEntries = reject
         })
@@ -265,8 +265,8 @@ test('responses stream usage is captured and recorded in logs', async () => {
                 rejectEntries(new Error('timed out waiting for log entries'))
             }, 3000)
             timeout.unref()
-            let requestEntry: LogEntry | undefined
-            let responseEntry: LogEntry | undefined
+            let requestEntry: LogGroup | undefined
+            let responseEntry: LogGroup | undefined
             res.on('data', (chunk: Buffer) => {
                 buf += chunk.toString('utf-8')
                 for (const entry of parseLogEvents(buf)) {
@@ -298,7 +298,7 @@ test('responses stream usage is captured and recorded in logs', async () => {
         assert.equal(res.status, 200)
         await res.text()
 
-        const [_requestEntry, responseEntry] = await entriesPromise
+        const [, responseEntry] = await entriesPromise
         assert.equal(responseEntry.status, 200)
         assert.equal(responseEntry.inputTokens, 125)
         assert.equal(responseEntry.outputTokens, 45)
@@ -333,9 +333,9 @@ test('non-streaming chat completion token usage is captured and recorded in logs
     }
     const srv = await startCrServer(config)
     try {
-        let resolveEntries!: (entries: LogEntry[]) => void
+        let resolveEntries!: (entries: LogGroup[]) => void
         let rejectEntries!: (err: Error) => void
-        const entriesPromise = new Promise<LogEntry[]>((resolve, reject) => {
+        const entriesPromise = new Promise<LogGroup[]>((resolve, reject) => {
             resolveEntries = resolve
             rejectEntries = reject
         })
@@ -349,8 +349,8 @@ test('non-streaming chat completion token usage is captured and recorded in logs
                 rejectEntries(new Error('timed out waiting for log entries'))
             }, 3000)
             timeout.unref()
-            let requestEntry: LogEntry | undefined
-            let responseEntry: LogEntry | undefined
+            let requestEntry: LogGroup | undefined
+            let responseEntry: LogGroup | undefined
             res.on('data', (chunk: Buffer) => {
                 buf += chunk.toString('utf-8')
                 for (const entry of parseLogEvents(buf)) {
@@ -382,7 +382,7 @@ test('non-streaming chat completion token usage is captured and recorded in logs
         assert.equal(res.status, 200)
         await res.text()
 
-        const [_requestEntry, responseEntry] = await entriesPromise
+        const [, responseEntry] = await entriesPromise
         assert.equal(responseEntry.status, 200)
         assert.equal(responseEntry.inputTokens, 9)
         assert.equal(responseEntry.outputTokens, 12)
@@ -393,13 +393,13 @@ test('non-streaming chat completion token usage is captured and recorded in logs
     }
 })
 
-function parseLogEvents (raw: string): LogEntry[] {
-    const entries: LogEntry[] = []
+function parseLogEvents (raw: string): LogGroup[] {
+    const entries: LogGroup[] = []
     for (const block of raw.split('\n\n')) {
         const dataLine = block.split('\n').find(line => line.startsWith('data: '))
         if (!dataLine) continue
         try {
-            entries.push(JSON.parse(dataLine.slice(6)) as LogEntry)
+            entries.push(JSON.parse(dataLine.slice(6)) as LogGroup)
         } catch {
             // partial SSE frame; keep waiting for the rest
         }
