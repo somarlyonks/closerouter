@@ -41,9 +41,9 @@ export function startServer (config: RuntimeConfig): Server {
         console.log(`received ${sig}, shutting down`)
         closeDatabase()
         // server.close stops accepting new connections and waits for in-flight
-        // responses to drain. SSE /logs streams and parked keep-alive clients are
-        // long-lived, though, so arm a grace-period force-quit so supervisors can
-        // recycle the process reliably instead of hanging indefinitely.
+        // responses to drain. Parked keep-alive clients are long-lived, so arm a
+        // grace-period force-quit so supervisors can recycle the process reliably
+        // instead of hanging indefinitely.
         server.close(() => process.exit(0))
         const force = setTimeout(() => {
             console.log(`forcing shutdown after grace period`)

@@ -28,15 +28,15 @@ struct LogsView: View {
 
     private var toolbar: some View {
         HStack(spacing: 10) {
-            Text("Live logs")
+            Text("Logs")
                 .font(.headline)
             Spacer()
             TextField("Filter method, path, status…", text: $viewModel.filterText)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
                 .controlSize(.small)
-            Button(viewModel.isPaused ? "Resume" : "Pause") {
-                viewModel.togglePause()
+            Button("Refresh") {
+                viewModel.refresh()
             }
             Button("Clear", role: .destructive) {
                 viewModel.clear()
@@ -163,11 +163,8 @@ struct LogsView: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            if viewModel.isConnected {
-                Label("Live", systemImage: "dot.radiowaves.left.and.right")
-                    .foregroundStyle(.green)
-            } else {
-                Label("Not connected", systemImage: "slash.circle")
+            if let updated = viewModel.lastUpdated {
+                Text("Updated \(updated.formatted(date: .omitted, time: .standard))")
                     .foregroundStyle(.secondary)
             }
             Text("\(viewModel.displayedGroups.count) requests")

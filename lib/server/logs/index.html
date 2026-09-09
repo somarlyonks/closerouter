@@ -47,41 +47,13 @@
             padding: 2px 0 2px 10px;
             border-left: 2px solid currentColor;
 
-            &.responding {
-                color: var(--color-info);
-            }
-
             & .line {
                 display: flex;
                 gap: 1ch;
                 line-height: 1;
 
-                & .arrow {
-                    flex-shrink: 0;
-
-                    &.in {
-                        color: var(--color-info);
-
-                        & svg {
-                            transform: rotate(90deg);
-                        }
-                    }
-
-                    &.out {
-                        color: currentColor;
-
-                        & svg {
-                            transform: rotate(270deg);
-                        }
-                    }
-                }
-
                 & .ts {
                     color: var(--color-foreground-secondary);
-                }
-
-                &.res.pending .arrow {
-                    animation: pulse 1s ease-in-out infinite;
                 }
             }
 
@@ -125,18 +97,6 @@
                 }
             }
         }
-
-        @keyframes pulse {
-
-            0%,
-            100% {
-                transform: translateX(0px);
-            }
-
-            25% {
-                transform: translateX(10px);
-            }
-        }
     </style>
 </head>
 
@@ -147,6 +107,7 @@
             /* @asset arrow-up.svg */ <span class="in">?</span>
             /* @asset arrow-up.svg */ <span class="out">?</span>
         </span>
+        <button id="refresh">Refresh</button>
         <button id="clear">Clear</button>
     </header>
     <main>
@@ -162,7 +123,7 @@
 
         const logEl = document.getElementById('log')
 
-        let es = null;
+        const key = await promptKey()
         const groups = new Map();
 
         const totals = {in: 0, out: 0, cached: 0, count: 0}
@@ -199,7 +160,13 @@
             flips[key] = requestAnimationFrame(tick)
         }
 
-        function trim() {while (logEl.childNodes.length > MAX_ENTRIES) logEl.removeChild(logEl.lastChild)}
+        function trim() {
+            while (logEl.childNodes.length > MAX_ENTRIES) {
+                const node = logEl.lastChild
+                logEl.removeChild(node)
+                groups.delete(node.dataset.id)
+            }
+        }
 
         function classify(status) {
             if (status === undefined) return 'info'
@@ -215,24 +182,18 @@
             return date.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false})
         }
 
-        function buildDetails(entry, side) {
-            const ret = []
-            const headers = side === 'request' ? entry.requestHeaders : entry.responseHeaders
-            const body = side === 'request' ? entry.requestBody : entry.responseBody
-            const hasHeaders = headers && Object.keys(headers).length > 0
-
-            if (entry.inputTokens !== undefined || entry.outputTokens !== undefined) {
-                ret.push(createElement('div', {className: 'detail-tokens'}, ...buildTokenDetail(entry)))
-            }
-            if (hasHeaders) {
-                ret.push(createElement('div', {className: 'detail-headers', textContent: formatHeaders(headers)}))
-            }
-            if (body) {
-                ret.push(createElement('pre', {className: 'detail-body', textContent: prettyBody(body)}))
-            }
-            return ret
+        function buildDetails(entry) {
+            return [
+                buildTokenDetail(entry),
+                buildHeaders(entry.requestHeaders, 'request'),
+                buildHeaders(entry.responseHeaders, 'response'),
+                buildBody(entry.requestBody, 'request'),
+                buildBody(entry.responseBody, 'response'),
+            ]
 
             function buildTokenDetail(entry) {
+                if (entry.inputTokens === undefined && entry.outputTokens === undefined) return null
+
                 const compact = new Intl.NumberFormat('en', {notation: 'compact', maximumFractionDigits: 0}).format
                 const pad = n => String(compact(n)).padStart(4, ' ')
                 const parts = []
@@ -247,17 +208,32 @@
                     parts.push(createElement('div', {innerHTML: `/* @asset arrow-up.svg */` + pad(entry.outputTokens) + ' tokens ' + tps}))
                 }
 
-                return parts
+                if (entry.durationMs !== undefined) {
+                    const ttft = entry.ttftMs !== undefined ? ('(TTFT ' + entry.ttftMs + 'ms)') : ''
+                    parts.push(createElement('div', {textContent: entry.durationMs + 'ms' + ttft}))
+                }
+
+                return createElement('div', {className: 'detail-tokens'}, ...parts)
             }
 
-            function formatHeaders(h) {
-                const secretFields = ['authorization', 'cookie', 'set-cookie']
-                let out = ''
-                for (const key of Object.keys(h)) {
-                    const value = secretFields.includes(key) ? '******************' : h[key]
-                    out += `${key}: ${value}\n`
+            function buildHeaders(headers, side) {
+                if (!headers || !Object.keys(headers).length) return null
+                return createElement('div', {className: 'detail-headers ' + side, textContent: formatHeaders(headers)})
+
+                function formatHeaders(h) {
+                    const secretFields = ['authorization', 'cookie', 'set-cookie']
+                    let out = ''
+                    for (const key of Object.keys(h)) {
+                        const value = secretFields.includes(key) ? '******************' : h[key]
+                        out += `${key}: ${value}\n`
+                    }
+                    return out
                 }
-                return out
+            }
+
+            function buildBody(body, side) {
+                if (!body) return null
+                return createElement('pre', {className: 'detail-body ' + side, textContent: prettyBody(body)})
             }
         }
 
@@ -276,114 +252,70 @@
             return el
         }
 
-        async function ensureBody(details, entry, side) {
-            if (!details.open || details.dataset.bodyLoaded) return
+        async function ensureBody(details, entry) {
+            if (!details.open || details.dataset.bodyLoaded === '1') return
             details.dataset.bodyLoaded = '1'
-            const existing = side === 'request' ? entry.requestBody : entry.responseBody
-            if (existing) return
+
             const id = typeof entry.id === 'number' ? entry.id : undefined
             if (!id) return
-            let pre = details.querySelector('.detail-body')
-            if (!pre) {
-                pre = createElement('pre', {className: 'detail-body', textContent: 'loading...'})
-                details.appendChild(pre)
-            } else {
-                pre.textContent = 'loading...'
-            }
+
+            details.querySelector('.detail-body.request')?.remove()
+            details.appendChild(createElement('pre', {className: 'detail-body request', textContent: 'loading...'}))
+            details.querySelector('.detail-body.response')?.remove()
+            details.appendChild(createElement('pre', {className: 'detail-body response', textContent: 'loading...'}))
+
             try {
-                const res = await fetch('/logs/' + id)
+                const res = await fetch('/logs/' + id, {headers: {Authorization: 'Bearer ' + key}})
                 if (!res.ok) throw new Error('not ok')
                 const data = await res.json()
-                const loaded = side === 'request' ? data.requestBody : data.responseBody
-                pre.textContent = loaded ? prettyBody(loaded) : '(no body recorded)'
+
+                Reflect.set(details.querySelector('.detail-body.request') || {}, 'textContent', data.requestBody ? prettyBody(data.requestBody) : '(no body recorded)')
+                Reflect.set(details.querySelector('.detail-body.response') || {}, 'textContent', data.responseBody ? prettyBody(data.responseBody) : '(no body recorded)')
             } catch {
-                pre.textContent = '(failed to load body)'
+                toast({title: 'Error', message: 'Failed to load body for request with id ' + id, type: 'error'})
+                details.dataset.bodyLoaded = '0'
             }
         }
 
-        function appendRequest(entry, status) {
-            const cls = status || classify(entry.status)
+        function appendEntry(entry) {
+            if (!entry || groups.has(entry.id)) return
+
+            const cls = classify(entry.status)
             const group = createElement('div', {className: 'group ' + cls},
-                createElement('div', {className: 'line req'},
-                    createElement('strong', {className: 'arrow in', innerHTML: `/* @asset arrow-up.svg */`}),
-                    createElement('details', {ontoggle() {ensureBody(this, entry, 'request')} },
+                createElement('div', {className: 'line'},
+                    createElement('details', {ontoggle() {ensureBody(this, entry)} },
                         createElement('summary', {},
                             createElement('span', {className: 'ts', textContent: timeText(entry.time)}),
                             createElement('strong', {className: 'info', textContent: entry.method}),
+                            entry.status !== undefined ? createElement('strong', {textContent: String(entry.status)}) : null,
                             createElement('span', {className: 'info', textContent: entry.path}),
                             ...buildAppendix(),
                         ),
-                        ...buildDetails(entry, 'request'),
+                        ...buildDetails(entry),
                     )
-                ),
-                createElement('div', {className: 'line res pending'},
-                    createElement('span', {className: 'arrow out', innerHTML: `/* @asset arrow-up.svg */`})
                 ),
             )
 
             logEl.insertBefore(group, logEl.firstChild)
             trim()
-            groups.set(entry.id, {group})
+            group.dataset.id = entry.id
+            groups.set(entry.id, group)
 
             function buildAppendix() {
-                if (entry.path === '/v1/chat/completions' || entry.path === '/v1/responses') {
-                    const model = readBody('model')
-                    if (model) return [createElement('span', {className: 'foreground', textContent: `[${model}]`})]
-                }
-
-                return []
-
-                function readBody(field) {
-                    if (entry.provider && entry.model) return '' + entry.provider + '/' + entry.model
-                    if (!entry.requestBody) return ''
-                    try {
-                        const body = JSON.parse(entry.requestBody)
-                        return body[field]
-                    } catch { }
-                    return ''
-                }
+                if (!entry.provider || !entry.model) return []
+                return [createElement('span', {className: 'foreground', textContent: '[' + entry.provider + '/' + entry.model + ']'})]
             }
         }
 
-        function appendResponse(entry) {
-            const cls = classify(entry.status)
-            let groupEntry = groups.get(entry.id)
-            if (!groupEntry) {
-                const group = createElement('div', {className: 'group'}, createElement('div', {className: 'line res'}))
-                groupEntry = {group}
-                logEl.insertBefore(group, logEl.firstChild)
+        function loadHistory() {
+            const refreshBtn = document.getElementById('refresh')
+            refreshBtn.disabled = true
 
-                trim()
-            }
-            groupEntry.group.className = 'group ' + cls
-
-            const genMs = entry.durationMs || entry.generationMs
-            const line = groupEntry.group.querySelector('.line.res')
-            if (!line) return
-
-            line.classList.remove('pending')
-            line.textContent = ''
-            line.appendChild(createElement('strong', {className: 'arrow out', innerHTML: `/* @asset arrow-up.svg */`}))
-            line.appendChild(createElement('details', {ontoggle() {ensureBody(this, entry, 'response')} },
-                createElement('summary', {},
-                    createElement('span', {className: 'ts', textContent: timeText(entry.time)}),
-                    entry.status !== undefined ? createElement('strong', {textContent: String(entry.status)}) : null,
-                    entry.durationMs !== undefined ? createElement('span', {textContent: entry.durationMs + 'ms'}) : null,
-                    entry.ttftMs !== undefined ? createElement('span', {className: 'foreground', textContent: entry.ttftMs + 'ms', title: 'Time to First Token'}) : null,
-                    (!entry.outputTokens || !genMs) ? null : createElement('span', {className: 'foreground', textContent: (Math.floor(entry.outputTokens / (genMs / 1000)) + ' tok/s')}),
-                ),
-                ...buildDetails(entry, 'response'),
-            ))
-
-            groups.delete(entry.id)
-        }
-
-        function loadHistory(key) {
             return Promise.all([
-                fetch('/logs', {method: 'GET', headers: {accept: 'application/json'}}).then(res => res.ok ? res.json() : null),
+                fetch('/logs', {method: 'GET', headers: {accept: 'application/json', Authorization: 'Bearer ' + key}}).then(res => res.ok ? res.json() : null),
                 fetch('/usage', {method: 'GET', headers: {Authorization: 'Bearer ' + key}}).then(res => res.ok ? res.json() : null),
             ]).then(([data, usage]) => {
-                if (data && Array.isArray(data.entries)) data.entries.forEach(renderHistory)
+                if (data && Array.isArray(data.entries)) data.entries.forEach(appendEntry)
                 if (usage && typeof usage.count === 'number') {
                     totals.count = usage.count
                     totals.in = usage.inTokens
@@ -392,6 +324,7 @@
                 }
             }).catch(() => { }).finally(() => {
                 renderTotals()
+                refreshBtn.disabled = false
             })
 
             function renderHistory(entry) {
@@ -400,54 +333,11 @@
             }
         }
 
-        function onRequest(entry) {
-            appendRequest(entry, 'responding')
-        }
-
-        function onResponse(entry) {
-            appendResponse(entry)
-            if (entry.inputTokens !== undefined) totals.in += entry.inputTokens
-            if (entry.outputTokens !== undefined) totals.out += entry.outputTokens
-            if (entry.cachedTokens !== undefined) totals.cached += entry.cachedTokens
-            totals.count++
-            renderTotals()
-        }
-
         async function start() {
-            const key = await promptKey()
-            // EventSource cannot set headers, so auth via a cookie it sends automatically.
-            document.cookie = 'cr-key=' + key + '; path=/; SameSite=Strict'
-            await toast({title: 'loading...', promise: loadHistory(key), type: 'info'})
-
-            let closeReconnectToast = null
-            const closeConnectingToast = toast({title: 'connecting...', timeout: 0, type: 'warning'})
-            es = new EventSource('/logs')
-            es.addEventListener('open', () => {
-                closeConnectingToast()
-                closeReconnectToast?.()
-                toast({title: 'connected', type: 'success'})
-            })
-            es.addEventListener('log', e => handle('log', e.data))
-            es.addEventListener('error', function () {
-                if (!es) return
-                if (es.readyState === EventSource.CLOSED) {
-                    es = null
-                    toast({title: 'error', type: 'error'})
-                } else {
-                    if (closeReconnectToast) return
-                    closeReconnectToast = toast({title: 'reconnecting...', timeout: 0, type: 'warning'})
-                }
-            })
-
-            function handle(event, data) {
-                if (event !== 'log' || !data) return
-                var entry
-                try {entry = JSON.parse(data)} catch (e) {return }
-                if (entry.phase === 'request') onRequest(entry)
-                else if (entry.phase === 'response') onResponse(entry)
-            }
+            toast({title: 'loading...', promise: loadHistory(), type: 'info'})
         }
 
+        document.getElementById('refresh')?.addEventListener('click', start)
         document.getElementById('clear')?.addEventListener('click', () => {
             logEl.textContent = ''
             groups.clear()

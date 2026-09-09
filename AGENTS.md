@@ -27,7 +27,7 @@ lib/
   server/
     index.ts         # creates HTTP server, mounts routes
     v1/              # OpenAI compatible API
-    logs/            # Live logs stream
+    logs/            # Request logs history + detail
     status.ts        # Alive check
     config/          # Runtime config
 closerouter.json     # Sample / default config

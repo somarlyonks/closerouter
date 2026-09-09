@@ -1,29 +1,8 @@
-import type {IncomingMessage, OutgoingHttpHeaders, ServerResponse} from 'http'
+import type {IncomingMessage, ServerResponse} from 'http'
 import {randomUUID} from 'crypto'
-import {router, needsCookie, withMethod, MAX_BODY, handleHTML, applyUsageObject, type RequestContext} from '../../util'
+import {router, needsAuth, withMethod, MAX_BODY, handleHTML, applyUsageObject, type RequestContext} from '../../util'
 import {recordUsage, loadUsage, loadUsageBody} from './db'
 import {indexHTML} from './index.html'
-
-export interface LogGroup {
-    id: string
-    phase: 'request' | 'response'
-    time: number
-    method: string
-    path: string
-    provider?: string
-    model?: string
-    status?: number
-    durationMs?: number
-    ttftMs?: number
-    generationMs?: number
-    inputTokens?: number
-    outputTokens?: number
-    cachedTokens?: number
-    requestBody?: string
-    requestHeaders?: IncomingMessage['headers']
-    responseBody?: string
-    responseHeaders?: OutgoingHttpHeaders
-}
 
 interface TokenUsage {
     inputTokens?: number
@@ -39,62 +18,31 @@ function hasUsage (usage: TokenUsage | undefined): boolean {
     )
 }
 
-type LogListener = (entry: LogGroup) => void
-
-const listeners: LogListener[] = []
-
-export function publishLog (entry: LogGroup): void {
-    for (const listener of listeners) listener(entry)
-}
-
 export const handleLogs = withMethod('GET')(router(
-    r => !!logDetailId(r.req.url),
-    needsCookie((ctx, res) => {
-        const body = loadUsageBody(logDetailId(ctx.req.url)!)
-        res.writeHead(body ? 200 : 404, {
-            'content-type': 'application/json',
-            'cache-control': 'no-cache',
-            'access-control-allow-origin': '*',
-        })
-        res.end(JSON.stringify(body ?? {error: {message: 'usage entry not found', type: 'not_found'}}))
-    }),
+    r => r.req.url === '/logs',
     router(
-        r => r.req.headers['accept'] === 'text/event-stream',
-        needsCookie((_ctx, res) => {
+        r => r.req.headers['accept'] === 'application/json',
+        needsAuth((_ctx, res) => {
             res.writeHead(200, {
-                'content-type': 'text/event-stream',
-                'cache-control': 'no-cache, no-transform',
-                'connection': 'keep-alive',
+                'content-type': 'application/json',
+                'cache-control': 'no-cache',
                 'access-control-allow-origin': '*',
-                'x-accel-buffering': 'no',
             })
-
-            const listener: LogListener = (entry) => {
-                res.write('event: log\n')
-                res.write(`data: ${JSON.stringify(entry)}\n\n`)
-            }
-            listeners.push(listener)
-
-            const heartbeat = setInterval(() => res.write('event: ping\n\n'), 3000)
-            heartbeat.unref()
-
-            res.on('close', () => {
-                clearInterval(heartbeat)
-                listeners.splice(listeners.indexOf(listener), 1)
-            })
+            res.end(JSON.stringify({entries: loadUsage()}))
         }),
-        router(
-            r => r.req.headers['accept'] === 'application/json',
-            needsCookie((_ctx, res) => {
-                res.writeHead(200, {
-                    'content-type': 'application/json',
-                    'cache-control': 'no-cache',
-                    'access-control-allow-origin': '*',
-                })
-                res.end(JSON.stringify({entries: loadUsage()}))
-            }),
-            handleHTML(indexHTML),
-        ),
+        handleHTML(indexHTML),
+    ),
+    router(
+        r => !!logDetailId(r.req.url),
+        needsAuth((ctx, res) => {
+            const body = loadUsageBody(logDetailId(ctx.req.url)!)
+            res.writeHead(body ? 200 : 404, {
+                'content-type': 'application/json',
+                'cache-control': 'no-cache',
+                'access-control-allow-origin': '*',
+            })
+            res.end(JSON.stringify(body ?? {error: {message: 'usage entry not found', type: 'not_found'}}))
+        }),
     ),
 ))
 
@@ -125,38 +73,22 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
 
     const readRequestBody = () => bodyChunks.length > 0 ? Buffer.concat(bodyChunks).toString('utf-8').slice(0, MAX_BODY) : undefined
 
-    let logged = false
-    const logRequest = () => {
-        if (logged) return
-        logged = true
-        publishLog({
-            id,
-            phase: 'request',
-            time: Date.now(),
-            method: req.method!,
-            path: req.url!,
-            requestBody: readRequestBody(),
-            requestHeaders: req.headers,
-        })
-    }
-    req.on('end', logRequest)
     res.on('close', () => {
-        logRequest()
+        if (responseLog?.provider === undefined || responseLog.model === undefined) return
         const usage = hasUsage(responseLog?.usage)
             ? responseLog!.usage!
             : extractTokenUsage(responseLog?.body)
         const firstTokenAt = responseLog?.firstTokenAt
         const lastTokenAt = responseLog?.lastTokenAt
 
-        publishLog({
-            id,
-            phase: 'response',
-            time: Date.now(),
+        recordUsage({
+            requestId: id,
+            time: startedAt,
             method: req.method!,
             path: req.url!,
-            provider: responseLog?.provider,
-            model: responseLog?.model,
-            status: responseLog?.status ?? (res.headersSent ? res.statusCode : undefined),
+            provider: responseLog.provider,
+            model: responseLog.model,
+            status: responseLog.status ?? (res.headersSent ? res.statusCode : undefined),
             durationMs: Date.now() - startedAt,
             ttftMs: firstTokenAt !== undefined ? firstTokenAt - startedAt : undefined,
             generationMs: firstTokenAt !== undefined && lastTokenAt !== undefined ? lastTokenAt - firstTokenAt : undefined,
@@ -164,29 +96,8 @@ export function logMiddleware ({req, responseLog}: RequestContext, res: ServerRe
             outputTokens: usage.outputTokens,
             cachedTokens: usage.cachedTokens,
             requestBody: readRequestBody(),
-            requestHeaders: req.headers,
-            responseBody: responseLog?.body,
-            responseHeaders: responseLog?.headers,
+            responseBody: responseLog.body,
         })
-        if (responseLog?.provider !== undefined && responseLog.model !== undefined) {
-            recordUsage({
-                requestId: id,
-                time: startedAt,
-                method: req.method!,
-                path: req.url!,
-                provider: responseLog.provider,
-                model: responseLog.model,
-                status: responseLog.status ?? (res.headersSent ? res.statusCode : undefined),
-                durationMs: Date.now() - startedAt,
-                ttftMs: firstTokenAt !== undefined ? firstTokenAt - startedAt : undefined,
-                generationMs: firstTokenAt !== undefined && lastTokenAt !== undefined ? lastTokenAt - firstTokenAt : undefined,
-                inputTokens: usage.inputTokens,
-                outputTokens: usage.outputTokens,
-                cachedTokens: usage.cachedTokens,
-                requestBody: readRequestBody(),
-                responseBody: responseLog.body,
-            })
-        }
     })
 }
 
@@ -199,7 +110,7 @@ function readClientRequestId (req: IncomingMessage): string | undefined {
     return id
 }
 
-function extractTokenUsage (body: string | undefined): TokenUsage {
+export function extractTokenUsage (body: string | undefined): TokenUsage {
     const result: TokenUsage = {}
     if (!body) return result
 

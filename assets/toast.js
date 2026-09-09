@@ -39,7 +39,7 @@ function toast ({
     if (Promise.resolve(promise) === promise) {
         return new Promise((resolve, reject) => {
             $dialog.show()
-            promise.then(() => $dialog.close()).then(resolve).catch(reject)
+            promise.then(resolve).catch(reject).finally(() => $dialog.close())
         })
     }
 

@@ -163,7 +163,7 @@ enum APIClient {
     static func getLogEntries(port: Int, key: String) async throws -> [LogGroup] {
         var req = URLRequest(url: url(port: port, path: "logs"))
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.setValue("cr-key=\(key)", forHTTPHeaderField: "Cookie")
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = 10
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw APIClientError.badResponse }
@@ -177,7 +177,7 @@ enum APIClient {
     static func getLogDetail(port: Int, key: String, id: Int) async throws -> LogBodyDetail {
         var req = URLRequest(url: url(port: port, path: "logs/\(id)"))
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.setValue("cr-key=\(key)", forHTTPHeaderField: "Cookie")
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = 10
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw APIClientError.badResponse }
