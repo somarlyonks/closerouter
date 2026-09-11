@@ -11,7 +11,7 @@ export const handleConfig = router(
     router(
         c => !!c.req.headers['accept']?.includes('application/json'),
         needsAuth((ctx, res) => {
-            const {port, key, providers} = ctx.env.config
+            const {port, key, retentionDays, providers} = ctx.env.config
 
             const rawModelById = new Map<string, Record<string, unknown>>()
             try {
@@ -47,7 +47,7 @@ export const handleConfig = router(
                 'content-type': 'application/json',
                 'access-control-allow-origin': '*',
             })
-            res.end(JSON.stringify({port, key, providers: enrichedProviders}, undefined, 2))
+            res.end(JSON.stringify({port, key, retentionDays, providers: enrichedProviders}, undefined, 2))
         }),
         handleHTML(indexHTML),
     ),
@@ -66,11 +66,17 @@ export const handleConfig = router(
                 }
 
                 const previousPort = ctx.env.config.port
+                const previousRetentionDays = ctx.env.config.retentionDays
                 applyConfig(ctx.env.config, config)
 
                 if (previousPort !== undefined && config.port !== previousPort) {
                     console.log(
                         `config port changed ${previousPort} -> ${config.port}; restart for the new port to take effect`,
+                    )
+                }
+                if (config.retentionDays !== previousRetentionDays) {
+                    console.log(
+                        `config retentionDays changed ${previousRetentionDays} -> ${config.retentionDays}; restart for the new retention policy to take effect`,
                     )
                 }
 

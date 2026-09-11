@@ -3,7 +3,7 @@ import {spawn} from 'child_process'
 import {startServer} from './server'
 import {loadConfig, printServerConfig, type RuntimeConfig} from './config'
 import {sqliteAvailable, openDatabase, run, getSqliteVersion} from './db'
-import {initUsage} from './server/logs/db'
+import {initUsage, startRetentionSweep} from './server/logs/db'
 import packageJson from '../package.json' with {type: 'json'}
 
 const DEFAULT_CONFIG = resolve(process.cwd(), 'closerouter.json')
@@ -78,7 +78,7 @@ function startDetached (configPath: string): void {
     console.log(`closerouter started in background (pid ${child.pid ?? 'unknown'})`)
 }
 
-function initStorage ({dbPath}: RuntimeConfig): void {
+function initStorage ({dbPath, retentionDays}: RuntimeConfig): void {
     if (dbPath === undefined) return
     if (!sqliteAvailable()) {
         console.log('sqlite unavailable in this build - usage is not persisted')
@@ -87,6 +87,7 @@ function initStorage ({dbPath}: RuntimeConfig): void {
     openDatabase(dbPath)
     if (dbPath !== '') run('PRAGMA journal_mode=WAL')
     initUsage()
+    startRetentionSweep(retentionDays)
     console.log(`usage log at ${dbPath === '' ? ':memory:' : dbPath}`)
 }
 

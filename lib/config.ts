@@ -14,6 +14,7 @@ export interface Config {
     port?: number
     key?: string
     db?: string | false
+    retentionDays?: number
     providers: Record<string, ProviderConfig>
 }
 
@@ -22,12 +23,14 @@ export interface RuntimeConfig {
     port: number
     key: string
     dbPath: string | undefined
+    retentionDays: number
     providers: Record<string, ProviderConfig>
 }
 
 const DEFAULT_PORT = 6712
 const DEFAULT_KEY = 'sk-cr-kee9itsecr1t'
 const DEFAULT_DB = '' // in-memory
+export const DEFAULT_RETENTION_DAYS = 7
 
 export function parseConfig (raw: string): RuntimeConfig {
     let parsed: unknown
@@ -47,6 +50,10 @@ export function parseConfig (raw: string): RuntimeConfig {
 
     if (obj.db !== undefined && obj.db !== false && typeof obj.db !== 'string') {
         throw new Error('Config "db" must be a path string, or false to disable')
+    }
+
+    if (obj.retentionDays !== undefined && (typeof obj.retentionDays !== 'number' || !Number.isInteger(obj.retentionDays) || obj.retentionDays < 0)) {
+        throw new Error('Config "retentionDays" must be a whole number of days >= 0 (0 disables retention)')
     }
 
     if (typeof obj.providers !== 'object' || !obj.providers) {
@@ -86,6 +93,7 @@ export function parseConfig (raw: string): RuntimeConfig {
         port: typeof obj.port === 'number' ? obj.port : DEFAULT_PORT,
         key: typeof obj.key === 'string' ? obj.key : DEFAULT_KEY,
         dbPath: obj.db === false ? undefined : typeof obj.db === 'string' ? obj.db : DEFAULT_DB,
+        retentionDays: typeof obj.retentionDays === 'number' ? obj.retentionDays : DEFAULT_RETENTION_DAYS,
         providers: normalized,
     }
 }
@@ -114,7 +122,6 @@ export function loadConfig (configPath: string): RuntimeConfig {
 }
 
 export function applyConfig (store: RuntimeConfig, config: Omit<RuntimeConfig, 'path'>): void {
-    store.port = config.port
     store.key = config.key
     store.providers = config.providers
 }

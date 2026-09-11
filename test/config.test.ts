@@ -195,3 +195,55 @@ test('loadConfig exits when db has an invalid type', async () => {
         await cleanup()
     }
 })
+
+test('loadConfig defaults retentionDays to 7 when omitted', async () => {
+    const {path, cleanup} = await writeTempConfig({
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    try {
+        assert.equal(loadConfig(path).retentionDays, 7)
+    } finally {
+        await cleanup()
+    }
+})
+
+test('loadConfig reads an explicit retentionDays', async () => {
+    const {path, cleanup} = await writeTempConfig({
+        retentionDays: 30,
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    try {
+        assert.equal(loadConfig(path).retentionDays, 30)
+    } finally {
+        await cleanup()
+    }
+})
+
+test('loadConfig accepts retentionDays 0 to disable retention', async () => {
+    const {path, cleanup} = await writeTempConfig({
+        retentionDays: 0,
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    try {
+        assert.equal(loadConfig(path).retentionDays, 0)
+    } finally {
+        await cleanup()
+    }
+})
+
+test('loadConfig exits when retentionDays is out of range', async () => {
+    const cases = [-1, 1.5, '7', null]
+    for (const bad of cases) {
+        const {path, cleanup} = await writeTempConfig({
+            retentionDays: bad,
+            providers: {p: {base_url: 'http://x', api_key: 'k'}},
+        })
+        try {
+            const res = captureExit(() => loadConfig(path))
+            assert.equal(res.exit?.code, 1, `retentionDays=${String(bad)} should be rejected`)
+            assert.match(res.stderr, /retentionDays/i)
+        } finally {
+            await cleanup()
+        }
+    }
+})

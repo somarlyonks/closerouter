@@ -47,6 +47,7 @@ function configFor (backend: string): RuntimeConfig {
         port: 0,
         key: 'logkey',
         dbPath: '',
+        retentionDays: 7,
         providers: {
             p: {base_url: backend, api_key: 'bk', models: [{id: 'm'}]},
         },

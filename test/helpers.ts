@@ -164,6 +164,7 @@ export function sampleConfig (over: Partial<RuntimeConfig> = {}): RuntimeConfig 
     return {
         raw: over.raw ?? '',
         dbPath: over.dbPath ?? '',
+        retentionDays: over.retentionDays ?? 7,
         port: over.port ?? 6712,
         key: over.key ?? 'sk-test',
         providers: over.providers ?? {

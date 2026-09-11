@@ -37,6 +37,7 @@ enum APIClient {
     struct ConfigInfo: Decodable {
         let port: Int
         let key: String
+        let retentionDays: Int?
         let providers: [String: ProviderInfo]
     }
 
@@ -268,6 +269,11 @@ enum ConfigValidator {
         }
         if let db = dict["db"], !(db is String), !(db is Bool && (db as? Bool) == false) {
             return "Config \"db\" must be a path string, or false to disable"
+        }
+        if let days = dict["retentionDays"] {
+            guard !(days is Bool), let d = days as? Int, d >= 0 else {
+                return "Config \"retentionDays\" must be a whole number of days >= 0 (0 disables retention)"
+            }
         }
         guard let providers = dict["providers"] as? [String: Any], !providers.isEmpty else {
             return "Config must contain a non-empty \"providers\" object"

@@ -33,6 +33,7 @@ async function setup (): Promise<{
     const config: RuntimeConfig = {
         raw: '',
         dbPath: '',
+        retentionDays: 7,
         port,
         key: API_KEY,
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},

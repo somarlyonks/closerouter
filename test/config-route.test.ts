@@ -76,8 +76,9 @@ test('GET /config with accept json returns the running config', async () => {
         })
         assert.equal(res.status, 200)
         assert.equal(res.headers.get('content-type'), 'application/json')
-        const json = await res.json() as {port: number, key: string, providers: Record<string, unknown>}
+        const json = await res.json() as {port: number, key: string, retentionDays: number, providers: Record<string, unknown>}
         assert.equal(json.key, API_KEY)
+        assert.equal(json.retentionDays, 7)
         assert.ok(json.providers.p, 'response includes the provider')
     } finally {
         await s.close()
@@ -132,12 +133,13 @@ test('PUT /config rejects a config with no providers', async () => {
     }
 })
 
-test('PUT /config updates the running config', async () => {
+test('PUT /config updates live fields but leaves retention unchanged until restart', async () => {
     const s = await setup()
     try {
         const newConfig = {
             port: s.port,
             key: API_KEY,
+            retentionDays: 30,
             providers: {
                 p: {base_url: 'http://127.0.0.1:1', api_key: 'bk', models: []},
                 q: {base_url: 'http://127.0.0.1:2', api_key: 'qk', models: [{id: 'qm'}]},
@@ -149,8 +151,15 @@ test('PUT /config updates the running config', async () => {
             body: JSON.stringify(newConfig),
         })
         assert.equal(res.status, 200)
-        const json = await res.json() as {providers: Record<string, unknown>}
+        const json = await res.json() as {retentionDays: number, providers: Record<string, unknown>}
+        assert.equal(json.retentionDays, 30)
         assert.ok(json.providers.q, 'response includes the new provider')
+
+        const runningRes = await fetch(`http://127.0.0.1:${s.port}/config`, {
+            headers: {authorization: `Bearer ${API_KEY}`, accept: 'application/json'},
+        })
+        const running = await runningRes.json() as {retentionDays: number}
+        assert.equal(running.retentionDays, 7)
 
         // The running server should route to the new provider: a request for
         // q/qm hits the (unreachable) q backend with a 502, proving the new
