@@ -3,6 +3,7 @@
 // server - a broken storage backend logs and drops the row.
 
 import {sqliteAvailable, all, get, run, type SqlParam} from '../../db'
+import {DEFAULT_RETENTION_DAYS} from '../../config'
 
 export interface UsageEntry {
     id?: number
@@ -405,5 +406,28 @@ export function recordUsage (entry: UsageEntry): void {
         )
     } catch (e) {
         console.error('usage insert failed:', e instanceof Error ? e.message : String(e))
+    }
+}
+
+const RETENTION_SWEEP_INTERVAL_MS = DAY
+
+export function startRetentionSweep (retentionDays = DEFAULT_RETENTION_DAYS, intervalMs = RETENTION_SWEEP_INTERVAL_MS): {stop: () => void} {
+    // 0 turns retention off - the sweep is never armed
+    if (retentionDays < 1) return {stop: () => {}}
+    expireUsageBodies(retentionDays)
+    const timer = setInterval(() => expireUsageBodies(retentionDays), intervalMs)
+    timer.unref()
+    return {stop: () => clearInterval(timer)}
+}
+
+export function expireUsageBodies (maxAgeDays: number = DEFAULT_RETENTION_DAYS): void {
+    if (!initialized) return
+    if (maxAgeDays < 1) return // 0 turns retention off
+    try {
+        const cutoff = Date.now() - maxAgeDays * DAY
+        const {changes} = run('UPDATE usage SET request_body = NULL, response_body = NULL WHERE time < ? AND status = 200 AND (request_body IS NOT NULL OR response_body IS NOT NULL)', [cutoff])
+        if (changes > 0) console.log(`cleared bodies on ${changes} usage row(s) older than ${maxAgeDays} days`)
+    } catch (e) {
+        console.error('usage body expiration failed:', e instanceof Error ? e.message : String(e))
     }
 }

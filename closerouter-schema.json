@@ -38,6 +38,12 @@
             ],
             "default": "closerouter.db"
         },
+        "retentionDays": {
+            "description": "Clear request/response bodies of successful (status 200) usage rows older than this many whole days (>= 0; 0 disables retention). Defaults to 7.",
+            "type": "integer",
+            "minimum": 0,
+            "default": 7
+        },
         "providers": {
             "description": "Map of provider name to its configuration. Must contain at least one entry.",
             "type": "object",

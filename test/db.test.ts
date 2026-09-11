@@ -6,7 +6,7 @@ import {
     sqliteAvailable, openDatabase, closeDatabase, run, all, get,
     messageCollector, encodeParams, decodeValue,
 } from '../lib/db'
-import {initUsage, recordUsage, loadUsage, loadUsageBody, loadUsageStats} from '../lib/server/logs/db'
+import {initUsage, recordUsage, loadUsage, loadUsageBody, loadUsageStats, expireUsageBodies, startRetentionSweep} from '../lib/server/logs/db'
 
 // The SQL tests need the native SQLite symbols, which only exist when this
 // file is compiled by scriptc with --ffi, e.g.
@@ -234,6 +234,113 @@ function sqlTests (): void {
         // idempotent schema
         initUsage()
         assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, 2)
+    })
+
+    test('expireUsageBodies clears bodies on expired successful rows and keeps the rest', () => {
+        openDatabase('')
+        initUsage()
+        const DAY = 86_400_000
+        const now = Date.now()
+        const row = (id: string, time: number, status = 200) =>
+            recordUsage({requestId: id, time, method: 'POST', path: '/v1/chat/completions', provider: 'p', model: 'm', status, requestBody: `{"req":"${id}"}`, responseBody: `{"res":"${id}"}`})
+        row('old', now - 61 * DAY)
+        row('old-err', now - 61 * DAY, 500)
+        row('mid', now - 31 * DAY)
+        row('fresh', now - 1 * DAY)
+
+        expireUsageBodies(60)
+        const after = all('SELECT request_id, request_body, response_body FROM usage ORDER BY id')
+        // rows are kept - only successful (200) expired bodies are dropped
+        assert.deepEqual(after.map(r => r.request_id as string), ['old', 'old-err', 'mid', 'fresh'])
+        assert.ok(isNull(after[0].request_body) && isNull(after[0].response_body))
+        assert.equal(after[1].request_body as string, '{"req":"old-err"}') // 500 bodies kept
+        assert.equal(after[1].response_body as string, '{"res":"old-err"}')
+        assert.equal(after[2].request_body as string, '{"req":"mid"}')
+        assert.equal(after[3].request_body as string, '{"req":"fresh"}')
+
+        // idempotent - re-running clears nothing new
+        const changesBefore = get('SELECT total_changes() AS n')?.n as number
+        expireUsageBodies(60)
+        assert.equal(get('SELECT total_changes() AS n')?.n as number, changesBefore)
+        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, 4)
+
+        // a stricter policy clears the next-oldest successful row's bodies too
+        expireUsageBodies(30)
+        const stricter = all('SELECT request_id, request_body FROM usage ORDER BY id')
+        assert.ok(isNull(stricter[2].request_body))
+        assert.equal(stricter[1].request_body as string, '{"req":"old-err"}') // 500 still kept
+        assert.equal(stricter[3].request_body as string, '{"req":"fresh"}')
+    })
+
+    test('expireUsageBodies keeps newer rows intact through the normal API', () => {
+        openDatabase('')
+        initUsage()
+        const DAY = 86_400_000
+        const now = Date.now()
+        recordUsage({requestId: 'old', time: now - 365 * DAY, method: 'POST', path: '/v1/chat/completions', status: 200, requestBody: 'old-body', responseBody: 'old-res'})
+        recordUsage({requestId: 'new', time: now, method: 'POST', path: '/v1/chat/completions', status: 200, requestBody: 'new-body', responseBody: 'new-res'})
+        expireUsageBodies(90)
+        const rows = all('SELECT request_id FROM usage ORDER BY id')
+        assert.equal(rows.length, 2) // both rows survive
+        assert.equal(loadUsage().length, 2)
+        // the expired row's bodies are gone; the fresh row's are still fetchable
+        const ids = loadUsage()
+        const oldEntry = ids.find(e => e.requestId === 'old')!
+        const newEntry = ids.find(e => e.requestId === 'new')!
+        assert.ok(loadUsageBody(oldEntry.id as number)?.requestBody === undefined)
+        assert.ok(loadUsageBody(oldEntry.id as number)?.responseBody === undefined)
+        assert.equal(loadUsageBody(newEntry.id as number)?.requestBody as string, 'new-body')
+        assert.equal(loadUsageBody(newEntry.id as number)?.responseBody as string, 'new-res')
+    })
+
+    test('startRetentionSweep clears expired bodies periodically without restart', async () => {
+        openDatabase('')
+        initUsage()
+        const DAY = 86_400_000
+        const now = Date.now()
+        recordUsage({requestId: 'old', time: now - 200 * DAY, method: 'POST', path: '/v1/chat/completions', status: 200, requestBody: 'big-old', responseBody: 'big-old'})
+        recordUsage({requestId: 'err', time: now - 400 * DAY, method: 'POST', path: '/v1/chat/completions', status: 500, requestBody: 'err-body', responseBody: 'err-body'})
+        recordUsage({requestId: 'new', time: now, method: 'POST', path: '/v1/chat/completions', status: 200, requestBody: 'small', responseBody: 'small'})
+
+        const sweep = startRetentionSweep(7, 20)
+        // the first run is immediate - the expired successful body is cleared before any tick
+        const immediately = all('SELECT request_id, request_body FROM usage ORDER BY id')
+        assert.ok(isNull(immediately[0].request_body))
+        assert.equal(immediately[1].request_body as string, 'err-body') // 500 kept
+        assert.equal(immediately[2].request_body as string, 'small')
+        await new Promise(r => setTimeout(r, 80)) // several ticks
+        sweep.stop()
+
+        const rows = all('SELECT request_id, request_body FROM usage ORDER BY id')
+        assert.equal(rows.length, 3)
+        assert.ok(isNull(rows[0].request_body)) // expired 200 body cleared by the sweep
+        assert.equal(rows[1].request_body as string, 'err-body') // 500 untouched
+        assert.equal(rows[2].request_body as string, 'small') // fresh body untouched
+
+        // stopping the sweep leaves newer expired rows alone until the next sweep
+        const later = Date.now()
+        recordUsage({requestId: 'old2', time: later - 300 * DAY, method: 'POST', path: '/v1/chat/completions', status: 200, requestBody: 'stale', responseBody: 'stale'})
+        await new Promise(r => setTimeout(r, 60))
+        const rows2 = all('SELECT request_id, request_body FROM usage WHERE request_id = ?', ['old2'])
+        assert.equal(rows2[0].request_body as string, 'stale')
+    })
+
+    test('retentionDays 0 turns retention off', async () => {
+        openDatabase('')
+        initUsage()
+        const DAY = 86_400_000
+        const now = Date.now()
+        recordUsage({requestId: 'old', time: now - 200 * DAY, method: 'POST', path: '/v1/chat/completions', status: 200, requestBody: 'big', responseBody: 'big'})
+
+        // a direct call with 0 clears nothing
+        expireUsageBodies(0)
+        assert.equal(all('SELECT request_body FROM usage')[0].request_body as string, 'big')
+
+        // a 0-days sweep arms no timer and clears nothing either
+        const sweep = startRetentionSweep(0, 20)
+        await new Promise(r => setTimeout(r, 60))
+        sweep.stop()
+        assert.equal(all('SELECT request_body FROM usage')[0].request_body as string, 'big')
     })
 
     test('loadUsageStats aggregates totals, filters, series and breakdowns', () => {

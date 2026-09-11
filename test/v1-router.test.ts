@@ -7,7 +7,7 @@ import {startMockBackend, startHandlerServer} from './helpers'
 
 function configFor (baseUrl: string): RuntimeConfig {
     return {
-        raw: '', port: 6712, key: 'k', dbPath: undefined,
+        raw: '', port: 6712, key: 'k', dbPath: undefined, retentionDays: 7,
         providers: {p: {base_url: baseUrl, api_key: 'bk'}},
     }
 }

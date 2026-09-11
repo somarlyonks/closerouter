@@ -36,6 +36,7 @@ CloseRouter:
         [x] config field
         [x] in momery
         [x] persistent
+        [x] age-based retention
     test:
         [x] mock provider server
         [x] persistent test.db (test config db)
