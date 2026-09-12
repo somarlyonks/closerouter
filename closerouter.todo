@@ -9,6 +9,7 @@ CloseRouter:
         [x] version
     server:
         [x] router
+        [x] bind the HTTP listener to 127.0.0.1
         [x] auth by bearer key
         [x] proxy forwarding with SSE streaming
         routes:

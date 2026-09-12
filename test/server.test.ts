@@ -3,8 +3,10 @@ import assert from 'node:assert/strict'
 import {spawn, type ChildProcess} from 'child_process'
 import {once} from 'events'
 import {resolve, dirname} from 'path'
+import {connect, type AddressInfo} from 'net'
 import type {MockBackend} from './helpers'
 import type {RuntimeConfig} from '../lib/config'
+import {startServer} from '../lib/server'
 import {startMockBackend, writeTempConfig, startCrServer, getFreePort} from './helpers'
 
 const API_KEY = 'sk-test'
@@ -48,6 +50,43 @@ async function setup (): Promise<{
         },
     }
 }
+
+test('server binds 127.0.0.1 only and reports it as the bound address', async () => {
+    const backend = await startMockBackend()
+    const port = await getFreePort()
+    const server = startServer({
+        raw: '',
+        dbPath: '',
+        retentionDays: 7,
+        port,
+        key: API_KEY,
+        providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
+    })
+    try {
+        await once(server, 'listening')
+        const addr = server.address() as AddressInfo
+        assert.equal(addr.address, '127.0.0.1')
+        assert.equal(addr.family, 'IPv4')
+        // loopback connections work
+        const res = await fetch(`http://127.0.0.1:${port}/status`)
+        assert.equal(res.status, 200)
+        // IPv6 loopback is refused - the server is not dual-stacked
+        await new Promise<void>((resolveConnect, rejectConnect) => {
+            const sock = connect({host: '::1', port})
+            sock.once('connect', () => {
+                sock.destroy()
+                rejectConnect(new Error('::1 connect unexpectedly succeeded'))
+            })
+            sock.once('error', () => {
+                sock.destroy()
+                resolveConnect()
+            })
+        })
+    } finally {
+        await new Promise<void>(r => server.close(() => r()))
+        await backend.close()
+    }
+})
 
 test('OPTIONS responds with CORS preflight headers', async () => {
     const s = await setup()
@@ -194,7 +233,9 @@ test('SIGTERM triggers graceful shutdown with exit code 0', async () => {
         stdio: ['ignore', 'pipe', 'pipe'],
     })
     try {
-        await waitForReady(child)
+        const out = await waitForReady(child)
+        // the startup banner reports the actual loopback bind address
+        assert.match(out, /closerouter running on http:\/\/127\.0\.0\.1:\d+/)
         child.kill('SIGTERM')
         const [code, signal] = await once(child, 'exit')
         assert.equal(code, 0)
@@ -277,10 +318,10 @@ function waitForBackendRequest (backend: MockBackend, stderr: string, timeoutMs 
     })
 }
 
-// Resolve once the child server has printed its "running" banner, so the caller
-// knows it is listening and signal handlers are registered. Rejects if the child
-// exits before becoming ready.
-function waitForReady (child: ChildProcess, timeoutMs = 5000): Promise<void> {
+// Resolve with the captured stdout once the child server has printed its
+// "running" banner, so the caller knows it is listening and signal handlers are
+// registered. Rejects if the child exits before becoming ready.
+function waitForReady (child: ChildProcess, timeoutMs = 5000): Promise<string> {
     return new Promise((resolve, reject) => {
         let buf = ''
         const onStdout = (c: Buffer) => {
@@ -289,7 +330,7 @@ function waitForReady (child: ChildProcess, timeoutMs = 5000): Promise<void> {
                 clearTimeout(timer)
                 child.stdout!.off('data', onStdout)
                 child.off('exit', onExit)
-                resolve()
+                resolve(buf)
             }
         }
         const onExit = (code: number | null) => {
