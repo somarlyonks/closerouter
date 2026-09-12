@@ -3,12 +3,13 @@
 // Compile the C sources behind ffi.json's libraries[] entries, each in place
 // (the .o lands next to its .c), for `scriptc build --ffi` - the manifest
 // requires every listed object to exist at build time. An entry with a sibling
-// .c is compiled here when stale; an entry without one must already exist (a
-// prebuilt object supplied by hand). Runs under plain Node (it is a build
-// tool like assets/build.ts, not shipped code).
+// .c is always recompiled here; an entry without one must already exist, so
+// manifests that mix compiled and prebuilt entries keep working. The build
+// fails immediately if a source, the toolchain, the SDK lookup, or the
+// compilation is unavailable. Runs under plain Node.
 
 import {spawnSync} from 'child_process'
-import {existsSync, readFileSync, statSync} from 'fs'
+import {existsSync, readFileSync} from 'fs'
 import {dirname, join, relative, resolve} from 'path'
 import {fileURLToPath} from 'url'
 
@@ -22,7 +23,15 @@ function rel (path: string): string {
 function sdkPath (): string | undefined {
     if (process.platform !== 'darwin') return undefined
     const res = spawnSync('xcrun', ['--show-sdk-path'], {encoding: 'utf8'})
-    return res.status === 0 ? res.stdout.trim() : undefined
+    if (res.error) {
+        console.error('xcrun not found - install Xcode Command Line Tools (xcode-select --install)')
+        process.exit(1)
+    }
+    if (res.status !== 0 || !res.stdout.trim()) {
+        console.error('xcrun --show-sdk-path failed - install Xcode Command Line Tools (xcode-select --install)')
+        process.exit(1)
+    }
+    return res.stdout.trim()
 }
 
 function compile (src: string, out: string): void {
@@ -50,21 +59,13 @@ function main (): void {
         process.exit(1)
     }
 
-    let compiled = 0
-    let upToDate = 0
-
     for (const entry of entries) {
         // scriptc resolves library paths relative to the manifest
         const out = resolve(DIR, entry)
         const src = out.replace(/\.o$/, '.c')
 
         if (out.endsWith('.o') && existsSync(src)) {
-            if (existsSync(out) && statSync(out).mtimeMs >= statSync(src).mtimeMs) {
-                upToDate++
-                continue
-            }
             compile(src, out)
-            compiled++
             continue
         }
 
@@ -75,7 +76,6 @@ function main (): void {
         console.log(`${rel(out)} prebuilt`)
     }
 
-    console.log(`done: ${compiled} compiled, ${upToDate} up to date`)
     console.groupEnd()
 }
 

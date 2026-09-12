@@ -40,34 +40,33 @@ function findAssetsDir (htmlPath: string): string | undefined {
     return undefined
 }
 
-function buildHtml (htmlPath: string): boolean {
+function buildHtml (htmlPath: string): void {
     const out = htmlPath + '.ts'
     const assetsDir = findAssetsDir(htmlPath)
     const src = readFileSync(htmlPath, 'utf8')
 
-    const assetPaths: string[] = []
+    const unresolved: string[] = []
     let processed = src
     if (assetsDir) {
         processed = src.replace(ASSET_MARKER, (match, name) => {
             const assetPath = join(assetsDir, name)
             if (existsSync(assetPath) && statSync(assetPath).isFile()) {
-                assetPaths.push(assetPath)
                 return readFileSync(assetPath, 'utf8').trim()
             }
-            console.error(`asset not found: ${name} (referenced in ${htmlPath})`)
+            unresolved.push(match.trim())
             return match
         })
+    } else {
+        for (const match of src.match(ASSET_MARKER) ?? []) unresolved.push(match.trim())
     }
 
-    const outMtime = existsSync(out) ? statSync(out).mtimeMs : 0
-    if (outMtime >= statSync(htmlPath).mtimeMs
-        && assetPaths.every(p => outMtime >= statSync(p).mtimeMs)) {
-        return false // up to date
+    if (unresolved.length > 0) {
+        console.error(`unresolved @asset marker(s) in ${htmlPath}: ${unresolved.join(' ')}`)
+        process.exit(1)
     }
 
     const ts = `export const ${exportName(htmlPath)} = /* html */\`${escapeTemplate(processed)}\`\n`
     writeFileSync(out, ts)
-    return true
 
     function exportName (htmlPath: string): string {
         const stem = basename(htmlPath, '.html')
@@ -129,14 +128,11 @@ function main (): void {
         process.exit(1)
     }
 
-    let written = 0
     for (const f of targets) {
-        if (buildHtml(f)) {
-            console.log(`${f} -> ${f}.ts`)
-            written++
-        }
+        buildHtml(f)
+        console.log(`${f} -> ${f}.ts`)
     }
-    console.log(`done: ${written} written, ${targets.length - written} up to date`)
+    console.log(`done: ${targets.length} regenerated`)
     console.groupEnd()
 
     process.exit(0)
