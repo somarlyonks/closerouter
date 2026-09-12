@@ -33,8 +33,10 @@ export function startServer (config: RuntimeConfig): Server {
         )))))))(ctx, res)/* eslint-enable @stylistic/indent */
     })
 
-    server.listen(config.port, () => {
-        printServerConfig(config)
+    server.listen(config.port, '127.0.0.1', () => {
+        const addr = server.address()
+        const host = typeof addr === 'object' && addr !== null ? addr.address : '127.0.0.1'
+        printServerConfig(config, host)
     })
 
     const shutdown = (sig: string) => () => {

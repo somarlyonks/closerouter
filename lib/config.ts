@@ -126,8 +126,8 @@ export function applyConfig (store: RuntimeConfig, config: Omit<RuntimeConfig, '
     store.providers = config.providers
 }
 
-export function printServerConfig (config: RuntimeConfig) {
-    console.log(`closerouter running on http://localhost:${config.port}`)
+export function printServerConfig (config: RuntimeConfig, host = '127.0.0.1') {
+    console.log(`closerouter running on http://${host}:${config.port}`)
     console.log(`API key: ${config.key}`)
     console.log(`Providers:`)
     for (const p of Object.keys(config.providers)) console.log(`  ${p}`)
