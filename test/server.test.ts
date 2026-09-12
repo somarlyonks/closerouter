@@ -144,8 +144,11 @@ test('GET /status returns ok without auth', async () => {
         const res = await fetch(`http://127.0.0.1:${s.port}/status`)
         assert.equal(res.status, 200)
         assert.equal(res.headers.get('content-type'), 'application/json')
-        const json = await res.json() as {status: string}
+        const json = await res.json() as {status: string, sqlite?: string}
         assert.equal(json.status, 'ok')
+        // the db is configured (in-memory '') but plain node has no SQLite
+        // symbols, so the version probe fails silently and nothing is reported
+        assert.equal(json.sqlite, undefined)
     } finally {
         await s.close()
     }

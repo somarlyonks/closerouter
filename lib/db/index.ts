@@ -165,6 +165,16 @@ function encodeParam (param: SqlParam): string | number | boolean | null | {$hex
 export function getSqliteVersion (): string | never {
     if (!sqliteAvailable()) throw new Error('sqlite unavailable')
 
+    // Probe an already-open connection directly - openDatabase('') below closes
+    // whatever handle is live (the shim holds a single connection), which would
+    // break usage persistence in a running server.
+    try {
+        const live = get('SELECT sqlite_version() AS version')?.version
+        if (typeof live === 'string') return live
+    } catch {
+        // no connection open yet - fall through to a temporary one
+    }
+
     openDatabase('')
     run('CREATE TABLE IF NOT EXISTS smoke (id INTEGER PRIMARY KEY)')
     run('INSERT INTO smoke (id) VALUES (NULL)')

@@ -2,11 +2,19 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import {createServer} from 'http'
 import {
     sqliteAvailable, openDatabase, closeDatabase, run, all, get,
     messageCollector, encodeParams, decodeValue,
 } from '../lib/db'
 import {initUsage, recordUsage, loadUsage, loadUsageBody, loadUsageStats, expireUsageBodies, startRetentionSweep} from '../lib/server/logs/db'
+import {handleStatus} from '../lib/server/status'
+import type {RuntimeConfig} from '../lib/config'
+
+/** Minimal RuntimeConfig for the /status handler test - the handler only reads dbPath. */
+function statusConfig (dbPath: string | undefined): RuntimeConfig {
+    return {raw: '', port: 0, key: 'k', dbPath, retentionDays: 7, providers: {}}
+}
 
 // The SQL tests need the native SQLite symbols, which only exist when this
 // file is compiled by scriptc with --ffi, e.g.
@@ -341,6 +349,44 @@ function sqlTests (): void {
         await new Promise(r => setTimeout(r, 60))
         sweep.stop()
         assert.equal(all('SELECT request_body FROM usage')[0].request_body as string, 'big')
+    })
+
+    test('GET /status reports the sqlite version only when a db is configured, without disturbing it', async () => {
+        closeDatabase() // clean unopened state regardless of prior tests
+        const status = async (dbPath: string | undefined): Promise<{sqlite?: string}> => {
+            const server = createServer((req, res) => {
+                handleStatus({req, env: {config: statusConfig(dbPath)}, responseLog: {}}, res)
+            })
+            const port = await new Promise<number>((resolve, reject) => {
+                server.on('error', reject)
+                server.listen(0, '127.0.0.1', () => resolve((server.address() as {port: number}).port))
+            })
+            try {
+                const res = await fetch(`http://127.0.0.1:${port}/status`)
+                assert.equal(res.status, 200)
+                return await res.json() as {sqlite?: string}
+            } finally {
+                await new Promise<void>(r => server.close(() => r()))
+            }
+        }
+
+        // db disabled: nothing reported at all
+        assert.ok((await status(undefined)).sqlite === undefined)
+        // configured (in-memory or file): the sqlite version is reported, not the path
+        assert.match((await status('')).sqlite ?? '', /^\d+\.\d+/)
+        assert.match((await status('/tmp/x.db')).sqlite ?? '', /^\d+\.\d+/)
+
+        // a live usage database stays intact across status probes - the probe
+        // must query the existing handle, never replace it
+        openDatabase('')
+        initUsage()
+        recordUsage({requestId: 'probe', time: Date.now(), method: 'POST', path: '/v1/chat/completions', status: 200})
+        const countBefore = all('SELECT COUNT(*) AS n FROM usage')[0].n as number
+        assert.match((await status('')).sqlite ?? '', /^\d+\.\d+/)
+        // the probe wrote nothing and the handle is still the same connection
+        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, countBefore)
+        recordUsage({requestId: 'after', time: Date.now(), method: 'POST', path: '/v1/chat/completions', status: 200})
+        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, countBefore + 1)
     })
 
     test('loadUsageStats aggregates totals, filters, series and breakdowns', () => {
