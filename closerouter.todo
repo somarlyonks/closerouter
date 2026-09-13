@@ -38,6 +38,7 @@ CloseRouter:
         [x] in momery
         [x] persistent
         [x] age-based retention
+        [x] schema migrations
     test:
         [x] mock provider server
         [x] persistent test.db (test config db)

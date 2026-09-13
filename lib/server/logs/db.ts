@@ -2,7 +2,7 @@
 // recorded when the client response closes. Recording never throws into the
 // server - a broken storage backend logs and drops the row.
 
-import {sqliteAvailable, all, get, run, type SqlParam} from '../../db'
+import {sqliteAvailable, all, get, run, withTransaction, type SqlParam} from '../../db'
 import {DEFAULT_RETENTION_DAYS} from '../../config'
 
 export interface UsageEntry {
@@ -26,10 +26,21 @@ export interface UsageEntry {
 
 let initialized = false
 
-/** Create the usage table if the db is available; safe to call any time. */
-export function initUsage (): void {
-    if (!sqliteAvailable()) return
-    run(`CREATE TABLE IF NOT EXISTS usage (
+export const SCHEMA_VERSION = 1
+
+/** Forward migration steps: `migrations[v]` upgrades a database stamped at
+ *  schema version v to v + 1, and must be idempotent - version 0 predates
+ *  stamping, so such a db may already carry any later shape. Each step is
+ *  followed by stamping its target version, so a failed step leaves the db at
+ *  its last good version and init resumes there on the next start. */
+const migrations: Array<() => void> = [
+    // v0 -> v1: the pre-versioning table already matches the current shape -
+    // nothing to change, the stamp below records it as current.
+    () => { },
+]
+
+const createUsageTable = (): void => {
+    run(`CREATE TABLE usage (
         id INTEGER PRIMARY KEY,
         request_id TEXT NOT NULL,
         time INTEGER NOT NULL,
@@ -47,6 +58,41 @@ export function initUsage (): void {
         request_body TEXT,
         response_body TEXT
     )`)
+}
+
+function readSchemaVersion (): number {
+    const row = get('PRAGMA user_version')
+    return typeof row?.user_version === 'number' ? row.user_version : 0
+}
+
+function tableExists (name: string): boolean {
+    return get(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`, [name]) !== undefined
+}
+
+/** Create or migrate the usage table if the db is available; safe to call any time. */
+export function initUsage (): void {
+    if (!sqliteAvailable()) return
+    const version = readSchemaVersion()
+    if (version > SCHEMA_VERSION) {
+        throw new Error(`usage db schema version ${version} is newer than this build supports (${SCHEMA_VERSION}); upgrade closerouter`)
+    }
+
+    if (!tableExists('usage')) {
+        withTransaction(() => {
+            createUsageTable()
+            run('CREATE INDEX usage_time ON usage (time)')
+            run(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+        })
+        initialized = true
+        return
+    }
+
+    for (let v = version; v < SCHEMA_VERSION; v++) {
+        withTransaction(() => {
+            migrations[v]()
+            run(`PRAGMA user_version = ${v + 1}`)
+        })
+    }
     run('CREATE INDEX IF NOT EXISTS usage_time ON usage (time)')
     initialized = true
 }
