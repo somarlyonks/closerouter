@@ -13,7 +13,7 @@ import type {RuntimeConfig} from '../lib/config'
 
 /** Minimal RuntimeConfig for the /status handler test - the handler only reads dbPath. */
 function statusConfig (dbPath: string | undefined): RuntimeConfig {
-    return {raw: '', port: 0, key: 'k', dbPath, retentionDays: 7, providers: {}}
+    return {port: 0, key: 'k', dbPath, retentionDays: 7, providers: {}}
 }
 
 // The SQL tests need the native SQLite symbols, which only exist when this

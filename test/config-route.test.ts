@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {loadConfig} from '../lib/config'
-import {getFreePort, startCrServer, writeTempConfig} from './helpers'
+import {getFreePort, startCrServer, startMockBackend, writeTempConfig} from './helpers'
 
 const API_KEY = 'sk-test'
 
@@ -68,7 +68,7 @@ test('GET /config with accept json requires authentication', async () => {
     }
 })
 
-test('GET /config with accept json returns the running config', async () => {
+test('GET /config with accept json returns the running config without provider secrets', async () => {
     const s = await setup()
     try {
         const res = await fetch(`http://127.0.0.1:${s.port}/config`, {
@@ -76,10 +76,81 @@ test('GET /config with accept json returns the running config', async () => {
         })
         assert.equal(res.status, 200)
         assert.equal(res.headers.get('content-type'), 'application/json')
-        const json = await res.json() as {port: number, key: string, retentionDays: number, providers: Record<string, unknown>}
+        const text = await res.text()
+        const json = JSON.parse(text) as {port: number, key: string, retentionDays: number, providers: {p: Record<string, unknown>}}
         assert.equal(json.key, API_KEY)
         assert.equal(json.retentionDays, 7)
         assert.ok(json.providers.p, 'response includes the provider')
+        assert.ok(!('api_key' in json.providers.p), 'provider api_key is omitted')
+        assert.ok(!text.includes('bk'), 'stored secrets do not appear in the response')
+    } finally {
+        await s.close()
+    }
+})
+
+test('PUT /config keeps stored provider secrets when the api_key is omitted or blank', async () => {
+    const backend = await startMockBackend()
+    const port = await getFreePort()
+    const {path, cleanup} = await writeTempConfig({
+        port,
+        key: API_KEY,
+        providers: {p: {base_url: backend.baseUrl, api_key: 'sk-stored-secret', models: []}},
+    })
+    const srv = await startCrServer(loadConfig(path))
+    const put = (providers: Record<string, unknown>) => fetch(`http://127.0.0.1:${srv.port}/config`, {
+        method: 'PUT',
+        headers: {'authorization': `Bearer ${API_KEY}`, 'content-type': 'application/json'},
+        body: JSON.stringify({key: API_KEY, providers}),
+    })
+    const usedKey = async () => {
+        await fetch(`http://127.0.0.1:${srv.port}/v1/models`, {headers: {authorization: `Bearer ${API_KEY}`}})
+        return backend.requests.at(-1)?.headers.authorization
+    }
+    try {
+        // baseline: the stored secret reaches the upstream before any PUT
+        assert.equal(await usedKey(), 'Bearer sk-stored-secret')
+
+        // omitted api_key keeps the stored secret
+        const omitted = await put({p: {base_url: backend.baseUrl, models: []}})
+        assert.equal(omitted.status, 200)
+        const text = await omitted.text()
+        assert.ok(!text.includes('sk-stored-secret'), 'PUT response echoes no secrets')
+        const json = JSON.parse(text) as {providers: {p: Record<string, unknown>}}
+        assert.ok(!('api_key' in json.providers.p), 'PUT response omits api_key')
+        assert.equal(await usedKey(), 'Bearer sk-stored-secret')
+
+        // an explicitly blank api_key also keeps it
+        const blanked = await put({p: {base_url: backend.baseUrl, api_key: '', models: []}})
+        assert.equal(blanked.status, 200)
+        assert.equal(await usedKey(), 'Bearer sk-stored-secret')
+
+        // a typed api_key replaces it
+        const rotated = await put({p: {base_url: backend.baseUrl, api_key: 'sk-rotated', models: []}})
+        assert.equal(rotated.status, 200)
+        assert.equal(await usedKey(), 'Bearer sk-rotated')
+    } finally {
+        await srv.close()
+        await backend.close()
+        await cleanup()
+    }
+})
+
+test('PUT /config still requires an api_key for new providers', async () => {
+    const s = await setup()
+    try {
+        const res = await fetch(`http://127.0.0.1:${s.port}/config`, {
+            method: 'PUT',
+            headers: {'authorization': `Bearer ${API_KEY}`, 'content-type': 'application/json'},
+            body: JSON.stringify({
+                providers: {
+                    p: {base_url: 'http://127.0.0.1:1', models: []}, // known: omitted key is preserved
+                    q: {base_url: 'http://127.0.0.1:2', models: []}, // unknown: still needs a key
+                },
+            }),
+        })
+        assert.equal(res.status, 400)
+        const json = await res.json() as {error: {message: string}}
+        assert.match(json.error.message, /api_key/)
     } finally {
         await s.close()
     }

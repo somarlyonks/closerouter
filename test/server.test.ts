@@ -33,7 +33,6 @@ async function setup (): Promise<{
     })
     const port = await getFreePort()
     const config: RuntimeConfig = {
-        raw: '',
         dbPath: '',
         retentionDays: 7,
         port,
@@ -55,7 +54,6 @@ test('server binds 127.0.0.1 only and reports it as the bound address', async ()
     const backend = await startMockBackend()
     const port = await getFreePort()
     const server = startServer({
-        raw: '',
         dbPath: '',
         retentionDays: 7,
         port,

@@ -1,9 +1,67 @@
-import {parseConfig, applyConfig} from '../../config'
+import {parseConfig, applyConfig, type RuntimeConfig, type ProviderConfig} from '../../config'
 import {router, handleHTML, needsAuth, withMethod, handleBadRequest} from '../../util'
 import {indexHTML} from './index.html'
 
-interface VagueConfig {
+type PublicConfig = Omit<RuntimeConfig, 'dbPath' | 'providers'> & {
     providers: Record<string, Record<string, unknown>>
+}
+
+function stripConfigApiKey (config: RuntimeConfig): PublicConfig {
+    const providers: Record<string, Record<string, unknown>> = {}
+    for (const [name, provider] of Object.entries(config.providers)) {
+        providers[name] = {
+            base_url: provider.base_url,
+            models: provider.models || [],
+        }
+    }
+
+    return {
+        port: config.port,
+        key: config.key,
+        retentionDays: config.retentionDays,
+        providers,
+    }
+}
+
+/** A submitted config may omit (or blank) a known provider's api_key to keep
+ *  the stored secret. Inject the stored keys into the submitted document
+ *  before validation so the merged whole is validated: new providers without
+ *  a key still fail, and a typed key replaces the stored one.
+ *  Objects coming out of JSON.parse are rebuilt rather than mutated in place:
+ *  under scriptc, writes through JSON.parse-derived references (casts or
+ *  Object.entries values) do not reach the original object. */
+function mergeProviderSecrets (raw: string, stored: Record<string, ProviderConfig>): string {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(raw)
+    } catch {
+        return raw // invalid JSON - parseConfig produces the error
+    }
+    if (typeof parsed !== 'object' || !parsed) return raw
+    const obj = parsed as Record<string, unknown>
+    if (typeof obj.providers !== 'object' || !obj.providers) return raw
+
+    const mergedProviders: Record<string, unknown> = {}
+    for (const [name, provider] of Object.entries(obj.providers as Record<string, unknown>)) {
+        if (typeof provider !== 'object' || !provider) continue
+        const p = provider as Record<string, unknown>
+        const copy: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(p)) copy[k] = v
+        const typed = p.api_key
+        if ((typed === undefined || typed === '') && Object.keys(stored).includes(name)) {
+            copy.api_key = stored[name].api_key
+        } else if (typeof typed !== 'string') {
+            throw new Error(`api_key must be a string: ${JSON.stringify(typed)}`)
+        } else {
+            copy.api_key = typed
+        }
+        mergedProviders[name] = copy
+    }
+
+    const merged: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(obj)) merged[k] = v
+    merged.providers = mergedProviders
+    return JSON.stringify(merged)
 }
 
 export const handleConfig = router(
@@ -11,43 +69,11 @@ export const handleConfig = router(
     router(
         c => !!c.req.headers['accept']?.includes('application/json'),
         needsAuth((ctx, res) => {
-            const {port, key, retentionDays, providers} = ctx.env.config
-
-            const rawModelById = new Map<string, Record<string, unknown>>()
-            try {
-                const rawProviders = (JSON.parse(ctx.env.config.raw) as VagueConfig).providers
-                for (const [name, provider] of Object.entries(rawProviders)) {
-                    if (typeof provider !== 'object' || !provider || !provider.models || !Array.isArray(provider.models)) continue
-                    const models = provider.models as unknown[]
-                    for (const model of models) {
-                        if (typeof model === 'object' && model) {
-                            const m = model as Record<string, unknown>
-                            if (typeof m.id === 'string') rawModelById.set(`${name}/${m.id}`, m)
-                        }
-                    }
-                }
-            } catch {
-                // raw config unavailable; fall back to runtime models as-is
-            }
-
-            const enrichedProviders: Record<string, Record<string, unknown>> = {}
-            for (const [name, provider] of Object.entries(providers)) {
-                enrichedProviders[name] = {
-                    base_url: provider.base_url,
-                    api_key: provider.api_key,
-                    models: (provider.models || []).map((model) => {
-                        if (typeof model === 'string') return model
-                        const id = typeof model === 'string' ? model : model.id
-                        return rawModelById.get(`${name}/${id}`) || model
-                    }),
-                }
-            }
-
             res.writeHead(200, {
                 'content-type': 'application/json',
                 'access-control-allow-origin': '*',
             })
-            res.end(JSON.stringify({port, key, retentionDays, providers: enrichedProviders}, undefined, 2))
+            res.end(JSON.stringify(stripConfigApiKey(ctx.env.config), undefined, 2))
         }),
         handleHTML(indexHTML),
     ),
@@ -60,7 +86,7 @@ export const handleConfig = router(
 
                 let config
                 try {
-                    config = parseConfig(raw)
+                    config = parseConfig(mergeProviderSecrets(raw, ctx.env.config.providers))
                 } catch (e) {
                     return handleBadRequest(res, e instanceof Error ? e.message : 'Invalid config')
                 }
@@ -84,7 +110,7 @@ export const handleConfig = router(
                     'content-type': 'application/json',
                     'access-control-allow-origin': '*',
                 })
-                res.end(JSON.stringify(config, undefined, 2))
+                res.end(JSON.stringify(stripConfigApiKey(config), undefined, 2))
             })
             ctx.req.on('error', (err: Error) => {
                 if (!res.headersSent) {

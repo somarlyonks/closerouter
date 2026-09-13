@@ -1,7 +1,11 @@
 import {readFileSync, existsSync} from 'fs'
 import {resolve, dirname} from 'path'
 
-export type ModelConfig = string | {id: string}
+/** A model entry: a bare id string or an object whose only required field is
+ *  "id". The Record intersection declares the passthrough fields (e.g.
+ *  owned_by) that must survive parsing - under scriptc a cast to a shape without
+ *  an index signature strips undeclared fields. */
+export type ModelConfig = string | ({id: string} & Record<string, unknown>)
 
 export interface ProviderConfig {
     base_url: string
@@ -19,7 +23,6 @@ export interface Config {
 }
 
 export interface RuntimeConfig {
-    raw: string
     port: number
     key: string
     dbPath: string | undefined
@@ -89,7 +92,6 @@ export function parseConfig (raw: string): RuntimeConfig {
     }
 
     return {
-        raw,
         port: typeof obj.port === 'number' ? obj.port : DEFAULT_PORT,
         key: typeof obj.key === 'string' ? obj.key : DEFAULT_KEY,
         dbPath: obj.db === false ? undefined : typeof obj.db === 'string' ? obj.db : DEFAULT_DB,

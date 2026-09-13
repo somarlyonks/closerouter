@@ -43,7 +43,6 @@ function listen (server: ReturnType<typeof startServer>): Promise<number> {
 
 function configFor (backend: string): RuntimeConfig {
     return {
-        raw: '',
         port: 0,
         key: 'logkey',
         dbPath: '',
