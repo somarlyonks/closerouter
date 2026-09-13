@@ -2,7 +2,7 @@ import type {IncomingMessage, ServerResponse} from 'http'
 import {randomUUID} from 'crypto'
 import {router, needsAuth, withMethod, MAX_BODY, handleHTML, applyUsageObject, type RequestContext} from '../../util'
 import {recordUsage, loadUsage, loadUsageBody} from './db'
-import {indexHTML} from './index.html'
+import {html as indexHTML} from './index.html'
 
 interface TokenUsage {
     inputTokens?: number

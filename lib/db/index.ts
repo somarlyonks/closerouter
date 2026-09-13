@@ -51,7 +51,8 @@ export function sqliteAvailable (): boolean {
     return availability
 }
 
-/** Open (or replace) the single connection. Empty path means in-memory. */
+/** Open (or replace) the single connection. SQLite's own special filenames
+ *  apply: ":memory:" opens an in-memory database. */
 export function openDatabase (path: string): void {
     if (sqliteOpen(path) !== 0) throw new Error(`sqlite open failed: ${lastErrorMessage()}`)
 }
@@ -181,7 +182,7 @@ function encodeParam (param: SqlParam): string | number | boolean | null | {$hex
 export function getSqliteVersion (): string | never {
     if (!sqliteAvailable()) throw new Error('sqlite unavailable')
 
-    // Probe an already-open connection directly - openDatabase('') below closes
+    // Probe an already-open connection directly - openDatabase(':memory:') below closes
     // whatever handle is live (the shim holds a single connection), which would
     // break usage persistence in a running server.
     try {
@@ -191,7 +192,7 @@ export function getSqliteVersion (): string | never {
         // no connection open yet - fall through to a temporary one
     }
 
-    openDatabase('')
+    openDatabase(':memory:')
     run('CREATE TABLE IF NOT EXISTS smoke (id INTEGER PRIMARY KEY)')
     run('INSERT INTO smoke (id) VALUES (NULL)')
     const version = get('SELECT sqlite_version() AS version')?.version

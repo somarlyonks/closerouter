@@ -1,12 +1,19 @@
 CloseRouter:
     core:
-        [x] config loading & validation
+        [x] config loading
+        [x] schema-driven config validation
     cli:
         [x] help
         server:
             [x] detach
             [x] config path
         [x] version
+        test:
+            [x] -c/--config path
+            [x] literal json string
+            [x] stdin
+            [x] exit 1 with error message on invalid config
+            [x] sliently exit 0 on success
     server:
         [x] router
         [x] bind the HTTP listener to 127.0.0.1
@@ -70,7 +77,8 @@ CloseRouter:
         config editor:
             [x] CodeTextView (NSTextView)
             [x] schema completions
-            [x] validation + format
+            [x] format
+            [x] validate with embedded closerouter test command
             [x] save via PUT /config
             [x] restart server for port changes
         logs:

@@ -5,6 +5,7 @@ node_modules
 .scriptc
 dist
 *.html.ts
+*.json.ts
 *.o
 
 app/build

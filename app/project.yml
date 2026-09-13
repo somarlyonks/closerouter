@@ -20,7 +20,7 @@ targets:
               buildPhase: resources
             - path: ../closerouter.json
               buildPhase: resources
-            - path: ../closerouter-schema.json
+            - path: ../lib/config/schema.json
               buildPhase: resources
             - path: ../assets/logo.svg
               buildPhase: resources

@@ -1,5 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
+import {dirname, join} from 'path'
 import {loadConfig} from '../lib/config'
 import {getFreePort, startCrServer, startMockBackend, writeTempConfig} from './helpers'
 
@@ -77,14 +78,36 @@ test('GET /config with accept json returns the running config without provider s
         assert.equal(res.status, 200)
         assert.equal(res.headers.get('content-type'), 'application/json')
         const text = await res.text()
-        const json = JSON.parse(text) as {port: number, key: string, retentionDays: number, providers: {p: Record<string, unknown>}}
+        const json = JSON.parse(text) as {port: number, key: string, db: string | false, retentionDays: number, providers: {p: Record<string, unknown>}}
         assert.equal(json.key, API_KEY)
+        assert.equal(json.db, join(dirname(s.path), 'closerouter.db'), 'db exposes the resolved dbPath')
         assert.equal(json.retentionDays, 7)
         assert.ok(json.providers.p, 'response includes the provider')
         assert.ok(!('api_key' in json.providers.p), 'provider api_key is omitted')
         assert.ok(!text.includes('bk'), 'stored secrets do not appear in the response')
     } finally {
         await s.close()
+    }
+})
+
+test('GET /config exposes db: false so it survives an editor round-trip', async () => {
+    const port = await getFreePort()
+    const {path, cleanup} = await writeTempConfig({
+        port,
+        key: API_KEY,
+        db: false,
+        providers: {p: {base_url: 'http://127.0.0.1:1', api_key: 'bk', models: []}},
+    })
+    const srv = await startCrServer(loadConfig(path))
+    try {
+        const res = await fetch(`http://127.0.0.1:${srv.port}/config`, {
+            headers: {authorization: `Bearer ${API_KEY}`, accept: 'application/json'},
+        })
+        const json = await res.json() as {db: string | false}
+        assert.equal(json.db, false)
+    } finally {
+        await srv.close()
+        await cleanup()
     }
 })
 
@@ -198,7 +221,7 @@ test('PUT /config rejects a config with no providers', async () => {
         })
         assert.equal(res.status, 400)
         const json = await res.json() as {error: {message: string}}
-        assert.match(json.error.message, /at least one provider/i)
+        assert.match(json.error.message, /providers.*at least 1 property/i)
     } finally {
         await s.close()
     }

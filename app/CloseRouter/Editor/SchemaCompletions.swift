@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Schema model
 
-/// Minimal JSON Schema model covering what closerouter-schema.json uses:
+/// Minimal JSON Schema model covering what lib/config/schema.json uses:
 /// object properties, required, items, enum, oneOf, additionalProperties and $ref/$defs.
 @MainActor
 final class JSONSchema {
@@ -51,7 +51,7 @@ enum JSONSchemaStore {
 
     static func ensureLoaded() {
         guard root == nil else { return }
-        guard let url = Bundle.main.url(forResource: "closerouter-schema", withExtension: "json") else { return }
+        guard let url = Bundle.main.url(forResource: "schema", withExtension: "json") else { return }
         _ = load(from: url)
     }
 

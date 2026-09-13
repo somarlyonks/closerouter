@@ -48,7 +48,7 @@ enum DefaultConfig {
               let raw = try? String(contentsOf: url, encoding: .utf8) else {
             return """
             {
-                "$schema": "https://raw.githubusercontent.com/somarlyonks/closerouter/refs/tags/v\(UpdateChecker.currentVersion)/closerouter-schema.json",
+                "$schema": "https://raw.githubusercontent.com/somarlyonks/closerouter/refs/tags/v\(UpdateChecker.currentVersion)/lib/config/schema.json",
                 "port": \(ConfigStore.defaultPort),
                 "key": "\(ConfigStore.runtimeDefaultKey)",
                 "providers": {}

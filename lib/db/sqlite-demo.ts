@@ -22,7 +22,7 @@ function showRow (row: SqlRow | undefined): string {
 
 if (!sqliteAvailable()) throw new Error('sqlite FFI not bound - build with --ffi')
 
-openDatabase('') // in-memory
+openDatabase(':memory:') // in-memory
 run('CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, score REAL, data BLOB)')
 run('INSERT INTO t (name, score, data) VALUES (?, ?, ?)', ['al"ice\n🐱', 1.5, new Uint8Array([0xde, 0xad])])
 run('INSERT INTO t (name, score) VALUES (?, ?)', [null, 2])
