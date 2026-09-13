@@ -1,35 +1,37 @@
 import {parseConfig, applyConfig, type RuntimeConfig, type ProviderConfig} from '../../config'
 import {router, handleHTML, needsAuth, withMethod, handleBadRequest} from '../../util'
-import {indexHTML} from './index.html'
+import {html as indexHTML} from './index.html'
 
-type PublicConfig = Omit<RuntimeConfig, 'dbPath' | 'providers'> & {
+/** The config as served to clients: no raw document, no provider api_keys,
+ *  and db exposed under its config-document name (the resolved path, or false
+ *  when persistence is disabled). */
+interface PublicConfig {
+    port: number
+    key: string
+    db: string | false
+    retentionDays: number
     providers: Record<string, Record<string, unknown>>
 }
 
 function stripConfigApiKey (config: RuntimeConfig): PublicConfig {
-    const providers: Record<string, Record<string, unknown>> = {}
+    const providerEntries: [string, Record<string, unknown>][] = []
     for (const [name, provider] of Object.entries(config.providers)) {
-        providers[name] = {
+        providerEntries.push([name, {
             base_url: provider.base_url,
             models: provider.models || [],
-        }
+        }])
     }
+    const providers: Record<string, Record<string, unknown>> = Object.fromEntries(providerEntries)
 
     return {
         port: config.port,
         key: config.key,
+        db: config.dbPath ?? false,
         retentionDays: config.retentionDays,
         providers,
     }
 }
 
-/** A submitted config may omit (or blank) a known provider's api_key to keep
- *  the stored secret. Inject the stored keys into the submitted document
- *  before validation so the merged whole is validated: new providers without
- *  a key still fail, and a typed key replaces the stored one.
- *  Objects coming out of JSON.parse are rebuilt rather than mutated in place:
- *  under scriptc, writes through JSON.parse-derived references (casts or
- *  Object.entries values) do not reach the original object. */
 function mergeProviderSecrets (raw: string, stored: Record<string, ProviderConfig>): string {
     let parsed: unknown
     try {
@@ -41,7 +43,7 @@ function mergeProviderSecrets (raw: string, stored: Record<string, ProviderConfi
     const obj = parsed as Record<string, unknown>
     if (typeof obj.providers !== 'object' || !obj.providers) return raw
 
-    const mergedProviders: Record<string, unknown> = {}
+    const mergedProviderEntries: [string, unknown][] = []
     for (const [name, provider] of Object.entries(obj.providers as Record<string, unknown>)) {
         if (typeof provider !== 'object' || !provider) continue
         const p = provider as Record<string, unknown>
@@ -50,17 +52,13 @@ function mergeProviderSecrets (raw: string, stored: Record<string, ProviderConfi
         const typed = p.api_key
         if ((typed === undefined || typed === '') && Object.keys(stored).includes(name)) {
             copy.api_key = stored[name].api_key
-        } else if (typeof typed !== 'string') {
-            throw new Error(`api_key must be a string: ${JSON.stringify(typed)}`)
-        } else {
-            copy.api_key = typed
         }
-        mergedProviders[name] = copy
+        mergedProviderEntries.push([name, copy])
     }
 
     const merged: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(obj)) merged[k] = v
-    merged.providers = mergedProviders
+    merged.providers = Object.fromEntries(mergedProviderEntries)
     return JSON.stringify(merged)
 }
 

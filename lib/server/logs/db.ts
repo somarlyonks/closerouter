@@ -3,7 +3,6 @@
 // server - a broken storage backend logs and drops the row.
 
 import {sqliteAvailable, all, get, run, withTransaction, type SqlParam} from '../../db'
-import {DEFAULT_RETENTION_DAYS} from '../../config'
 
 export interface UsageEntry {
     id?: number
@@ -457,7 +456,7 @@ export function recordUsage (entry: UsageEntry): void {
 
 const RETENTION_SWEEP_INTERVAL_MS = DAY
 
-export function startRetentionSweep (retentionDays = DEFAULT_RETENTION_DAYS, intervalMs = RETENTION_SWEEP_INTERVAL_MS): {stop: () => void} {
+export function startRetentionSweep (retentionDays: number, intervalMs: number = RETENTION_SWEEP_INTERVAL_MS): {stop: () => void} {
     // 0 turns retention off - the sweep is never armed
     if (retentionDays < 1) return {stop: () => {}}
     expireUsageBodies(retentionDays)
@@ -466,7 +465,7 @@ export function startRetentionSweep (retentionDays = DEFAULT_RETENTION_DAYS, int
     return {stop: () => clearInterval(timer)}
 }
 
-export function expireUsageBodies (maxAgeDays: number = DEFAULT_RETENTION_DAYS): void {
+export function expireUsageBodies (maxAgeDays: number): void {
     if (!initialized) return
     if (maxAgeDays < 1) return // 0 turns retention off
     try {

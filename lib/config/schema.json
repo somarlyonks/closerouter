@@ -1,6 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://raw.githubusercontent.com/somarlyonks/closerouter/refs/heads/master/closerouter-schema.json",
+    "$id": "https://raw.githubusercontent.com/somarlyonks/closerouter/refs/heads/master/lib/config/schema.json",
     "title": "closerouter config",
     "description": "Configuration for closerouter, a lightweight OpenAI-compatible LLM proxy/router.",
     "type": "object",
@@ -19,15 +19,17 @@
             "default": 6712
         },
         "key": {
-            "description": "Optional API key clients must present to access the proxy.",
+            "description": "Optional API key clients must present to access the proxy. Defaults to the built-in key.",
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "default": "sk-cr-kee9itsecr1t"
         },
         "db": {
-            "description": "Where usage is persisted. A path string (relative paths resolve against the config file's directory), \"\" for in-memory, or false to disable. Defaults to closerouter.db next to the config file. Only takes effect in FFI builds (npm run build).",
+            "description": "Where usage is persisted. A path string (relative paths resolve against the config file's directory), or false to disable. Defaults to closerouter.db next to the config file. Only takes effect in FFI builds (npm run build).",
             "oneOf": [
                 {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                 },
                 {
                     "type": "boolean",

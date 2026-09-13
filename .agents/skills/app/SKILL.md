@@ -97,8 +97,8 @@ app/CloseRouter/
   checkout run it once before opening Xcode or using sourcekit-lsp/xcode-build-server. To add a new
   Swift file just drop it under `app/CloseRouter/` (the `sources` glob picks it up); to add/change a
   resource edit `project.yml` (some resources are out-of-tree: `../closerouter.json`,
-  `../closerouter-schema.json`, `../assets/logo.svg`).
-- **The schema** is referenced from `project.yml` as `../closerouter-schema.json` and copied to
+  `../lib/config/schema.json`, `../assets/logo.svg`).
+- **The schema** is referenced from `project.yml` as `../lib/config/schema.json` and copied to
   Resources, so it stays in sync with the repo root automatically.
 - When adding a sidebar page: add a case to `AppSection` (defined in `MainView.swift`), give it
   `title` + `systemImage`, and add a `case` to the detail switch.

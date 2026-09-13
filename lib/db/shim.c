@@ -502,8 +502,8 @@ int shim_open(const uint8_t *filename, size_t len) {
   if (len && filename)
     memcpy(fn, filename, len);
   fn[len] = 0;
-  /* an empty path opens an in-memory database */
-  int rc = sqlite3_open(len ? fn : ":memory:", &g_db);
+  /* SQLite's own special filenames (":memory:", "file:...") pass through */
+  int rc = sqlite3_open(fn, &g_db);
   if (rc == SQLITE_OK) {
     sqlite3_busy_timeout(g_db, 5000);
   } else {

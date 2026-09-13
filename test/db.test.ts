@@ -112,7 +112,7 @@ function isNull (value: unknown): boolean {
 
 function sqlTests (): void {
     test('open, insert, and select round-trip', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         run('CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, score REAL)')
         const inserted = run('INSERT INTO t (name, score) VALUES (?, ?)', ['alice', 1.5])
         assert.equal(inserted.changes, 1)
@@ -125,7 +125,7 @@ function sqlTests (): void {
     })
 
     test('params bind null, booleans, and text with escapes', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         run('CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT, n INTEGER)')
         run('INSERT INTO t (v, n) VALUES (?, ?)', ['a"b\nc🐱', null])
         run('INSERT INTO t (v, n) VALUES (?, ?)', ['plain', true])
@@ -139,7 +139,7 @@ function sqlTests (): void {
     })
 
     test('blob params round-trip as bytes', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         run('CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)')
         run('INSERT INTO t (data) VALUES (?)', [new Uint8Array([0xde, 0xad, 0xbe, 0xaf])])
         const row = get('SELECT data FROM t')
@@ -147,7 +147,7 @@ function sqlTests (): void {
     })
 
     test('get returns the first row or undefined', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         run('CREATE TABLE t (id INTEGER PRIMARY KEY)')
         assert.ok(get('SELECT * FROM t') === undefined)
         run('INSERT INTO t VALUES (1)')
@@ -158,19 +158,19 @@ function sqlTests (): void {
     })
 
     test('errors carry the sqlite message', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         assert.throws(() => all('SELECT * FROM nope'), /no such table/)
         assert.throws(() => run('UPDATE nope SET id = 1'), /no such table/)
     })
 
     test('batch statements run in one call', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         run('CREATE TABLE t (id INTEGER PRIMARY KEY); INSERT INTO t VALUES (1); INSERT INTO t VALUES (2)')
         assert.equal(all('SELECT COUNT(*) AS n FROM t')[0].n as number, 2)
     })
 
     test('changes tracks the last statement', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         run('CREATE TABLE t (id INTEGER PRIMARY KEY)')
         run('INSERT INTO t VALUES (1); INSERT INTO t VALUES (2); INSERT INTO t VALUES (3)')
         const deleted = run('DELETE FROM t WHERE id <= ?', [2])
@@ -178,7 +178,7 @@ function sqlTests (): void {
     })
 
     test('withTransaction commits a successful action', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         run('CREATE TABLE t (id INTEGER PRIMARY KEY)')
         withTransaction(() => {
             run('INSERT INTO t VALUES (1)')
@@ -188,7 +188,7 @@ function sqlTests (): void {
     })
 
     test('withTransaction rolls back and rethrows a failed action', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         run('CREATE TABLE t (id INTEGER PRIMARY KEY)')
         assert.throws(() => withTransaction(() => {
             run('INSERT INTO t VALUES (1)')
@@ -209,7 +209,7 @@ function sqlTests (): void {
     })
 
     test('usage rows persist through recordUsage', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         initUsage()
         recordUsage({
             requestId: 'req-1',
@@ -265,7 +265,7 @@ function sqlTests (): void {
     })
 
     test('expireUsageBodies clears bodies on expired successful rows and keeps the rest', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         initUsage()
         const DAY = 86_400_000
         const now = Date.now()
@@ -301,7 +301,7 @@ function sqlTests (): void {
     })
 
     test('expireUsageBodies keeps newer rows intact through the normal API', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         initUsage()
         const DAY = 86_400_000
         const now = Date.now()
@@ -322,7 +322,7 @@ function sqlTests (): void {
     })
 
     test('startRetentionSweep clears expired bodies periodically without restart', async () => {
-        openDatabase('')
+        openDatabase(':memory:')
         initUsage()
         const DAY = 86_400_000
         const now = Date.now()
@@ -354,7 +354,7 @@ function sqlTests (): void {
     })
 
     test('retentionDays 0 turns retention off', async () => {
-        openDatabase('')
+        openDatabase(':memory:')
         initUsage()
         const DAY = 86_400_000
         const now = Date.now()
@@ -398,7 +398,7 @@ function sqlTests (): void {
 
         // a live usage database stays intact across status probes - the probe
         // must query the existing handle, never replace it
-        openDatabase('')
+        openDatabase(':memory:')
         initUsage()
         recordUsage({requestId: 'probe', time: Date.now(), method: 'POST', path: '/v1/chat/completions', status: 200})
         const countBefore = all('SELECT COUNT(*) AS n FROM usage')[0].n as number
@@ -410,7 +410,7 @@ function sqlTests (): void {
     })
 
     test('initUsage stamps the schema version on a fresh db', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         assert.equal(get('PRAGMA user_version')?.user_version as number, 0)
         initUsage()
         assert.equal(get('PRAGMA user_version')?.user_version as number, SCHEMA_VERSION)
@@ -418,7 +418,7 @@ function sqlTests (): void {
     })
 
     test('initUsage rolls back fresh schema creation when setup fails', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         run('CREATE TABLE usage_time (id INTEGER PRIMARY KEY)')
 
         assert.throws(() => initUsage(), /usage_time/)
@@ -427,7 +427,7 @@ function sqlTests (): void {
     })
 
     test('initUsage migrates a pre-versioning db forward and preserves its rows', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         // simulate the historical (pre-stamping) usage schema: current shape, no version stamp
         run(`CREATE TABLE usage (
             id INTEGER PRIMARY KEY,
@@ -463,7 +463,7 @@ function sqlTests (): void {
     })
 
     test('initUsage re-runs are idempotent - version and rows unchanged', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         initUsage()
         recordUsage({requestId: 'kept', time: 1, method: 'POST', path: '/v1/x'})
         initUsage()
@@ -473,7 +473,7 @@ function sqlTests (): void {
     })
 
     test('initUsage refuses a db stamped with a newer schema version', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         run(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`)
         assert.throws(() => initUsage(), /newer/)
         // refused before any writes - the db stays untouched
@@ -481,7 +481,7 @@ function sqlTests (): void {
     })
 
     test('loadUsageStats aggregates totals, filters, series and breakdowns', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         initUsage()
         const DAY = 86_400_000
         const base = Date.now() - 10 * DAY
@@ -543,7 +543,7 @@ function sqlTests (): void {
     })
 
     test('loadUsageStats merges series beyond 45 buckets', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         initUsage()
         const DAY = 86_400_000
         const base = Math.floor((Date.now() - 150 * DAY) / DAY) * DAY + 4 * 3_600_000 // day-aligned mid-day
@@ -589,7 +589,7 @@ function sqlTests (): void {
     })
 
     test('loadUsageStats excludes 4xx responses but keeps null statuses and 5xx', () => {
-        openDatabase('')
+        openDatabase(':memory:')
         initUsage()
         const DAY = 86_400_000
         const base = Math.floor(Date.now() / DAY) * DAY

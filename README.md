@@ -11,6 +11,7 @@ closerouter - LLM proxy/router
 
 Usage:
   closerouter [server] [-c|--config <path>] [-d|--detach]   Start the proxy server
+  closerouter test [-c <path>] | [<json>]                   Test a config (JSON string or file via -c)
   closerouter help                                          Show this help
   closerouter version                                       Show the version
 
@@ -21,8 +22,6 @@ Options:
 
 API endpoint: `http://localhost:6712/v1`
 
-Logs at: `http://localhost:6712/logs`
-
 ## Configuration
 
-Consider use a [$schema](https://raw.githubusercontent.com/somarlyonks/closerouter/refs/heads/master/closerouter-schema.json) in your config.
+Consider use a [$schema](https://raw.githubusercontent.com/somarlyonks/closerouter/refs/heads/master/lib/config/schema.json) in your config.

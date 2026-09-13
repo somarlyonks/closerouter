@@ -1,16 +1,18 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {dirname, resolve, join} from 'node:path'
-import {loadConfig} from '../lib/config'
+import {loadConfig, parseConfig} from '../lib/config'
 import {captureExit, writeTempConfig, writeTempFile} from './helpers'
 
-test('loadConfig returns config with default port when omitted', async () => {
+test('loadConfig returns config with schema defaults when omitted', async () => {
     const {path, cleanup} = await writeTempConfig({
         providers: {p: {base_url: 'http://x', api_key: 'k'}},
     })
     try {
         const cfg = loadConfig(path)
         assert.equal(cfg.port, 6712)
+        assert.equal(cfg.key, 'sk-cr-kee9itsecr1t')
+        assert.equal(cfg.retentionDays, 7)
         assert.equal(cfg.providers.p.base_url, 'http://x')
         assert.equal(cfg.providers.p.api_key, 'k')
     } finally {
@@ -30,6 +32,14 @@ test('loadConfig preserves explicit port and key', async () => {
         assert.equal(cfg.key, 'sk-x')
     } finally {
         await cleanup()
+    }
+})
+
+test('parseConfig preserves Object.prototype-named providers', () => {
+    for (const name of ['toString', 'constructor', '__proto__']) {
+        const config = parseConfig(`{"providers":{"${name}":{"base_url":"http://x","api_key":"k"}}}`)
+        assert.equal(Object.prototype.hasOwnProperty.call(config.providers, name), true)
+        assert.equal(config.providers[name].base_url, 'http://x')
     }
 })
 
@@ -94,7 +104,7 @@ test('loadConfig exits when providers is empty', async () => {
     try {
         const res = captureExit(() => loadConfig(path))
         assert.equal(res.exit?.code, 1)
-        assert.match(res.stderr, /at least one provider/i)
+        assert.match(res.stderr, /providers.*at least 1 property/i)
     } finally {
         await cleanup()
     }
@@ -126,13 +136,13 @@ test('loadConfig exits when a provider is missing api_key', async () => {
     }
 })
 
-test('loadConfig defaults dbPath to in memory next to the config', async () => {
+test('loadConfig defaults dbPath to closerouter.db next to the config', async () => {
     const {path, cleanup} = await writeTempConfig({
         providers: {p: {base_url: 'http://x', api_key: 'k'}},
     })
     try {
         const cfg = loadConfig(path)
-        assert.equal(cfg.dbPath, '')
+        assert.equal(cfg.dbPath, join(dirname(path), 'closerouter.db'))
     } finally {
         await cleanup()
     }
@@ -151,7 +161,21 @@ test('loadConfig resolves a relative db path against the config directory', asyn
     }
 })
 
-test('loadConfig keeps an absolute db path and "" means in-memory', async () => {
+test('loadConfig preserves SQLite special database names', async () => {
+    for (const db of [':memory:', 'file:usage?mode=memory&cache=shared']) {
+        const {path, cleanup} = await writeTempConfig({
+            db,
+            providers: {p: {base_url: 'http://x', api_key: 'k'}},
+        })
+        try {
+            assert.equal(loadConfig(path).dbPath, db)
+        } finally {
+            await cleanup()
+        }
+    }
+})
+
+test('loadConfig keeps an absolute db path and rejects "" (in-memory was dropped)', async () => {
     const abs = resolve('/tmp', 'abs.db')
     const withAbs = await writeTempConfig({
         db: abs,
@@ -163,7 +187,9 @@ test('loadConfig keeps an absolute db path and "" means in-memory', async () => 
     })
     try {
         assert.equal(loadConfig(withAbs.path).dbPath, abs)
-        assert.equal(loadConfig(withMemory.path).dbPath, '')
+        const res = captureExit(() => loadConfig(withMemory.path))
+        assert.equal(res.exit?.code, 1)
+        assert.match(res.stderr, /db.*allowed shapes.*at least 1 character/)
     } finally {
         await withAbs.cleanup()
         await withMemory.cleanup()

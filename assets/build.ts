@@ -3,27 +3,19 @@
 import {readFileSync, writeFileSync, existsSync, statSync, readdirSync} from 'fs'
 import {basename, dirname, join} from 'path'
 
-// Convert .html files into .html.ts modules that export their content as a
-// template string, so scriptc-compiled code can serve the HTML without a
-// runtime file read - the source file does not exist inside the native binary.
+// Convert .html/.json sources under lib/ into .ts modules so scriptc can
+// embed/serve them with no runtime file read. Each module exports a fixed
+// name - `html` (template string) or `json` (verbatim object literal) - which
+// importers alias locally, e.g.:
+//   import {html as indexHTML} from './index.html'
+//   import {json as schema} from './schema.json.ts'
 //
-// Run with Node (native TS, no compile step needed on Node 22.6+), from the
-// package root (the root build.ts orchestrator also invokes it):
-//   node assets/build.ts                       # scan lib/server for *.html
-//   node assets/build.ts lib/server/logs/index.html
-//   node assets/build.ts lib/server/logs       # scan a directory
+// Usage: node assets/build.ts [file-or-dir ...] (default: lib/server lib/config)
 //
-// For name.html the generated module exports `nameHTML`; kebab-case stems are
-// camelCased (my-page.html -> myPageHTML). Backslashes and backticks in the
-// source are escaped so the content survives the template literal unchanged.
-// The HTML must not contain ${ (no template variables) - keep it out of the
-// source, since it would be interpreted as interpolation.
-//
-// An assets/ directory can be placed in any ancestor of an HTML file. Each
-// file inside it can be inlined into the HTML via a marker comment of the form
-// /* @asset <name> */ (e.g. /* @asset index.css */), so shared styles, scripts,
-// or fragments live in one place without runtime requests. The marker is
-// replaced with the file contents during this build step.
+// Gotchas: contents must not contain ${ (it becomes a template literal); import
+// .json.ts with the explicit extension, since scriptc resolves './x.json' to
+// the raw JSON module. An assets/ dir in any ancestor is scanned for
+// /* @asset <name> */ markers in HTML, replaced with the file's contents.
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', '.scriptc', '.agents'])
 const ASSET_MARKER = /\/\*\s*@asset\s+([\w./-]+)\s*\*\//g
@@ -65,15 +57,7 @@ function buildHtml (htmlPath: string): void {
         process.exit(1)
     }
 
-    const ts = `export const ${exportName(htmlPath)} = /* html */\`${escapeTemplate(processed)}\`\n`
-    writeFileSync(out, ts)
-
-    function exportName (htmlPath: string): string {
-        const stem = basename(htmlPath, '.html')
-        return stem.split('-').map((part, i) =>
-            i === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1),
-        ).join('') + 'HTML'
-    }
+    writeFileSync(out, `export const html = /* ${basename(htmlPath)} */\`${escapeTemplate(processed)}\`\n`)
 
     function escapeTemplate (src: string): string {
         return src
@@ -81,6 +65,12 @@ function buildHtml (htmlPath: string): void {
             .split('`').join('\\`')
             .split('$').join('\\$')
     }
+}
+
+function buildJson (jsonPath: string): void {
+    const out = jsonPath + '.ts'
+    // The JSON document is itself a valid TS expression, embed it verbatim.
+    writeFileSync(out, `export const json = /* ${basename(jsonPath)} */ ${readFileSync(jsonPath, 'utf8').trimEnd()}\n`)
 }
 
 function collectTargets (args: string[]): string[] {
@@ -92,22 +82,24 @@ function collectTargets (args: string[]): string[] {
         }
         const st = statSync(arg)
         if (st.isDirectory()) {
-            files.push(...findHtmlFiles(arg))
+            files.push(...findSourceFiles(arg))
         } else if (arg.endsWith('.html')) {
             files.push(arg)
+        } else if (arg.endsWith('.json')) {
+            files.push(arg)
         } else {
-            console.error('skip (not .html): ' + arg)
+            console.error('skip (not .html/.json): ' + arg)
         }
     }
     return files
 
-    function findHtmlFiles (root: string): string[] {
+    function findSourceFiles (root: string): string[] {
         const out: string[] = []
         function walk (dir: string): void {
             for (const entry of readdirSync(dir, {withFileTypes: true})) {
                 if (entry.isDirectory()) {
                     if (!SKIP_DIRS.has(entry.name)) walk(join(dir, entry.name))
-                } else if (entry.isFile() && entry.name.endsWith('.html')) {
+                } else if (entry.isFile() && (entry.name.endsWith('.html') || entry.name.endsWith('.json'))) {
                     out.push(join(dir, entry.name))
                 }
             }
@@ -120,16 +112,17 @@ function collectTargets (args: string[]): string[] {
 function main (): void {
     console.group('> assets/build.ts')
     const args = process.argv.slice(2)
-    const targets = collectTargets(args.length ? args : ['lib/server'])
+    const targets = collectTargets(args.length ? args : ['lib/server', 'lib/config'])
 
     if (!targets.length) {
-        console.error('no .html files found')
+        console.error('no .html/.json files found')
         console.groupEnd()
         process.exit(1)
     }
 
     for (const f of targets) {
-        buildHtml(f)
+        if (f.endsWith('.json')) buildJson(f)
+        else buildHtml(f)
         console.log(`${f} -> ${f}.ts`)
     }
     console.log(`done: ${targets.length} regenerated`)

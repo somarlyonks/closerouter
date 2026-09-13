@@ -14,7 +14,7 @@ import {createServer} from 'http'
 import {sqliteAvailable, openDatabase} from '../lib/db'
 import {initUsage} from '../lib/server/logs/db'
 import {startServer} from '../lib/server'
-import type {RuntimeConfig} from '../lib/config'
+import type {ModelConfig, RuntimeConfig} from '../lib/config'
 
 const available = sqliteAvailable()
 
@@ -42,13 +42,14 @@ function listen (server: ReturnType<typeof startServer>): Promise<number> {
 }
 
 function configFor (backend: string): RuntimeConfig {
+    const models: ModelConfig[] = [{id: 'm'}]
     return {
         port: 0,
         key: 'logkey',
-        dbPath: '',
+        dbPath: ':memory:',
         retentionDays: 7,
         providers: {
-            p: {base_url: backend, api_key: 'bk', models: [{id: 'm'}]},
+            p: {base_url: backend, api_key: 'bk', models},
         },
     }
 }
@@ -97,7 +98,7 @@ function integrationTests (): void {
                 res.end()
             }, 5)
         })
-        openDatabase('')
+        openDatabase(':memory:')
         initUsage()
         const server = startServer(configFor(backend.baseUrl))
         const port = await listen(server)
@@ -148,7 +149,7 @@ function integrationTests (): void {
                 res.end()
             }, 5)
         })
-        openDatabase('')
+        openDatabase(':memory:')
         initUsage()
         const server = startServer(configFor(backend.baseUrl))
         const port = await listen(server)
@@ -192,7 +193,7 @@ function integrationTests (): void {
                 choices: [{index: 0, message: {role: 'assistant', content: 'hi'}, finish_reason: 'stop'}],
             }))
         })
-        openDatabase('')
+        openDatabase(':memory:')
         initUsage()
         const server = startServer(configFor(backend.baseUrl))
         const port = await listen(server)

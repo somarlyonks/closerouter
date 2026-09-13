@@ -21,9 +21,12 @@
 ```
 lib/
   cli.ts             # Main entrypoint - routes commands
-  config.ts          # Config loading
   proxy.ts           # HTTP/HTTPS request forwarding with streaming
   util.ts            # Shared types or functions
+  config/
+    index.ts         # loading/validation/defaults
+    schema.json      # config schema embedded as schema.json.ts
+    json-schema.ts   # subset validator + defaults
   server/
     index.ts         # creates HTTP server, mounts routes
     v1/              # OpenAI compatible API
@@ -35,9 +38,9 @@ closerouter.json     # Sample / default config
 
 ## HTML Pages, Assets, and Build
 
-HTML pages are authored as `.html` source templates under `lib/server/` (e.g. `lib/server/config/index.html`, `lib/server/logs/index.html`). They are **not** served directly - `assets/build.ts` converts each into a `.html.ts` module (`index.html.ts`) that exports a template string (`indexHTML`), so `scriptc` can serve the HTML inline from the native binary with no runtime file read.
+Due to the limit of `scriptc` runtime file reading, HTML pages and JSON documents are authored as source files under `lib` (e.g. `lib/server/config/index.html`, `lib/config/schema.json`). They are **not** read at runtime - `assets/build.ts` converts each `.html` into a `.html.ts` module and each `.json` into a `.json.ts` module. Every generated module exports a fixed name (`html` for pages, `json` for documents). Import `.json.ts` modules with the explicit extension - scriptc resolves `'./schema.json'` to the raw JSON module, which it cannot compile statically.
 
-- **Run the build:** `node build.ts` orchestrates both build steps - `assets/build.ts` (HTML; scans `lib/server` for `*.html`, also accepts a file or dir arg passed through) and `native/build.ts` (compiles the FFI C shims listed in `native/ffi.json` in place). The generated `.html.ts` files are **gitignored build artifacts** - always regenerate after editing a source `.html`, and don't edit them by hand.
+- **Run the build:** `node build.ts` orchestrates both build steps - `assets/build.ts` (HTML + JSON; scans `lib/server` and `lib/config` for `*.html` and `*.json`, also accepts a file or dir arg passed through) and `native/build.ts` (compiles the FFI C shims listed in `native/ffi.json` in place). The generated `.html.ts` / `.json.ts` files are **gitignored build artifacts** - always regenerate after editing a source `.html`/`.json`, and don't edit them by hand.
 
 ### Assets
 

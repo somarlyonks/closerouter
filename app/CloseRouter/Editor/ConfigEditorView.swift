@@ -15,6 +15,8 @@ struct ConfigEditorView: View {
     /// Set while `loadConfig` swaps in the on-disk text, so the resulting
     /// `text` change isn't mistaken for a user edit (would flip isDirty).
     @State private var suppressNextChange = false
+    /// Debounced `closerouter test` run for the current buffer.
+    @State private var validationTask: Task<Void, Never>?
 
     private let server = ServerManager.shared
 
@@ -30,7 +32,7 @@ struct ConfigEditorView: View {
                     }
                     isDirty = true
                     saveState = .idle
-                    inlineIssue = ConfigValidator.validate(text)
+                    scheduleValidation()
                 }
             Divider()
             statusBar
@@ -70,10 +72,10 @@ struct ConfigEditorView: View {
                 Text(msg).foregroundStyle(.secondary)
             } else if case .error(let msg) = saveState {
                 Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
-                Text(msg).foregroundStyle(.red).lineLimit(2)
+                Text(msg).foregroundStyle(.red).lineLimit(1...4)
             } else if let inlineIssue {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                Text(inlineIssue).foregroundStyle(.orange).lineLimit(2)
+                Text(inlineIssue).foregroundStyle(.orange).lineLimit(1...4)
             } else {
                 Text(isDirty ? "Unsaved changes" : "No unsaved changes")
                     .foregroundStyle(.secondary)
@@ -115,10 +117,33 @@ struct ConfigEditorView: View {
         saveState = .idle
     }
 
+    /// Debounced validation: the `closerouter test` spawn is too heavy for
+    /// every keystroke, so typing settles before it runs. Stale results (the
+    /// buffer changed while testing) are dropped.
+    private func scheduleValidation() {
+        validationTask?.cancel()
+        let snapshot = text
+        validationTask = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            let outcome = await ConfigTester.test(configString: snapshot)
+            guard !Task.isCancelled, snapshot == text else { return }
+            inlineIssue = outcome.valid ? nil : outcome.joinedIssues
+        }
+    }
+
     private func validateNow() {
-        inlineIssue = ConfigValidator.validate(text)
-        if inlineIssue == nil {
-            saveState = .saved("Config is valid")
+        validationTask?.cancel()
+        let snapshot = text
+        validationTask = Task {
+            let outcome = await ConfigTester.test(configString: snapshot)
+            guard snapshot == text else { return }
+            if outcome.valid {
+                inlineIssue = nil
+                saveState = .saved("Config is valid")
+            } else {
+                inlineIssue = outcome.joinedIssues
+            }
         }
     }
 
@@ -135,38 +160,49 @@ struct ConfigEditorView: View {
     }
 
     private func saveNow() {
-        if let issue = ConfigValidator.validate(text) {
-            saveState = .error(issue)
-            return
-        }
-        let oldPort = server.port
-        let newPort = (try? ConfigStore.port(of: text)) ?? oldPort
-
+        validationTask?.cancel()
         saveState = .saving
-        if server.state.isRunning {
-            Task {
-                do {
-                    try await APIClient.putConfig(text, port: server.port, key: server.key)
-                    try ConfigStore.save(text)
-                    if newPort != oldPort {
-                        server.restart() // new port only takes effect after a restart
-                    } else {
-                        server.refreshConfig() // keep the runtime key in sync with the saved config
-                    }
+        let snapshot = text
+        Task {
+            // Validate through the same binary the server runs - if it isn't
+            // accepted here, the server would reject the boot.
+            let outcome = await ConfigTester.test(configString: snapshot)
+            guard snapshot == text else {
+                saveState = .idle // buffer changed while saving; let the user retry
+                return
+            }
+            guard outcome.valid else {
+                inlineIssue = outcome.joinedIssues
+                saveState = .error(outcome.joinedIssues)
+                return
+            }
+            inlineIssue = nil
+            let oldPort = server.port
+            let newPort = (try? ConfigStore.port(of: snapshot)) ?? oldPort
+
+            do {
+                if server.state.isRunning {
+                    try await APIClient.putConfig(snapshot, port: server.port, key: server.key)
+                }
+                try ConfigStore.save(snapshot)
+                if newPort != oldPort {
+                    server.restart() // new port only takes effect after a restart
+                } else {
+                    server.refreshConfig() // keep the runtime key in sync with the saved config
+                }
+                if snapshot == text {
+                    isDirty = false
                     saveState = .saved("Saved")
-                } catch {
+                } else {
+                    isDirty = true
+                    saveState = .idle
+                }
+            } catch {
+                isDirty = true
+                if snapshot == text {
                     saveState = .error(error.localizedDescription)
                 }
             }
-        } else {
-            do {
-                try ConfigStore.save(text)
-                server.refreshConfig()
-                saveState = .saved("Saved")
-            } catch {
-                saveState = .error(error.localizedDescription)
-            }
         }
-        isDirty = false
     }
 }
