@@ -4,10 +4,10 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createServer} from 'http'
 import {
-    sqliteAvailable, openDatabase, closeDatabase, run, all, get,
+    sqliteAvailable, openDatabase, closeDatabase, run, all, get, withTransaction,
     messageCollector, encodeParams, decodeValue,
 } from '../lib/db'
-import {initUsage, recordUsage, loadUsage, loadUsageBody, loadUsageStats, expireUsageBodies, startRetentionSweep} from '../lib/server/logs/db'
+import {initUsage, recordUsage, loadUsage, loadUsageBody, loadUsageStats, expireUsageBodies, startRetentionSweep, SCHEMA_VERSION} from '../lib/server/logs/db'
 import {handleStatus} from '../lib/server/status'
 import type {RuntimeConfig} from '../lib/config'
 
@@ -175,6 +175,26 @@ function sqlTests (): void {
         run('INSERT INTO t VALUES (1); INSERT INTO t VALUES (2); INSERT INTO t VALUES (3)')
         const deleted = run('DELETE FROM t WHERE id <= ?', [2])
         assert.equal(deleted.changes, 2)
+    })
+
+    test('withTransaction commits a successful action', () => {
+        openDatabase('')
+        run('CREATE TABLE t (id INTEGER PRIMARY KEY)')
+        withTransaction(() => {
+            run('INSERT INTO t VALUES (1)')
+            run('INSERT INTO t VALUES (2)')
+        })
+        assert.equal(all('SELECT COUNT(*) AS n FROM t')[0].n as number, 2)
+    })
+
+    test('withTransaction rolls back and rethrows a failed action', () => {
+        openDatabase('')
+        run('CREATE TABLE t (id INTEGER PRIMARY KEY)')
+        assert.throws(() => withTransaction(() => {
+            run('INSERT INTO t VALUES (1)')
+            throw new Error('stop transaction')
+        }), /stop transaction/)
+        assert.equal(all('SELECT COUNT(*) AS n FROM t')[0].n as number, 0)
     })
 
     test('a file-backed database persists across close and reopen', () => {
@@ -387,6 +407,77 @@ function sqlTests (): void {
         assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, countBefore)
         recordUsage({requestId: 'after', time: Date.now(), method: 'POST', path: '/v1/chat/completions', status: 200})
         assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, countBefore + 1)
+    })
+
+    test('initUsage stamps the schema version on a fresh db', () => {
+        openDatabase('')
+        assert.equal(get('PRAGMA user_version')?.user_version as number, 0)
+        initUsage()
+        assert.equal(get('PRAGMA user_version')?.user_version as number, SCHEMA_VERSION)
+        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, 0)
+    })
+
+    test('initUsage rolls back fresh schema creation when setup fails', () => {
+        openDatabase('')
+        run('CREATE TABLE usage_time (id INTEGER PRIMARY KEY)')
+
+        assert.throws(() => initUsage(), /usage_time/)
+        assert.equal(get('PRAGMA user_version')?.user_version as number, 0)
+        assert.ok(!get(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'usage'`))
+    })
+
+    test('initUsage migrates a pre-versioning db forward and preserves its rows', () => {
+        openDatabase('')
+        // simulate the historical (pre-stamping) usage schema: current shape, no version stamp
+        run(`CREATE TABLE usage (
+            id INTEGER PRIMARY KEY,
+            request_id TEXT NOT NULL,
+            time INTEGER NOT NULL,
+            method TEXT NOT NULL,
+            path TEXT NOT NULL,
+            provider TEXT,
+            model TEXT,
+            status INTEGER,
+            duration_ms INTEGER,
+            ttft_ms INTEGER,
+            generation_ms INTEGER,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            cached_tokens INTEGER,
+            request_body TEXT,
+            response_body TEXT
+        )`)
+        run(`INSERT INTO usage (request_id, time, method, path, provider, model, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`, ['legacy', 1234, 'POST', '/v1/chat/completions', 'p', 'm', 200])
+        assert.equal(get('PRAGMA user_version')?.user_version as number, 0)
+
+        initUsage()
+
+        assert.equal(get('PRAGMA user_version')?.user_version as number, SCHEMA_VERSION)
+        const rows = all('SELECT request_id, time, status FROM usage')
+        assert.equal(rows.length, 1)
+        assert.equal(rows[0].request_id as string, 'legacy')
+        assert.equal(rows[0].status as number, 200)
+        // anything the current shape requires that the old db may lack is in place
+        assert.ok(get(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'usage_time'`))
+    })
+
+    test('initUsage re-runs are idempotent - version and rows unchanged', () => {
+        openDatabase('')
+        initUsage()
+        recordUsage({requestId: 'kept', time: 1, method: 'POST', path: '/v1/x'})
+        initUsage()
+        initUsage()
+        assert.equal(get('PRAGMA user_version')?.user_version as number, SCHEMA_VERSION)
+        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, 1)
+    })
+
+    test('initUsage refuses a db stamped with a newer schema version', () => {
+        openDatabase('')
+        run(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`)
+        assert.throws(() => initUsage(), /newer/)
+        // refused before any writes - the db stays untouched
+        assert.ok(!get(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'usage'`))
     })
 
     test('loadUsageStats aggregates totals, filters, series and breakdowns', () => {

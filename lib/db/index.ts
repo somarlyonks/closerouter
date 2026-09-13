@@ -74,6 +74,22 @@ export function run (sql: string, params: SqlParam[] = []): RunResult {
     }
 }
 
+/** Run a synchronous action in an immediate transaction; nested transactions are unsupported. */
+export function withTransaction (action: () => void): void {
+    run('BEGIN IMMEDIATE')
+    try {
+        action()
+        run('COMMIT')
+    } catch (e) {
+        try {
+            run('ROLLBACK')
+        } catch (rollbackError) {
+            console.error('sqlite rollback failed:', rollbackError instanceof Error ? rollbackError.message : String(rollbackError))
+        }
+        throw e
+    }
+}
+
 /** Run a query and return all rows as objects keyed by column name. */
 export function all (sql: string, params: SqlParam[] = []): SqlRow[] {
     const rows: SqlValue[][] = []
