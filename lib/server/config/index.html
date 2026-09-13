@@ -194,7 +194,7 @@
                         textContent: '+ Add provider',
                         onclick() {
                             this.parentNode.parentNode.insertBefore(
-                                renderProvider('', {base_url: '', api_key: '', models: []}),
+                                renderProvider('', {base_url: '', models: []}, 'new'),
                                 this.parentNode,
                             )
                         },
@@ -211,7 +211,7 @@
                 ),
             ))
 
-            function renderProvider(name, provider) {
+            function renderProvider(name, provider, isNew) {
                 const models = provider.models || []
 
                 return createElement('div', {className: 'provider'},
@@ -234,7 +234,12 @@
                     ),
                     createElement('div', {className: 'field'},
                         createElement('label', {textContent: 'API Key'}),
-                        createElement('input', {type: 'password', className: 'cfg-api-key', value: provider.api_key || ''}),
+                        createElement('input', {
+                            type: 'password',
+                            className: 'cfg-api-key',
+                            value: '',
+                            placeholder: isNew ? 'api key' : 'stored - leave blank to keep',
+                        }),
                     ),
                     createElement('div', {className: 'field'},
                         createElement('label', {textContent: 'Models'}),
@@ -330,7 +335,7 @@
                     }
                     providers[name] = {
                         base_url: card.querySelector('.cfg-base-url').value,
-                        api_key: card.querySelector('.cfg-api-key').value,
+                        api_key: card.querySelector('.cfg-api-key').value || undefined,
                         models,
                     }
                 }
