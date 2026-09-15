@@ -58,16 +58,7 @@ targets:
             - name: Embed closerouter binary
               basedOnDependencyAnalysis: false
               script: |
-                  set -e
-                  cd "$SRCROOT/.."
-                  if [ ! -f "dist/closerouter" ]; then
-                    echo "building closerouter..."
-                    npm run build:cli
-                  fi
-                  RES="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
-                  mkdir -p "$RES"
-                  cp "dist/closerouter" "$RES/closerouter"
-                  codesign --force --sign - "$RES/closerouter"
+                  bash "$SRCROOT/scripts/embed-binary.sh"
 
 schemes:
     CloseRouter:
