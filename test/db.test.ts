@@ -371,6 +371,37 @@ function sqlTests (): void {
         assert.equal(all('SELECT request_body FROM usage')[0].request_body as string, 'big')
     })
 
+    test('retention vacuum reclaims the file size left by nulled bodies', () => {
+        const path = join(tmpdir(), `closerouter-retention-${process.pid}.db`)
+        openDatabase(path)
+        try {
+            initUsage()
+            const DAY = 86_400_000
+            const now = Date.now()
+            const blob = 'x'.repeat(256 * 1024)
+            for (let i = 0; i < 8; i++) {
+                recordUsage({requestId: `old-${i}`, time: now - 60 * DAY, method: 'POST', path: '/v1/chat/completions', status: 200, requestBody: blob, responseBody: blob})
+            }
+            const grown = get('PRAGMA page_count')?.page_count as number
+            assert.ok(grown > 1000, `expected a multi-page db, got ${grown}`)
+
+            // stripping in place leaves the pages on the freelist - the file keeps its size
+            assert.equal(expireUsageBodies(30), 8)
+            const free = get('PRAGMA freelist_count')?.freelist_count as number
+            assert.ok(free > 0, 'expected nulled bodies to land on the freelist')
+
+            // the startup sweep vacuums the fragmented file back down
+            const sweep = startRetentionSweep(7)
+            sweep.stop()
+            const after = get('PRAGMA page_count')?.page_count as number
+            assert.ok(after < grown / 2, `expected the file to shrink, ${grown} -> ${after} pages`)
+            // auto_vacuum now keeps future sweeps reclaimable without a full rewrite
+            assert.equal(get('PRAGMA auto_vacuum')?.auto_vacuum as number, 2)
+        } finally {
+            closeDatabase()
+        }
+    })
+
     test('GET /status reports the sqlite version only when a db is configured, without disturbing it', async () => {
         closeDatabase() // clean unopened state regardless of prior tests
         const status = async (dbPath: string | undefined): Promise<{sqlite?: string}> => {

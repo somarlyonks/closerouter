@@ -456,23 +456,58 @@ export function recordUsage (entry: UsageEntry): void {
 
 const RETENTION_SWEEP_INTERVAL_MS = DAY
 
+/** Nulled bodies leave their pages on the sqlite freelist, so the file keeps
+ *  its size until those pages are returned to the OS. A full VACUUM rewrites
+ *  the db; enabling auto_vacuum first makes later sweeps able to hand pages
+ *  back cheaply via incremental_vacuum instead of another full rewrite. */
+function vacuumUsageDb (): void {
+    try {
+        run('PRAGMA auto_vacuum = INCREMENTAL')
+        run('VACUUM')
+    } catch (e) {
+        console.error('usage db vacuum failed:', e instanceof Error ? e.message : String(e))
+    }
+}
+
+/** Fraction of the db file sitting on the freelist (0 if unreadable). */
+function freelistRatio (): number {
+    try {
+        const pages = get('PRAGMA page_count')?.page_count
+        const free = get('PRAGMA freelist_count')?.freelist_count
+        if (typeof pages !== 'number' || typeof free !== 'number' || pages === 0) return 0
+        return free / pages
+    } catch {
+        return 0
+    }
+}
+
 export function startRetentionSweep (retentionDays: number, intervalMs: number = RETENTION_SWEEP_INTERVAL_MS): {stop: () => void} {
     // 0 turns retention off - the sweep is never armed
     if (retentionDays < 1) return {stop: () => {}}
-    expireUsageBodies(retentionDays)
-    const timer = setInterval(() => expireUsageBodies(retentionDays), intervalMs)
+    if (expireUsageBodies(retentionDays) > 0 || freelistRatio() >= 0.1) vacuumUsageDb()
+    const timer = setInterval(() => {
+        if (expireUsageBodies(retentionDays) > 0) {
+            try {
+                run('PRAGMA incremental_vacuum')
+            } catch (e) {
+                console.error('usage db incremental vacuum failed:', e instanceof Error ? e.message : String(e))
+            }
+        }
+    }, intervalMs)
     timer.unref()
     return {stop: () => clearInterval(timer)}
 }
 
-export function expireUsageBodies (maxAgeDays: number): void {
-    if (!initialized) return
-    if (maxAgeDays < 1) return // 0 turns retention off
+export function expireUsageBodies (maxAgeDays: number): number {
+    if (!initialized) return 0
+    if (maxAgeDays < 1) return 0 // 0 turns retention off
     try {
         const cutoff = Date.now() - maxAgeDays * DAY
         const {changes} = run('UPDATE usage SET request_body = NULL, response_body = NULL WHERE time < ? AND status = 200 AND (request_body IS NOT NULL OR response_body IS NOT NULL)', [cutoff])
         if (changes > 0) console.log(`cleared bodies on ${changes} usage row(s) older than ${maxAgeDays} days`)
+        return changes
     } catch (e) {
         console.error('usage body expiration failed:', e instanceof Error ? e.message : String(e))
+        return 0
     }
 }
