@@ -30,6 +30,7 @@ CloseRouter:
                 PUT:
                     [x] hot replace runtime config
                     [x] ignore and warn port/retention change
+                    [x] handle db change
                     [x] preserves the stored secret when a known provider's api_key is omitted or empty
                     [x] sanitize the response stripping secrets
             logs:
@@ -85,7 +86,9 @@ CloseRouter:
             [x] manual GET /logs refresh that deduplicates rows
             [ ] filter/clear
             [x] history on open
+            [x] hide when db not running
         analytics:
+            [x] hide when db not running
             date range:
                 [x] Day, Week, Month, Year presets
                 [x] time range navigation

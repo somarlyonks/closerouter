@@ -269,6 +269,50 @@ test('PUT /config updates live fields but leaves retention unchanged until resta
     }
 })
 
+test('PUT /config leaves the running db unchanged and warns that a restart is needed', async () => {
+    const s = await setup()
+    try {
+        const runningBefore = await fetch(`http://127.0.0.1:${s.port}/config`, {
+            headers: {authorization: `Bearer ${API_KEY}`, accept: 'application/json'},
+        })
+        const before = await runningBefore.json() as {db: string}
+
+        const logs: string[] = []
+        const origLog = console.log
+        console.log = (...args: unknown[]) => {
+            logs.push(args.join(' '))
+        }
+        try {
+            const res = await fetch(`http://127.0.0.1:${s.port}/config`, {
+                method: 'PUT',
+                headers: {'authorization': `Bearer ${API_KEY}`, 'content-type': 'application/json'},
+                body: JSON.stringify({
+                    port: s.port,
+                    key: API_KEY,
+                    db: false, // disable persistence
+                    providers: {p: {base_url: 'http://127.0.0.1:1', api_key: 'bk', models: []}},
+                }),
+            })
+            assert.equal(res.status, 200)
+            const json = await res.json() as {db: string | false}
+            assert.equal(json.db, false, 'response echoes the saved db')
+        } finally {
+            console.log = origLog
+        }
+
+        // the change is warned about, not hot-applied - the running db
+        // (and the usage rows behind it) stays put until a restart
+        assert.ok(logs.some(l => l.includes('config db changed') && l.includes('restart')))
+        const runningRes = await fetch(`http://127.0.0.1:${s.port}/config`, {
+            headers: {authorization: `Bearer ${API_KEY}`, accept: 'application/json'},
+        })
+        const running = await runningRes.json() as {db: string}
+        assert.equal(running.db, before.db)
+    } finally {
+        await s.close()
+    }
+})
+
 test('PUT /config applies a key change immediately for subsequent requests', async () => {
     const s = await setup()
     try {

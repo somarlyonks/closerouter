@@ -18,8 +18,8 @@ final class ServerManager: ObservableObject {
 
         var isTransitioning: Bool {
             switch self {
-            case .starting, .stopping: return true
-            case .stopped, .running: return false
+                case .starting, .stopping: return true
+                case .stopped, .running: return false
             }
         }
     }
@@ -30,6 +30,9 @@ final class ServerManager: ObservableObject {
     @Published private(set) var port: Int = ConfigStore.defaultPort
     @Published private(set) var key: String = ConfigStore.runtimeDefaultKey
     @Published private(set) var startedAt: Date?
+    /// True when the server reports a working sqlite in /status (db configured
+    /// and loadable) - db-backed pages (Logs, Analytics) are hidden otherwise.
+    @Published private(set) var dbAvailable = false
 
     private var process: Process?
     private var healthTask: Task<Void, Never>?
@@ -56,9 +59,9 @@ final class ServerManager: ObservableObject {
 
     func toggle() {
         switch state {
-        case .stopped: start()
-        case .running: stop()
-        case .starting, .stopping: break
+            case .stopped: start()
+            case .running: stop()
+            case .starting, .stopping: break
         }
     }
 
@@ -68,9 +71,9 @@ final class ServerManager: ObservableObject {
         key = config.key
     }
 
-    /// Stops the server and starts it again once it has fully stopped.
+    /// Stops a running or starting server and starts it again once fully stopped.
     func restart() {
-        guard state.isRunning else { return }
+        guard state.isRunning || state == .starting else { return }
         stop()
         Task { [weak self] in
             guard let self else { return }
@@ -135,6 +138,7 @@ final class ServerManager: ObservableObject {
         stopRequested = false
         restartBackoff = 1.0
         startedAt = Date()
+        dbAvailable = false
         state = .starting
         startHealthMonitoring()
     }
@@ -144,11 +148,13 @@ final class ServerManager: ObservableObject {
             stopHealthMonitoring()
             self.process = nil
             state = .stopped
+            dbAvailable = false
             return
         }
         stopRequested = true
         state = .stopping
         stopHealthMonitoring()
+        dbAvailable = false
         process.terminate()
         // Escalate to SIGKILL if it doesn't exit on its own.
         Task { [process] in
@@ -178,6 +184,7 @@ final class ServerManager: ObservableObject {
         guard proc === process else { return }
         process = nil
         startedAt = nil
+        dbAvailable = false
         stopHealthMonitoring()
         if stopRequested {
             stopRequested = false
@@ -229,9 +236,14 @@ final class ServerManager: ObservableObject {
         healthTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                let version = await self.queryStatus()
+                let status = await self.queryStatus()
                 if Task.isCancelled || self.stopRequested { return }
-                if let version, let process = self.process, process.isRunning {
+                // Only trust a successful query - a transient timeout must not
+                // flap the db-backed pages while the server is still running.
+                if status.version != nil {
+                    self.dbAvailable = status.dbAvailable
+                }
+                if let version = status.version, let process = self.process, process.isRunning {
                     self.restartBackoff = 1.0
                     if !self.state.isRunning {
                         self.state = .running(version: version)
@@ -251,16 +263,17 @@ final class ServerManager: ObservableObject {
         healthTask = nil
     }
 
-    /// GET /status; returns the closerouter version string when healthy.
-    private func queryStatus() async -> String? {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/status") else { return nil }
+    /// GET /status; returns the closerouter version and whether a working db
+    /// is configured (the sqlite field is only present then).
+    private func queryStatus() async -> (version: String?, dbAvailable: Bool) {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/status") else { return (nil, false) }
         var request = URLRequest(url: url)
         request.timeoutInterval = 2
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
+            return (nil, false)
         }
-        return obj["version"] as? String
+        return (obj["version"] as? String, obj["sqlite"] != nil)
     }
 }
