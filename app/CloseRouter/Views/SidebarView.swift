@@ -2,11 +2,16 @@ import SwiftUI
 
 struct SidebarView: View {
     @Binding var selection: AppSection?
+    @ObservedObject private var server = ServerManager.shared
+
+    private var visibleSections: [AppSection] {
+        AppSection.allCases.filter { !$0.requiresDb || server.dbAvailable }
+    }
 
     var body: some View {
         List(selection: $selection) {
             Section("CloseRouter") {
-                ForEach(AppSection.allCases) { section in
+                ForEach(visibleSections) { section in
                     Label(section.title, systemImage: section.systemImage)
                         .tag(section)
                 }

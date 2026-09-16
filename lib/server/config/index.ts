@@ -1,4 +1,4 @@
-import {parseConfig, applyConfig, type RuntimeConfig, type ProviderConfig} from '../../config'
+import {parseConfig, applyConfig, resolveDbPath, type RuntimeConfig, type ProviderConfig} from '../../config'
 import {router, handleHTML, needsAuth, withMethod, handleBadRequest} from '../../util'
 import {html as indexHTML} from './index.html'
 
@@ -82,26 +82,27 @@ export const handleConfig = router(
             ctx.req.on('end', () => {
                 const raw = Buffer.concat(chunks).toString('utf-8')
 
-                let config
+                let config: RuntimeConfig
                 try {
                     config = parseConfig(mergeProviderSecrets(raw, ctx.env.config.providers))
+                    config.dbPath = resolveDbPath(config.dbPath, ctx.env.config.path)
                 } catch (e) {
                     return handleBadRequest(res, e instanceof Error ? e.message : 'Invalid config')
                 }
 
                 const previousPort = ctx.env.config.port
                 const previousRetentionDays = ctx.env.config.retentionDays
+                const previousDb = ctx.env.config.dbPath
                 applyConfig(ctx.env.config, config)
 
-                if (previousPort !== undefined && config.port !== previousPort) {
-                    console.log(
-                        `config port changed ${previousPort} -> ${config.port}; restart for the new port to take effect`,
-                    )
+                if (config.port !== previousPort) {
+                    console.log(`config port changed ${previousPort} -> ${config.port}; restart for the new port to take effect`)
+                }
+                if (config.dbPath !== previousDb) {
+                    console.log(`config db changed ${previousDb ?? '(disabled)'} -> ${config.dbPath ?? '(disabled)'}; restart for the new db to take effect`)
                 }
                 if (config.retentionDays !== previousRetentionDays) {
-                    console.log(
-                        `config retentionDays changed ${previousRetentionDays} -> ${config.retentionDays}; restart for the new retention policy to take effect`,
-                    )
+                    console.log(`config retentionDays changed ${previousRetentionDays} -> ${config.retentionDays}; restart for the new retention policy to take effect`)
                 }
 
                 res.writeHead(200, {

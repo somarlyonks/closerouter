@@ -179,14 +179,18 @@ struct ConfigEditorView: View {
             inlineIssue = nil
             let oldPort = server.port
             let newPort = (try? ConfigStore.port(of: snapshot)) ?? oldPort
+            let wasStarting = server.state == .starting
 
             do {
+                var dbChanged = false
                 if server.state.isRunning {
-                    try await APIClient.putConfig(snapshot, port: server.port, key: server.key)
+                    let runningDb = try await APIClient.getConfigDb(port: server.port, key: server.key)
+                    let requestedDb = try await APIClient.putConfig(snapshot, port: server.port, key: server.key)
+                    dbChanged = requestedDb != runningDb
                 }
                 try ConfigStore.save(snapshot)
-                if newPort != oldPort {
-                    server.restart() // new port only takes effect after a restart
+                if wasStarting || newPort != oldPort || dbChanged {
+                    server.restart() // boot-only changes require a fresh child
                 } else {
                     server.refreshConfig() // keep the runtime key in sync with the saved config
                 }

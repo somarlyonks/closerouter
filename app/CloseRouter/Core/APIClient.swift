@@ -46,6 +46,31 @@ enum APIClient {
         let models: [ModelEntry]?
     }
 
+    /// A config `db` field: a resolved path string, or `false` → nil.
+    struct DbField: Decodable {
+        let path: String?
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if let path = try? container.decode(String.self) {
+                self.path = path
+                return
+            }
+            if let enabled = try? container.decode(Bool.self), !enabled {
+                path = nil
+                return
+            }
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Expected db to be a path string or false"
+            )
+        }
+    }
+
+    private struct ConfigDbDocument: Decodable {
+        let db: DbField
+    }
+
     /// A config model entry - either a bare id string or an object with an `id`.
     struct ModelEntry: Decodable {
         let id: String?
@@ -146,7 +171,8 @@ enum APIClient {
         URL(string: "http://127.0.0.1:\(port)/\(path)")!
     }
 
-    static func putConfig(_ raw: String, port: Int, key: String) async throws {
+    @discardableResult
+    static func putConfig(_ raw: String, port: Int, key: String) async throws -> String? {
         var req = URLRequest(url: url(port: port, path: "config"))
         req.httpMethod = "PUT"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -159,6 +185,13 @@ enum APIClient {
             let message = extractError(data) ?? "Server rejected the config (HTTP \(http.statusCode))"
             throw APIClientError.server(status: http.statusCode, message: message)
         }
+        return try JSONDecoder().decode(ConfigDbDocument.self, from: data).db.path
+    }
+
+    /// The db the running server is using (resolved by the server itself).
+    static func getConfigDb(port: Int, key: String) async throws -> String? {
+        let document: ConfigDbDocument = try await getJSON(path: "config", port: port, key: key)
+        return document.db.path
     }
 
     static func getLogEntries(port: Int, key: String) async throws -> [LogGroup] {

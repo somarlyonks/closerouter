@@ -31,6 +31,8 @@ export interface RuntimeConfig {
     dbPath: string | undefined
     retentionDays: number
     providers: Record<string, ProviderConfig>
+    /** absent for programmatically built configs */
+    path?: string
 }
 
 /** Parse and validate a config document. Shape, constraints, and defaults all
@@ -77,6 +79,16 @@ function formatIssues (issues: SchemaIssue[]): string {
         .join('; ')
 }
 
+/** Resolve a config db path in place: relative paths resolve against the
+ *  config file's directory, and SQLite special filenames (`:memory:`,
+ *  `file:` URIs) pass through unchanged. Shared by boot (loadConfig) and the
+ *  PUT /config handler so both produce identical paths. */
+export function resolveDbPath (dbPath: RuntimeConfig['dbPath'], configPath: string | undefined): RuntimeConfig['dbPath'] {
+    if (dbPath === undefined) return dbPath
+    if (dbPath === ':memory:' || dbPath.startsWith('file:')) return dbPath
+    return resolve(dirname(configPath ?? '.'), dbPath)
+}
+
 export function loadConfig (configPath: string): RuntimeConfig {
     if (!existsSync(configPath)) exitFor(`Config file not found: ${configPath}`)
 
@@ -90,18 +102,14 @@ export function loadConfig (configPath: string): RuntimeConfig {
 
     try {
         const config = parseConfig(raw)
-        // Relative filesystem paths resolve against the config file's directory;
-        // SQLite special filenames must pass through unchanged.
-        if (config.dbPath !== undefined && config.dbPath !== ':memory:' && !config.dbPath.startsWith('file:')) {
-            config.dbPath = resolve(dirname(configPath), config.dbPath)
-        }
-        return Object.assign({}, config, {path: configPath})
+        config.dbPath = resolveDbPath(config.dbPath, configPath)
+        return {...config, path: configPath}
     } catch (e) {
         exitFor(e instanceof Error ? e.message : String(e))
     }
 }
 
-export function applyConfig (store: RuntimeConfig, config: Omit<RuntimeConfig, 'path'>): void {
+export function applyConfig (store: RuntimeConfig, config: RuntimeConfig): void {
     store.key = config.key
     store.providers = config.providers
 }
