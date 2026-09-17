@@ -89,11 +89,18 @@ test('server binds 127.0.0.1 only and reports it as the bound address', async ()
 test('OPTIONS responds with CORS preflight headers', async () => {
     const s = await setup()
     try {
-        const res = await fetch(`http://127.0.0.1:${s.port}/`, {method: 'OPTIONS'})
+        const res = await fetch(`http://127.0.0.1:${s.port}/`, {
+            method: 'OPTIONS',
+            headers: {
+                'origin': 'https://client.example',
+                'access-control-request-method': 'POST',
+                'access-control-request-headers': 'authorization, content-type, x-request-id',
+            },
+        })
         assert.equal(res.status, 204)
         assert.equal(res.headers.get('access-control-allow-origin'), '*')
         assert.match(res.headers.get('access-control-allow-methods') ?? '', /GET/)
-        assert.match(res.headers.get('access-control-allow-headers') ?? '', /Authorization/)
+        assert.equal(res.headers.get('access-control-allow-headers'), 'authorization, content-type, x-request-id')
     } finally {
         await s.close()
     }

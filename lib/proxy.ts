@@ -14,9 +14,69 @@ function getPort (targetUrl: URL, isHttps: boolean): number {
     return isHttps ? 443 : 80
 }
 
-function firstHeader (val: string | string[] | undefined): string | undefined {
-    if (val === undefined) return undefined
-    return Array.isArray(val) ? val[0] : val
+// Headers that are hop-by-hop (RFC 7230 §6.1) or owned by the proxy itself are
+// never relayed in either direction. Content-Length and Authorization are
+// replaced, Host is derived by Node from the target URL, and Transfer-Encoding
+// is re-negotiated by Node's client/server stacks.
+const HOP_BY_HOP = [
+    'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+    'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade',
+]
+
+// Client → provider: everything else on the request is relayed verbatim.
+const REQUEST_STRIP = new Set([
+    ...HOP_BY_HOP,
+    'host', // Node derives Host from the target URL
+    'content-length', // recomputed from the forwarded (rewritten) body
+    'authorization', // replaced with the provider key
+    'expect', // 100-continue is already handled by Node's server before proxying
+    'accept-encoding', // keep upstream responses uncompressed so usage/SSE parsing sees plaintext
+    'cookie', // never leak client session cookies to a third-party provider
+])
+
+// Provider → client: everything else on the response is relayed verbatim.
+const RESPONSE_STRIP = new Set([
+    ...HOP_BY_HOP,
+    'set-cookie', // don't let providers plant cookies on the caller
+    'access-control-allow-origin',
+    'access-control-allow-credentials',
+    'access-control-expose-headers',
+    'access-control-allow-headers',
+    'access-control-allow-methods',
+    'access-control-max-age',
+])
+
+type RelayHeaders = Record<string, string | string[] | number | undefined>
+
+function relayHeaders (source: RelayHeaders, strip: ReadonlySet<string>): Record<string, string> {
+    const connectionHeaders = new Set<string>()
+    const connection = source.connection
+    // The Connection header names extra hop-by-hop headers (RFC 7230 §6.1).
+    // Build a plain string[] - scriptc traps on array literals that could hold
+    // undefined ( IncomingMessage.headers.connection is undefined when the
+    // client sends none), so no `[connection]` shorthand.
+    const connectionValues: string[] = Array.isArray(connection)
+        ? connection
+        : typeof connection === 'string' ? [connection] : []
+    for (const value of connectionValues) {
+        for (const name of value.split(',')) {
+            connectionHeaders.add(name.trim().toLowerCase())
+        }
+    }
+
+    const headers: Record<string, string> = {}
+    for (const name in source) {
+        const value = source[name]
+        if (value === undefined || strip.has(name.toLowerCase()) || connectionHeaders.has(name.toLowerCase())) continue
+        if (typeof value === 'string') {
+            headers[name] = value
+        } else if (typeof value === 'number') {
+            headers[name] = String(value)
+        } else {
+            headers[name] = value.join(', ')
+        }
+    }
+    return headers
 }
 
 function backendRequest (
@@ -36,10 +96,10 @@ function backendRequest (
 function forwardResponse (backendRes: IncomingMessage, clientRes: ServerResponse, responseLog: ResponseLog | undefined): void {
     const statusCode = backendRes.statusCode ?? 500
     const headers: Record<string, string> = {
+        ...relayHeaders(backendRes.headers, RESPONSE_STRIP),
         'access-control-allow-origin': '*',
+        'access-control-expose-headers': '*',
     }
-    const ct = firstHeader(backendRes.headers['content-type'])
-    if (ct) headers['content-type'] = ct
 
     logResponse(responseLog, {status: statusCode, headers})
     clientRes.writeHead(statusCode, headers)
@@ -112,14 +172,11 @@ export function proxyRequest (
         }
 
         const contentLength = Buffer.byteLength(body).toString()
-        const backendReq = backendRequest(
-            isHttps, hostname, port, urlPath, method,
-            {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Length': contentLength,
-            },
-        )
+        const headers = relayHeaders(clientReq.headers, REQUEST_STRIP)
+        headers['Content-Type'] = 'application/json'
+        headers['Authorization'] = `Bearer ${apiKey}`
+        headers['Content-Length'] = contentLength
+        const backendReq = backendRequest(isHttps, hostname, port, urlPath, method, headers)
         backendReq.on('response', (backendRes) => {
             forwardResponse(backendRes, clientRes, responseLog)
         })

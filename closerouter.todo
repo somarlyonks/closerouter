@@ -18,7 +18,10 @@ CloseRouter:
         [x] router
         [x] bind the HTTP listener to 127.0.0.1
         [x] auth by bearer key
-        [x] proxy forwarding with SSE streaming
+        proxy:
+            [x] forwarding with SSE streaming
+            [x] headers relay
+            [x] Google provider adapter
         routes:
             v1:
                 [x] chat/completions

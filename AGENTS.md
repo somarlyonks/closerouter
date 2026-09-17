@@ -56,14 +56,9 @@ Rules for authored HTML:
 
 `body` is a `display: flex; flex-direction: column`, and `main` has `flex: 1`, so a footer placed after `</main>` naturally pins to the bottom. Shared styles (including `.app-footer`) go in `assets/index.css`.
 
-## Code Style
+## Clean Code
 
-- TypeScript, ESM
-- Prefer `async`/`await` over callbacks
-- Functional and no classes
-- Console logging is fine for observability
-
-## Engineering
-
-- Only comment when the code is abstract and needs explanation of implementation and decisions
-- Create a skill at `.agents/skills` after interupted and instructed to push forward
+1. Function and variable names explain **what** is done, split logic into concise functions with concrete names
+2. Prevent comments, only comment when explanation of **why** or **how** necessary
+3. Prevent side effects if possible
+4. Prevent global mutable variables or objects

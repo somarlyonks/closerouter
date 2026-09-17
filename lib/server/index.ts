@@ -59,11 +59,15 @@ export function startServer (config: RuntimeConfig): Server {
     return server
 }
 
-function handleOptions (_ctx: RequestContext, res: ServerResponse) {
+function handleOptions (ctx: RequestContext, res: ServerResponse) {
+    const requestedHeaders = ctx.req.headers['access-control-request-headers']
+    const allowHeaders = typeof requestedHeaders === 'string'
+        ? requestedHeaders
+        : 'Content-Type, Authorization'
     res.writeHead(204, {
         'access-control-allow-origin': '*',
         'access-control-allow-methods': 'GET, POST, PUT, OPTIONS',
-        'access-control-allow-headers': 'Content-Type, Authorization',
+        'access-control-allow-headers': allowHeaders,
         'access-control-max-age': '86400',
     })
     res.end()
