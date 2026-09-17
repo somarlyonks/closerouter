@@ -1,6 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {createServer, IncomingMessage, ServerResponse} from 'http'
+import {createServer, request, IncomingMessage, ServerResponse} from 'http'
+import type {IncomingHttpHeaders} from 'http'
 import type {AddressInfo} from 'net'
 import {proxyRequest, proxyGetRequest} from '../lib/proxy'
 import {startMockBackend, delay} from './helpers'
@@ -25,6 +26,39 @@ function startProxyFrontend (opts: FrontendOpts): Promise<{port: number, close: 
                 close: () => new Promise<void>(r => server.close(() => r())),
             })
         })
+    })
+}
+
+interface RawRequestOptions {
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+}
+
+// Raw HTTP request so tests can inspect or set headers fetch() hides.
+function rawRequest (
+    port: number,
+    path: string,
+    options: RawRequestOptions = {},
+): Promise<{statusCode: number | undefined, headers: IncomingHttpHeaders, body: string}> {
+    return new Promise((resolve, reject) => {
+        const req = request({
+            hostname: '127.0.0.1',
+            port,
+            path,
+            method: options.method,
+            headers: options.headers,
+        }, (res) => {
+            const chunks: Buffer[] = []
+            res.on('data', (c: Buffer) => chunks.push(c))
+            res.on('end', () => resolve({
+                statusCode: res.statusCode,
+                headers: res.headers,
+                body: Buffer.concat(chunks).toString('utf-8'),
+            }))
+        })
+        req.on('error', reject)
+        req.end(options.body)
     })
 }
 
@@ -197,5 +231,102 @@ test('proxyRequest closes the client response when the backend errors mid-stream
         await frontend.close()
         await backend.close()
         await delay(0)
+    }
+})
+
+test('proxyRequest relays client request headers to the backend and replaces owned ones', async () => {
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200)
+        res.end('ok')
+    })
+    const frontend = await startProxyFrontend({baseUrl: backend.baseUrl, apiKey: 'k', path: '/chat'})
+    try {
+        await fetch(`http://127.0.0.1:${frontend.port}/chat`, {
+            method: 'POST',
+            body: 'request-body',
+            headers: {
+                'content-type': 'application/json; charset=utf-8',
+                'user-agent': 'pi/0.1 test-agent',
+                'x-request-id': 'req-123',
+                'accept': 'text/event-stream',
+                'accept-encoding': 'gzip, deflate',
+                'cookie': 'session=secret',
+            },
+        })
+        const h = backend.requests[0].headers
+        assert.equal(h['user-agent'], 'pi/0.1 test-agent')
+        assert.equal(h['x-request-id'], 'req-123')
+        assert.equal(h['accept'], 'text/event-stream')
+        assert.equal(h.authorization, 'Bearer k')
+        assert.equal(h['content-type'], 'application/json')
+        assert.equal(h['content-length'], String(Buffer.byteLength('request-body')))
+        assert.equal(h['accept-encoding'], undefined)
+        assert.equal(h.cookie, undefined)
+        // Host is derived from the target URL, not relayed from the client.
+        assert.equal(h.host, new URL(backend.baseUrl).host)
+    } finally {
+        await frontend.close()
+        await backend.close()
+    }
+})
+
+test('proxyRequest removes headers nominated by Connection in both directions', async () => {
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200, {
+            'connection': 'x-response-hop',
+            'x-response-hop': 'provider-secret',
+        })
+        res.end('ok')
+    })
+    const frontend = await startProxyFrontend({baseUrl: backend.baseUrl, apiKey: 'k', path: '/x'})
+    try {
+        const {headers} = await rawRequest(frontend.port, '/x', {
+            method: 'POST',
+            headers: {
+                'connection': 'close, x-request-hop',
+                'x-request-hop': 'client-secret',
+            },
+            body: '{}',
+        })
+        assert.equal(backend.requests[0].headers['x-request-hop'], undefined)
+        assert.equal(headers['x-response-hop'], undefined)
+    } finally {
+        await frontend.close()
+        await backend.close()
+    }
+})
+
+test('proxyRequest relays provider response headers to the client', async () => {
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200, {
+            'content-type': 'application/json',
+            'x-request-id': 'prov-req-1',
+            'x-ratelimit-limit-requests': '100',
+            'retry-after': '30',
+            'cache-control': 'no-store',
+            'set-cookie': 'sid=abc; Path=/',
+            'access-control-allow-origin': 'https://provider.example',
+            'access-control-expose-headers': 'x-provider-only',
+            'access-control-allow-credentials': 'true',
+        })
+        res.end('ok')
+    })
+    const frontend = await startProxyFrontend({baseUrl: backend.baseUrl, apiKey: 'k', path: '/x'})
+    try {
+        const {statusCode, headers, body} = await rawRequest(frontend.port, '/x')
+        assert.equal(statusCode, 200)
+        assert.equal(headers['x-request-id'], 'prov-req-1')
+        assert.equal(headers['x-ratelimit-limit-requests'], '100')
+        assert.equal(headers['retry-after'], '30')
+        assert.equal(headers['cache-control'], 'no-store')
+        assert.equal(headers['content-type'], 'application/json')
+        assert.equal(headers['access-control-allow-origin'], '*')
+        assert.equal(headers['access-control-expose-headers'], '*')
+        assert.equal(headers['access-control-allow-credentials'], undefined)
+        assert.equal(headers['set-cookie'], undefined)
+        assert.equal(body, 'ok')
+    } finally {
+        await frontend.close()
+        await backend.close()
     }
 })
