@@ -5,7 +5,7 @@ import {mkdtemp, writeFile, rm} from 'fs/promises'
 import {tmpdir} from 'os'
 import {join} from 'path'
 import type {RuntimeConfig} from '../lib/config'
-import type {RequestContext, RequestHandler} from '../lib/util'
+import {handle, type RequestContext, type RequestHandler, type Route} from '../lib/util'
 import {startServer} from '../lib/server'
 
 export class ExitError extends Error {
@@ -115,12 +115,13 @@ export interface HandlerServer {
 }
 
 export function startHandlerServer (
-    handler: RequestHandler,
+    handler: RequestHandler | Route[],
     env: RequestContext['env'],
 ): Promise<HandlerServer> {
     const server = createServer((req, res) => {
         const ctx: RequestContext = {req, env}
-        handler(ctx, res)
+        const h = typeof handler === 'function' ? handler : handle(handler)
+        h(ctx, res)
     })
     return new Promise((resolve, reject) => {
         server.on('error', reject)

@@ -232,6 +232,27 @@ test('v1 router serves GET /v1/models', async () => {
     }
 })
 
+test('v1 router rejects POST /v1/models without proxying it', async () => {
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200, {'content-type': 'application/json'})
+        res.end('{}')
+    })
+    const srv = await startHandlerServer(v1Router, {config: configFor(backend.baseUrl)})
+    try {
+        const res = await request(srv.port, '/v1/models', {
+            method: 'POST',
+            body: JSON.stringify({model: 'p/gpt'}),
+            headers: {'content-type': 'application/json'},
+        })
+        assert.equal(res.status, 405)
+        assert.equal(res.headers.get('allow'), 'GET')
+        assert.equal(backend.requests.length, 0)
+    } finally {
+        await srv.close()
+        await backend.close()
+    }
+})
+
 test('v1 router rejects invalid JSON with 400', async () => {
     const srv = await startHandlerServer(v1Router, {config: configFor('http://x')})
     try {
