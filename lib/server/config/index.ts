@@ -1,5 +1,5 @@
 import {parseConfig, applyConfig, resolveDbPath, type RuntimeConfig, type ProviderConfig} from '../../config'
-import {router, handleHTML, needsAuth, withMethod, handleBadRequest} from '../../util'
+import {router, method, handleHTML, needsAuth, withMethod, handleBadRequest} from '../../util'
 import {html as indexHTML} from './index.html'
 
 /** The config as served to clients: no raw document, no provider api_keys,
@@ -63,7 +63,7 @@ function mergeProviderSecrets (raw: string, stored: Record<string, ProviderConfi
 }
 
 export const handleConfig = router(
-    c => c.req.method === 'GET',
+    method('GET'),
     router(
         c => !!c.req.headers['accept']?.includes('application/json'),
         needsAuth((ctx, res) => {

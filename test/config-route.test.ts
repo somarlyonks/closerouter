@@ -187,7 +187,7 @@ test('POST /config returns 405', async () => {
             headers: {authorization: `Bearer ${API_KEY}`},
         })
         assert.equal(res.status, 405)
-        assert.equal(res.headers.get('allow'), 'PUT')
+        assert.equal(res.headers.get('allow'), 'GET, PUT')
         const json = await res.json() as {error: {type: string}}
         assert.equal(json.error.type, 'method_not_allowed')
     } finally {

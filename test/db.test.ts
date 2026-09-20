@@ -9,6 +9,7 @@ import {
 } from '../lib/db'
 import {initUsage, recordUsage, loadUsage, loadUsageBody, loadUsageStats, expireUsageBodies, startRetentionSweep, SCHEMA_VERSION} from '../lib/server/logs/db'
 import {handleStatus} from '../lib/server/status'
+import {handle} from '../lib/util'
 import type {RuntimeConfig} from '../lib/config'
 
 /** Minimal RuntimeConfig for the /status handler test - the handler only reads dbPath. */
@@ -406,7 +407,7 @@ function sqlTests (): void {
         closeDatabase() // clean unopened state regardless of prior tests
         const status = async (dbPath: string | undefined): Promise<{sqlite?: string}> => {
             const server = createServer((req, res) => {
-                handleStatus({req, env: {config: statusConfig(dbPath)}, responseLog: {}}, res)
+                handle(handleStatus)({req, env: {config: statusConfig(dbPath)}, responseLog: {}}, res)
             })
             const port = await new Promise<number>((resolve, reject) => {
                 server.on('error', reject)

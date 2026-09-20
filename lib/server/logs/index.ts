@@ -1,6 +1,6 @@
 import type {IncomingMessage, ServerResponse} from 'http'
 import {randomUUID} from 'crypto'
-import {router, needsAuth, withMethod, MAX_BODY, handleHTML, applyUsageObject, type RequestContext} from '../../util'
+import {router, needsAuth, withMethod, path, MAX_BODY, handleHTML, applyUsageObject, type RequestContext} from '../../util'
 import {recordUsage, loadUsage, loadUsageBody} from './db'
 import {html as indexHTML} from './index.html'
 
@@ -19,7 +19,7 @@ function hasUsage (usage: TokenUsage | undefined): boolean {
 }
 
 export const handleLogs = withMethod('GET')(router(
-    r => r.req.url === '/logs',
+    path('/logs'),
     router(
         r => r.req.headers['accept'] === 'application/json',
         needsAuth((_ctx, res) => {
@@ -56,8 +56,9 @@ function logDetailId (url: string | undefined): number | undefined {
     return Number.isInteger(id) && id > 0 ? id : undefined
 }
 
-export function logMiddleware ({req, responseLog}: RequestContext, res: ServerResponse) {
-    if (!req.url?.startsWith('/v1/')) return
+export function logMiddleware (ctx: RequestContext, res: ServerResponse) {
+    if (!path('/v1/*').predicate(ctx)) return
+    const {req, responseLog} = ctx
 
     const id = readClientRequestId(req) ?? randomUUID()
     res.setHeader('x-closerouter-request-id', id)

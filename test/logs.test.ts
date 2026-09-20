@@ -1,6 +1,8 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {handleLogs, extractTokenUsage} from '../lib/server/logs'
+import {EventEmitter} from 'events'
+import type {IncomingMessage, ServerResponse} from 'http'
+import {handleLogs, extractTokenUsage, logMiddleware} from '../lib/server/logs'
 import {startHandlerServer, sampleConfig} from './helpers'
 
 test('GET /logs serves the HTML page without auth', async () => {
@@ -105,6 +107,24 @@ test('POST /logs is rejected with 405', async () => {
     } finally {
         await srv.close()
     }
+})
+
+test('log middleware recognizes canonicalized /v1 paths', () => {
+    const req = Object.assign(new EventEmitter(), {
+        method: 'POST',
+        url: '/../v1/chat/completions',
+        headers: {'x-client-request-id': 'canonical-path'},
+    }) as unknown as IncomingMessage
+    const headers: Record<string, string> = {}
+    const res = Object.assign(new EventEmitter(), {
+        setHeader (name: string, value: string | number | readonly string[]) {
+            headers[name.toLowerCase()] = String(value)
+        },
+    }) as unknown as ServerResponse
+
+    logMiddleware({req, env: {config: sampleConfig()}, responseLog: {}}, res)
+
+    assert.equal(headers['x-closerouter-request-id'], 'canonical-path')
 })
 
 test('extractTokenUsage reads chat completions usage from a JSON body', () => {

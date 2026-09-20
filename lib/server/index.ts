@@ -2,7 +2,7 @@ import {createServer, type IncomingMessage, type Server, type ServerResponse} fr
 import {printServerConfig, type RuntimeConfig} from '../config'
 import {closeDatabase} from '../db'
 import {v1Router as handleOpenAIRequest} from './v1'
-import {router, type RequestContext, type RequestHandler} from '../util'
+import {handle, router, path, type RequestContext, type RequestHandler} from '../util'
 import {handleLogs, logMiddleware} from './logs'
 import {handleUsage} from './usage'
 import {handleStatus} from './status'
@@ -23,14 +23,14 @@ export function startServer (config: RuntimeConfig): Server {
 
         logMiddleware(ctx, res)
 
-        routerErrorBoundary(/* eslint-disable @stylistic/indent */
+        routerErrorBoundary(handle(/* eslint-disable @stylistic/indent */
             router(c => c.req.method === 'OPTIONS', handleOptions,
-            router(c => !!c.req.url?.startsWith('/v1/'), handleOpenAIRequest,
-            router(c => c.req.url === '/status', handleStatus,
-            router(c => c.req.url === '/logs' || !!c.req.url?.startsWith('/logs/'), handleLogs,
-            router(c => !!c.req.url?.startsWith('/usage'), handleUsage,
-            router(c => c.req.url === '/config', handleConfig,
-        )))))))(ctx, res)/* eslint-enable @stylistic/indent */
+            router(path('/v1/*'), handleOpenAIRequest,
+            router(path('/status'), handleStatus,
+            router(path('/logs@*'), handleLogs,
+            router(path('/usage'), handleUsage,
+            router(path('/config'), handleConfig,
+        ))))))))(ctx, res)/* eslint-enable @stylistic/indent */
     })
 
     server.listen(config.port, '127.0.0.1', () => {
