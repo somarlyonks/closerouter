@@ -1,4 +1,4 @@
-import {withMethod} from '../util'
+import {withMethod} from '../router'
 import {getSqliteVersion} from '../db'
 import packageJson from '../../package.json' with {type: 'json'}
 

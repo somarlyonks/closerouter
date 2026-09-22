@@ -1,4 +1,4 @@
-import {needsAuth, withMethod} from '../util'
+import {needsAuth, withMethod} from '../router'
 import {loadUsageHeatmap, loadUsageStats} from './logs/db'
 
 export const handleUsage = withMethod('GET')(needsAuth((ctx, res) => {

@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {normalizeModel, router, withMethod, needsAuth, handle, method, path} from '../lib/util'
-import type {RequestContext, Route} from '../lib/util'
+import {router, withMethod, needsAuth, handle, method, path} from '../lib/router'
+import type {RequestContext, Route} from '../lib/router'
 import {mockReq, mockRes, sampleConfig} from './helpers'
 
 function ctx (opts: {method?: string, url?: string, headers?: Record<string, string>} = {}): RequestContext {
@@ -10,24 +10,6 @@ function ctx (opts: {method?: string, url?: string, headers?: Record<string, str
         env: {config: sampleConfig({key: 'secret'})},
     }
 }
-
-test('normalizeModel wraps a string model as {id: "provider/model"}', () => {
-    assert.deepEqual(normalizeModel('p', 'gpt'), {id: 'p/gpt'})
-})
-
-test('normalizeModel prefixes an object model id and defaults owned_by', () => {
-    assert.deepEqual(normalizeModel('p', {id: 'm'}), {id: 'p/m', owned_by: 'p'})
-})
-
-test('normalizeModel preserves an explicit owned_by', () => {
-    assert.deepEqual(normalizeModel('p', {id: 'm', owned_by: 'vendor'}), {id: 'p/m', owned_by: 'vendor'})
-})
-
-test('normalizeModel throws when model object has no id', () => {
-    assert.throws(() => normalizeModel('p', {}), /Model config broken/)
-    assert.throws(() => normalizeModel('p', undefined), /Model config broken/)
-    assert.throws(() => normalizeModel('p', 5), /Model config broken/)
-})
 
 test('router runs the first matching route in registration order', () => {
     const h = router(

@@ -1,16 +1,12 @@
 import type {IncomingMessage, ServerResponse} from 'http'
 import {randomUUID} from 'crypto'
-import {router, needsAuth, withMethod, path, MAX_BODY, handleHTML, applyUsageObject, type RequestContext} from '../../util'
+import {router, needsAuth, withMethod, path, handleHTML, type RequestContext} from '../../router'
+import {MAX_BODY, applyUsageObject} from './helper'
+import type {UsageCounts} from './helper'
 import {recordUsage, loadUsage, loadUsageBody} from './db'
 import {html as indexHTML} from './index.html'
 
-interface TokenUsage {
-    inputTokens?: number
-    outputTokens?: number
-    cachedTokens?: number
-}
-
-function hasUsage (usage: TokenUsage | undefined): boolean {
+function hasUsage (usage: UsageCounts | undefined): boolean {
     return usage !== undefined && (
         usage.inputTokens !== undefined
         || usage.outputTokens !== undefined
@@ -111,8 +107,8 @@ function readClientRequestId (req: IncomingMessage): string | undefined {
     return id
 }
 
-export function extractTokenUsage (body: string | undefined): TokenUsage {
-    const result: TokenUsage = {}
+export function extractTokenUsage (body: string | undefined): UsageCounts {
+    const result: UsageCounts = {}
     if (!body) return result
 
     try {

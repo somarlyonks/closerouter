@@ -2,7 +2,7 @@ import {createServer, type IncomingMessage, type Server, type ServerResponse} fr
 import {printServerConfig, type RuntimeConfig} from '../config'
 import {closeDatabase} from '../db'
 import {v1Router as handleOpenAIRequest} from './v1'
-import {handle, router, path, type RequestContext, type RequestHandler} from '../util'
+import {handle, router, path, type RequestContext, type RequestHandler} from '../router'
 import {handleLogs, logMiddleware} from './logs'
 import {handleUsage} from './usage'
 import {handleStatus} from './status'

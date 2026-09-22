@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import type {RuntimeConfig} from '../lib/config'
-import {handleListModels} from '../lib/server/v1/models'
+import {handleListModels, normalizeModel} from '../lib/server/v1/models'
 import {startMockBackend, startHandlerServer} from './helpers'
 
 test('handleListModels fetches and normalizes models from each provider', async () => {
@@ -81,4 +81,22 @@ test('handleListModels falls back to config models when the backend response is 
         await srv.close()
         await backend.close()
     }
+})
+
+test('normalizeModel wraps a string model as {id: "provider/model"}', () => {
+    assert.deepEqual(normalizeModel('p', 'gpt'), {id: 'p/gpt'})
+})
+
+test('normalizeModel prefixes an object model id and defaults owned_by', () => {
+    assert.deepEqual(normalizeModel('p', {id: 'm'}), {id: 'p/m', owned_by: 'p'})
+})
+
+test('normalizeModel preserves an explicit owned_by', () => {
+    assert.deepEqual(normalizeModel('p', {id: 'm', owned_by: 'vendor'}), {id: 'p/m', owned_by: 'vendor'})
+})
+
+test('normalizeModel throws when model object has no id', () => {
+    assert.throws(() => normalizeModel('p', {}), /Model config broken/)
+    assert.throws(() => normalizeModel('p', undefined), /Model config broken/)
+    assert.throws(() => normalizeModel('p', 5), /Model config broken/)
 })
