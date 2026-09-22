@@ -5,7 +5,7 @@ import {mkdtemp, writeFile, rm} from 'fs/promises'
 import {tmpdir} from 'os'
 import {join} from 'path'
 import type {RuntimeConfig} from '../lib/config'
-import {handle, type RequestContext, type RequestHandler, type Route} from '../lib/util'
+import {handle, type RequestContext, type RequestHandler, type Route} from '../lib/router'
 import {startServer} from '../lib/server'
 
 export class ExitError extends Error {

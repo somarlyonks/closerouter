@@ -9,7 +9,7 @@ import {
 } from '../lib/db'
 import {initUsage, recordUsage, loadUsage, loadUsageBody, loadUsageStats, expireUsageBodies, startRetentionSweep, SCHEMA_VERSION} from '../lib/server/logs/db'
 import {handleStatus} from '../lib/server/status'
-import {handle} from '../lib/util'
+import {handle} from '../lib/router'
 import type {RuntimeConfig} from '../lib/config'
 
 /** Minimal RuntimeConfig for the /status handler test - the handler only reads dbPath. */

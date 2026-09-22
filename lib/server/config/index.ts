@@ -1,5 +1,5 @@
 import {parseConfig, applyConfig, resolveDbPath, type RuntimeConfig, type ProviderConfig} from '../../config'
-import {router, method, handleHTML, needsAuth, withMethod, handleBadRequest} from '../../util'
+import {router, method, needsAuth, withMethod, handleHTML, handleBadRequest} from '../../router'
 import {html as indexHTML} from './index.html'
 
 /** The config as served to clients: no raw document, no provider api_keys,

@@ -1,4 +1,4 @@
-import {router, needsAuth, withMethod, path} from '../../util'
+import {router, needsAuth, withMethod, path} from '../../router'
 import {handleListModels} from './models'
 import {proxyModelRequest} from '../../proxy'
 

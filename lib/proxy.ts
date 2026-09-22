@@ -1,8 +1,9 @@
 import * as http from 'http'
 import * as https from 'https'
 import {ClientRequest, IncomingMessage, ServerResponse} from 'http'
-import {appendResponseBody, feedStreamUsage, logResponse} from './util'
-import type {ResponseLog, RequestContext, UsageCounts} from './util'
+import {appendResponseBody, feedStreamUsage, logResponse} from './server/logs/helper'
+import type {ResponseLog, UsageCounts} from './server/logs/helper'
+import type {RequestContext} from './router'
 import type {ProviderConfig} from './config'
 
 function getPort (targetUrl: URL, isHttps: boolean): number {

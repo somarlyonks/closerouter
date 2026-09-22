@@ -19,21 +19,41 @@
 ## File Structure
 
 ```
-lib/
-  cli.ts             # Main entrypoint - routes commands
-  proxy.ts           # HTTP/HTTPS request forwarding with streaming
-  util.ts            # Shared types or functions
-  config/
-    index.ts         # loading/validation/defaults
-    schema.json      # config schema embedded as schema.json.ts
-    json-schema.ts   # subset validator + defaults
-  server/
-    index.ts         # creates HTTP server, mounts routes
-    v1/              # OpenAI compatible API
-    logs/            # Request logs history + detail
-    status.ts        # Alive check
-    config/          # Runtime config
-closerouter.json     # Sample / default config
+[Project Root]/
+├── lib/                        # Backend, compiled to a native binary by scriptc
+│   ├── cli.ts                  # Entrypoint - parses CLI args and routes commands
+│   ├── proxy.ts                # Provider request forwarding with SSE streaming
+│   ├── router.ts               # Route composition: path/method predicates, dispatch, auth
+│   ├── config/                 # JSON config loading and validation
+│   │   ├── index.ts            # Load, validate config and inject defaults
+│   │   ├── json-schema.ts      # JSON Schema subset validator + defaults injection
+│   │   └── schema.json         # Config schema (embedded as schema.json.ts)
+│   ├── db/                     # SQLite over scriptc FFI
+│   │   ├── index.ts            # Connection bridge and query functions
+│   │   ├── shim.c              # FFI source, compiled in place to shim.o
+│   │   └── sqlite-demo.ts      # Standalone PoC harness for the FFI shim
+│   └── server/                 # HTTP server and routes
+│       ├── index.ts            # createServer, route mounting, shutdown
+│       ├── status.ts           # GET /status - alive check, versions
+│       ├── usage.ts            # GET /usage - usage stats and heatmap
+│       ├── v1/                 # OpenAI-compatible API, proxied to providers
+│       ├── logs/               # Request log history
+│       └── config/             # Runtime config
+├── assets/                     # Shared web assets and the HTML build
+│   ├── build.ts                # Inlines /* @asset */ markers into lib HTML pages
+│   └── *.css|svg|js|html       # Shared snippets
+├── native/                     # FFI build
+│   ├── ffi.json                # FFI shim list consumed by scriptc
+│   └── build.ts                # Compiles the FFI shims in place
+├── app/                        # macOS menu-bar client (SwiftUI, xcodegen project.yml)
+├── test/                       # node:test suites, run on the .ts sources via test/loader.mjs
+│   ├── *.test.ts               # Suites per module (router, proxy, db, routes, cli, ...)
+│   ├── helpers.ts              # Mock req/res, mock backend, server + config helpers
+│   ├── mock-server.js          # Standalone mock provider driven by mock-server.config.json
+│   └── seed-usage.js           # Backfill synthetic usage rows through the mock server
+├── build.ts                    # Build preparation: orchestrates assets/ + native/ builds
+├── closerouter.json            # Sample / default config
+└── closerouter.todo            # Development task tracker
 ```
 
 ## HTML Pages, Assets, and Build
