@@ -19,6 +19,16 @@ export interface ResponseLog {
 
 export const MAX_BODY = 1024 * 1024
 
+/** Best-effort log side effect: recording must never break the proxied request
+ *  or escape an event handler as an uncaught exception. */
+export function safeLog (action: string, fn: () => void): void {
+    try {
+        fn()
+    } catch (err) {
+        console.error(`Failed to ${action}:`, err)
+    }
+}
+
 export function logResponse (log: ResponseLog | undefined, update: ResponseLog): void {
     if (!log) return
     if (update.status !== undefined) log.status = update.status

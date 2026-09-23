@@ -4,6 +4,7 @@ import {createServer, request, IncomingMessage, ServerResponse} from 'http'
 import type {IncomingHttpHeaders} from 'http'
 import type {AddressInfo} from 'net'
 import {proxyRequest, proxyGetRequest} from '../lib/proxy'
+import type {ResponseLog} from '../lib/server/logs/helper'
 import {startMockBackend, delay} from './helpers'
 
 interface FrontendOpts {
@@ -12,11 +13,12 @@ interface FrontendOpts {
     path?: string
     rewriteBody?: (body: string) => string
     preReadBody?: string
+    responseLog?: ResponseLog
 }
 
 function startProxyFrontend (opts: FrontendOpts): Promise<{port: number, close: () => Promise<void>}> {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-        proxyRequest(req, res, opts.baseUrl, opts.apiKey, opts.path ?? '/x', opts.rewriteBody, opts.preReadBody)
+        proxyRequest(req, res, opts.baseUrl, opts.apiKey, opts.path ?? '/x', opts.rewriteBody, opts.preReadBody, opts.responseLog)
     })
     return new Promise((resolve, reject) => {
         server.on('error', reject)
@@ -202,6 +204,57 @@ test('proxyRequest streams backend chunks to the client in order', async () => {
     }
 })
 
+test('proxyRequest keeps streaming when a response log write throws', async () => {
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200, {'content-type': 'text/event-stream'})
+        res.write('chunk1')
+        setTimeout(() => {
+            res.write('chunk2')
+            res.end()
+        }, 10)
+    })
+    // Poison the body setter so every appendResponseBody() attempt throws.
+    const responseLog: ResponseLog = {}
+    Object.defineProperty(responseLog, 'body', {
+        get: () => undefined,
+        set: () => {
+            throw new Error('log sink failed')
+        },
+    })
+    const frontend = await startProxyFrontend({baseUrl: backend.baseUrl, apiKey: 'k', path: '/x', responseLog})
+    try {
+        const res = await fetch(`http://127.0.0.1:${frontend.port}/x`)
+        assert.equal(res.status, 200)
+        assert.equal(await res.text(), 'chunk1chunk2')
+    } finally {
+        await frontend.close()
+        await backend.close()
+    }
+})
+
+test('proxyRequest keeps streaming when response usage initialization throws', async () => {
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200, {'content-type': 'text/event-stream'})
+        res.end('complete')
+    })
+    const responseLog: ResponseLog = {}
+    Object.defineProperty(responseLog, 'usage', {
+        get: () => undefined,
+        set: () => {
+            throw new Error('usage sink failed')
+        },
+    })
+    const frontend = await startProxyFrontend({baseUrl: backend.baseUrl, apiKey: 'k', path: '/x', responseLog})
+    try {
+        const res = await fetch(`http://127.0.0.1:${frontend.port}/x`)
+        assert.equal(res.status, 200)
+        assert.equal(await res.text(), 'complete')
+    } finally {
+        await frontend.close()
+        await backend.close()
+    }
+})
+
 test('proxyRequest returns 502 when the backend is unreachable', async () => {
     const frontend = await startProxyFrontend({baseUrl: 'http://127.0.0.1:1', apiKey: 'k', path: '/x'})
     try {
@@ -231,6 +284,97 @@ test('proxyRequest closes the client response when the backend errors mid-stream
         await frontend.close()
         await backend.close()
         await delay(0)
+    }
+})
+
+test('proxyRequest cancels the backend when the client disconnects before response headers', async () => {
+    let backendCompleted = false
+    let backendCancelled = false
+    let notifyBackendStarted: () => void = () => {}
+    let notifyBackendClosed: () => void = () => {}
+    const backendStarted = new Promise<void>((resolve) => {
+        notifyBackendStarted = resolve
+    })
+    const backendClosed = new Promise<void>((resolve) => {
+        notifyBackendClosed = resolve
+    })
+    const backend = await startMockBackend((_req, res) => {
+        notifyBackendStarted()
+        const timer = setTimeout(() => {
+            backendCompleted = true
+            res.end('late')
+        }, 100)
+        res.on('close', () => {
+            clearTimeout(timer)
+            backendCancelled = !res.writableEnded
+            notifyBackendClosed()
+        })
+    })
+    const frontend = await startProxyFrontend({baseUrl: backend.baseUrl, apiKey: 'k', path: '/x'})
+    try {
+        const req = request({hostname: '127.0.0.1', port: frontend.port, path: '/x'})
+        req.on('error', () => {})
+        req.end()
+        await backendStarted
+        req.destroy()
+        await Promise.race([backendClosed, delay(200)])
+        assert.equal(backendCancelled, true)
+        assert.equal(backendCompleted, false)
+    } finally {
+        await frontend.close()
+        await backend.close()
+    }
+})
+
+test('proxyRequest survives a client disconnect mid-stream', async () => {
+    let backendWroteAfterDrop = false
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200, {'content-type': 'text/event-stream'})
+        res.write('first')
+        const timer = setTimeout(() => {
+            if (!res.destroyed && !res.writableEnded) {
+                backendWroteAfterDrop = true
+                res.end('second')
+            }
+        }, 40)
+        res.on('close', () => clearTimeout(timer))
+    })
+    const frontend = await startProxyFrontend({baseUrl: backend.baseUrl, apiKey: 'k', path: '/x'})
+    try {
+        // Capture console.error to prove the intentional backend cancel is
+        // not misreported as a backend failure.
+        const errors: unknown[] = []
+        const originalError = console.error
+        console.error = (...args: unknown[]) => {
+            errors.push(args[0])
+        }
+        try {
+            // Destroy the client socket right after the first chunk arrives.
+            await new Promise<void>((resolve) => {
+                const req = request({hostname: '127.0.0.1', port: frontend.port, path: '/x'}, (res) => {
+                    res.once('data', () => {
+                        req.destroy()
+                        resolve()
+                    })
+                })
+                req.on('error', () => resolve())
+                req.end()
+            })
+            // Let the backend's follow-up chunk either be dropped or written.
+            await delay(80)
+        } finally {
+            console.error = originalError
+        }
+        assert.equal(errors.some((msg) => String(msg).startsWith('Backend request error:')), false)
+        // The proxy must abandon the backend stream once the client is gone...
+        assert.equal(backendWroteAfterDrop, false)
+        // ...and the frontend must still be serving after the dropped connection.
+        const res = await fetch(`http://127.0.0.1:${frontend.port}/x`)
+        assert.equal(res.status, 200)
+        assert.equal(await res.text(), 'firstsecond')
+    } finally {
+        await frontend.close()
+        await backend.close()
     }
 })
 

@@ -1,7 +1,7 @@
 import * as http from 'http'
 import * as https from 'https'
 import {ClientRequest, IncomingMessage, ServerResponse} from 'http'
-import {appendResponseBody, feedStreamUsage, logResponse} from './server/logs/helper'
+import {appendResponseBody, feedStreamUsage, logResponse, safeLog} from './server/logs/helper'
 import type {ResponseLog, UsageCounts} from './server/logs/helper'
 import type {RequestContext} from './router'
 import type {ProviderConfig} from './config'
@@ -94,7 +94,54 @@ function backendRequest (
     return http.request({hostname, port, path, method, headers: headers})
 }
 
-function forwardResponse (backendRes: IncomingMessage, clientRes: ServerResponse, responseLog: ResponseLog | undefined): void {
+interface ClientState {
+    readonly res: ServerResponse
+    ended: boolean
+    closed: boolean
+}
+
+function createClientState (res: ServerResponse): ClientState {
+    const state: ClientState = {res, ended: false, closed: false}
+    res.on('close', () => {
+        state.closed = true
+    })
+    return state
+}
+
+function clientWritable (client: ClientState): boolean {
+    return !client.closed && !client.ended
+}
+
+function safeWriteHead (client: ClientState, statusCode: number, headers: Record<string, string>): void {
+    if (!clientWritable(client)) return
+    try {
+        client.res.writeHead(statusCode, headers)
+    } catch (err) {
+        console.error('Failed to write client response headers:', err)
+    }
+}
+
+function safeWrite (client: ClientState, chunk: Buffer): void {
+    if (!clientWritable(client)) return
+    try {
+        client.res.write(chunk)
+    } catch (err) {
+        console.error('Failed to write client response chunk:', err)
+    }
+}
+
+function safeEnd (client: ClientState, body?: string): void {
+    if (!clientWritable(client)) return
+    client.ended = true
+    try {
+        if (body === undefined) client.res.end()
+        else client.res.end(body)
+    } catch (err) {
+        console.error('Failed to end client response:', err)
+    }
+}
+
+function forwardResponse (backendRes: IncomingMessage, client: ClientState, responseLog: ResponseLog | undefined): void {
     const statusCode = backendRes.statusCode ?? 500
     const headers: Record<string, string> = {
         ...relayHeaders(backendRes.headers, RESPONSE_STRIP),
@@ -102,37 +149,39 @@ function forwardResponse (backendRes: IncomingMessage, clientRes: ServerResponse
         'access-control-expose-headers': '*',
     }
 
-    logResponse(responseLog, {status: statusCode, headers})
-    clientRes.writeHead(statusCode, headers)
+    safeWriteHead(client, statusCode, headers)
+    safeLog('record response headers', () => logResponse(responseLog, {status: statusCode, headers}))
 
-    if (responseLog && !responseLog.usage) {
-        responseLog.usage = {}
-    }
+    safeLog('initialize response usage', () => {
+        if (responseLog && !responseLog.usage) responseLog.usage = {}
+    })
     const usage: UsageCounts | undefined = responseLog?.usage
     const usageState = {carry: ''}
 
     let firstChunkAt: number | undefined
     backendRes.on('data', (chunk: Buffer) => {
-        if (firstChunkAt === undefined) {
-            firstChunkAt = Date.now()
-            if (responseLog) responseLog.firstTokenAt = firstChunkAt
-        }
-        if (usage) feedStreamUsage(usageState, usage, chunk)
-        appendResponseBody(responseLog, chunk)
-        clientRes.write(chunk)
+        safeLog('record response chunk', () => {
+            if (firstChunkAt === undefined) {
+                firstChunkAt = Date.now()
+                if (responseLog) responseLog.firstTokenAt = firstChunkAt
+            }
+            if (usage) feedStreamUsage(usageState, usage, chunk)
+            appendResponseBody(responseLog, chunk)
+        })
+        safeWrite(client, chunk)
     })
     backendRes.on('end', () => {
-        if (responseLog && firstChunkAt !== undefined) {
-            responseLog.lastTokenAt = Date.now()
-        }
-        clientRes.end()
+        safeLog('record response completion', () => {
+            if (responseLog && firstChunkAt !== undefined) responseLog.lastTokenAt = Date.now()
+        })
+        safeEnd(client)
     })
     backendRes.on('error', () => {
-        clientRes.end()
+        safeEnd(client)
     })
 }
 
-function handleBackendError (err: Error, clientRes: ServerResponse, responseLog: ResponseLog | undefined): void {
+function handleBackendError (err: Error, client: ClientState, responseLog: ResponseLog | undefined): void {
     console.error('Backend request error:', err)
     const body = JSON.stringify({
         error: {
@@ -140,13 +189,13 @@ function handleBackendError (err: Error, clientRes: ServerResponse, responseLog:
             type: 'proxy_error',
         },
     })
-    if (!clientRes.headersSent) {
-        logResponse(responseLog, {status: 502, headers: {'content-type': 'application/json'}, body})
-        clientRes.writeHead(502, {'content-type': 'application/json'})
+    if (!client.res.headersSent) {
+        safeWriteHead(client, 502, {'content-type': 'application/json'})
+        safeLog('record backend error', () => logResponse(responseLog, {status: 502, headers: {'content-type': 'application/json'}, body}))
     } else {
-        appendResponseBody(responseLog, body)
+        safeLog('record backend error body', () => appendResponseBody(responseLog, body))
     }
-    clientRes.end(body)
+    safeEnd(client, body)
 }
 
 export function proxyRequest (
@@ -166,6 +215,7 @@ export function proxyRequest (
     const port = getPort(targetUrl, isHttps)
     const urlPath = targetUrl.pathname + targetUrl.search
     const method = clientReq.method || 'POST'
+    const client = createClientState(clientRes)
 
     function sendToBackend (body: string) {
         if (rewriteBody) {
@@ -179,9 +229,28 @@ export function proxyRequest (
         headers['Content-Length'] = contentLength
         const backendReq = backendRequest(isHttps, hostname, port, urlPath, method, headers)
         backendReq.on('response', (backendRes) => {
-            forwardResponse(backendRes, clientRes, responseLog)
+            forwardResponse(backendRes, client, responseLog)
         })
-        backendReq.on('error', (err: Error) => handleBackendError(err, clientRes, responseLog))
+
+        // A dropped client socket must not keep pulling from the backend:
+        // cancel the upstream request whether or not the backend has answered
+        // yet.
+        let clientDropped = false
+        const dropBackend = (): void => {
+            clientDropped = true
+            backendReq.destroy()
+        }
+        backendReq.on('error', (err: Error) => {
+            // Destroying the request after a client drop can surface the torn
+            // -down socket as ECONNRESET; that is expected, not a backend
+            // failure, so it must not be logged or answered as a 502.
+            if (clientDropped) return
+            handleBackendError(err, client, responseLog)
+        })
+        clientRes.on('close', () => {
+            if (!client.ended) dropBackend()
+        })
+
         backendReq.write(body)
         backendReq.end()
     }
@@ -196,16 +265,16 @@ export function proxyRequest (
         })
         clientReq.on('error', (err: Error) => {
             console.error('Client request error:', err)
-            if (!clientRes.headersSent) {
+            if (!client.res.headersSent) {
                 const body = JSON.stringify({
                     error: {
                         message: `Bad request: ${err.message}`,
                         type: 'client_error',
                     },
                 })
-                logResponse(responseLog, {status: 400, headers: {'content-type': 'application/json'}, body})
-                clientRes.writeHead(400, {'content-type': 'application/json'})
-                clientRes.end(body)
+                safeWriteHead(client, 400, {'content-type': 'application/json'})
+                safeLog('record client error', () => logResponse(responseLog, {status: 400, headers: {'content-type': 'application/json'}, body}))
+                safeEnd(client, body)
             }
         })
     }
