@@ -572,6 +572,13 @@ function sqlTests (): void {
 
         const fromAndProvider = loadUsageStats({from: base, provider: 'p2'})
         assert.equal(fromAndProvider.count, 1)
+
+        // All-time provider/model pairs ignore every filter, so the filter
+        // menus can't shrink the list a selection was made from.
+        const pairKey = (p: {provider: string, model: string}) => `${p.provider}/${p.model}`
+        assert.deepEqual(stats.providerModels.map(pairKey), ['p1/m1', 'p2/m2'])
+        assert.deepEqual(p1.providerModels.map(pairKey), ['p1/m1', 'p2/m2'])
+        assert.deepEqual(fromAndProvider.providerModels.map(pairKey), ['p1/m1', 'p2/m2'])
     })
 
     test('loadUsageStats merges series beyond 45 buckets', () => {
@@ -644,6 +651,8 @@ function sqlTests (): void {
         assert.equal(stats.series.length, 3) // 4xx buckets dropped
         assert.equal(stats.byModel.length, 1) // 4xx m2 excluded -> only m1
         assert.equal(stats.seriesByModel.length, 3)
+        // m2 only ever appeared on 4xx rows, so it is not a filter option
+        assert.deepEqual(stats.providerModels.map(p => `${p.provider}/${p.model}`), ['p1/m1'])
     })
 }
 

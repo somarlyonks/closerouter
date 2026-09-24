@@ -121,6 +121,12 @@ enum APIClient {
         let cachedTokens: Int
     }
 
+    /// An all-time provider/model pair, used to build the analytics filter menus.
+    struct ProviderModel: Decodable, Hashable {
+        let provider: String
+        let model: String
+    }
+
     struct SeriesModelPoint: Decodable, Identifiable {
         let bucket: Int64
         let model: String
@@ -155,6 +161,9 @@ enum APIClient {
         let byModel: [AnalyticsGroup]
         var seriesByModel: [SeriesModelPoint] { _seriesByModel ?? [] }
         private let _seriesByModel: [SeriesModelPoint]?
+        /// All-time provider/model pairs for the filter menus. Absent on older servers.
+        var providerModels: [ProviderModel] { _providerModels ?? [] }
+        private let _providerModels: [ProviderModel]?
         /// Present only when the server supports /usage ?heatmap=1.
         var heatmap: [HeatmapDay] { _heatmap ?? [] }
         private let _heatmap: [HeatmapDay]?
@@ -163,6 +172,7 @@ enum APIClient {
             case count, inTokens, outTokens, cachedTokens, avgDurationMs, avgTtftMs, errorCount
             case series, byProvider, byModel
             case _seriesByModel = "seriesByModel"
+            case _providerModels = "providerModels"
             case _heatmap = "heatmap"
         }
     }
