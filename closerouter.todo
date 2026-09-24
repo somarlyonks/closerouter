@@ -92,6 +92,7 @@ CloseRouter:
             [x] hide when db not running
         analytics:
             [x] hide when db not running
+            [x] cancel concurrency task
             date range:
                 [x] Day, Week, Month, Year presets
                 [x] time range navigation
