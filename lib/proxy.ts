@@ -28,15 +28,17 @@ const HOP_BY_HOP = [
     'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade',
 ]
 
-// Client → provider: everything else on the request is relayed verbatim.
-const REQUEST_STRIP = new Set([
-    ...HOP_BY_HOP,
-    'host', // Node derives Host from the target URL
-    'content-length', // recomputed from the forwarded (rewritten) body
-    'authorization', // replaced with the provider key
-    'expect', // 100-continue is already handled by Node's server before proxying
-    'accept-encoding', // keep upstream responses uncompressed so usage/SSE parsing sees plaintext
-    'cookie', // never leak client session cookies to a third-party provider
+// Client → provider: only headers that carry client intent are relayed. An
+// allowlist keeps inbound proxy metadata (Tailscale Serve, X-Forwarded-*,
+// cookies) off the third-party connection and leaves every header the proxy
+// owns (Content-Type, Content-Length, Authorization, Accept-Encoding, Host) to
+// be set or omitted explicitly.
+const REQUEST_ALLOW = new Set([
+    'accept',
+    'user-agent',
+    'openai-beta',
+    'x-request-id',
+    'x-client-request-id',
 ])
 
 // Provider → client: everything else on the response is relayed verbatim.
@@ -53,7 +55,9 @@ const RESPONSE_STRIP = new Set([
 
 type RelayHeaders = Record<string, string | string[] | undefined>
 
-function relayHeaders (source: RelayHeaders, strip: ReadonlySet<string>): Record<string, string> {
+type RelayRule = (name: string) => boolean
+
+function relayHeaders (source: RelayHeaders, isRelayed: RelayRule): Record<string, string> {
     const connectionHeaders = new Set<string>()
     const connection = source.connection
     // The Connection header names extra hop-by-hop headers (RFC 7230 §6.1).
@@ -72,7 +76,7 @@ function relayHeaders (source: RelayHeaders, strip: ReadonlySet<string>): Record
     const headers: Record<string, string> = {}
     for (const name in source) {
         const value = source[name]
-        if (value === undefined || strip.has(name.toLowerCase()) || connectionHeaders.has(name.toLowerCase())) continue
+        if (value === undefined || !isRelayed(name.toLowerCase()) || connectionHeaders.has(name.toLowerCase())) continue
         if (Array.isArray(value)) {
             headers[name] = value.join(', ')
         } else {
@@ -146,7 +150,7 @@ function safeEnd (client: ClientState, body?: string): void {
 function forwardResponse (backendRes: IncomingMessage, client: ClientState, responseLog: ResponseLog | undefined): void {
     const statusCode = backendRes.statusCode ?? 500
     const headers: Record<string, string> = {
-        ...relayHeaders(backendRes.headers, RESPONSE_STRIP),
+        ...relayHeaders(backendRes.headers, name => !RESPONSE_STRIP.has(name)),
         'access-control-allow-origin': '*',
         'access-control-expose-headers': '*',
     }
@@ -225,10 +229,14 @@ export function proxyRequest (
         }
 
         const contentLength = Buffer.byteLength(body).toString()
-        const headers = relayHeaders(clientReq.headers, REQUEST_STRIP)
-        headers['Content-Type'] = 'application/json'
-        headers['Authorization'] = `Bearer ${apiKey}`
-        headers['Content-Length'] = contentLength
+        // Owned headers are set with lowercase names so they can never coexist
+        // with a relayed peer that differs only by case: the scriptc runtime
+        // does not dedupe header names the way Node's http client does, and a
+        // duplicated Content-Type makes strict gateways reject the body.
+        const headers = relayHeaders(clientReq.headers, name => REQUEST_ALLOW.has(name))
+        headers['content-type'] = 'application/json'
+        headers['authorization'] = `Bearer ${apiKey}`
+        headers['content-length'] = contentLength
         const backendReq = backendRequest(isHttps, hostname, port, urlPath, method, headers)
         backendReq.on('response', (backendRes) => {
             forwardResponse(backendRes, client, responseLog)

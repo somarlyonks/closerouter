@@ -400,7 +400,7 @@ test('proxyRequest survives a client disconnect mid-stream', async () => {
     }
 })
 
-test('proxyRequest relays client request headers to the backend and replaces owned ones', async () => {
+test('proxyRequest relays only allowlisted client headers and replaces owned ones', async () => {
     const backend = await startMockBackend((_req, res) => {
         res.writeHead(200)
         res.end('ok')
@@ -417,6 +417,8 @@ test('proxyRequest relays client request headers to the backend and replaces own
                 'accept': 'text/event-stream',
                 'accept-encoding': 'gzip, deflate',
                 'cookie': 'session=secret',
+                'x-forwarded-for': '203.0.113.7',
+                'x-custom-provider-flag': '1',
             },
         })
         const h = backend.requests[0].headers
@@ -426,8 +428,12 @@ test('proxyRequest relays client request headers to the backend and replaces own
         assert.equal(h.authorization, 'Bearer k')
         assert.equal(h['content-type'], 'application/json')
         assert.equal(h['content-length'], String(Buffer.byteLength('request-body')))
+        // Everything not allowlisted is dropped, including the inbound proxy's
+        // own metadata and headers the proxy owns.
         assert.equal(h['accept-encoding'], undefined)
         assert.equal(h.cookie, undefined)
+        assert.equal(h['x-forwarded-for'], undefined)
+        assert.equal(h['x-custom-provider-flag'], undefined)
         // Host is derived from the target URL, not relayed from the client.
         assert.equal(h.host, new URL(backend.baseUrl).host)
     } finally {
