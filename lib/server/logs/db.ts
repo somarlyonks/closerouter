@@ -165,6 +165,12 @@ export interface UsageGroup {
     cachedTokens: number
 }
 
+/** A provider/model combination seen in the usage table. */
+export interface UsagePair {
+    provider: string
+    model: string
+}
+
 export interface UsageStats {
     count: number
     inTokens: number
@@ -177,6 +183,7 @@ export interface UsageStats {
     seriesByModel: UsageSeriesModelPoint[]
     byProvider: UsageGroup[]
     byModel: UsageGroup[]
+    providerModels: UsagePair[]
 }
 
 const HOUR = 3_600_000
@@ -186,6 +193,7 @@ const emptyStats = (): UsageStats => ({
     count: 0, inTokens: 0, outTokens: 0, cachedTokens: 0,
     avgDurationMs: 0, avgTtftMs: 0, errorCount: 0,
     series: [], seriesByModel: [], byProvider: [], byModel: [],
+    providerModels: [],
 })
 
 const asNum = (v: SqlParam): number => typeof v === 'number' ? v : 0
@@ -288,6 +296,20 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
             cachedTokens: asNum(row.cached_tokens),
         }))
 
+        // All-time provider/model pairs for the filter menus: deliberately
+        // ignores from/to and the provider/model filters so an active filter
+        // can't shrink the list it was selected from.
+        const providerModels = all(
+            `SELECT DISTINCT provider, model
+             FROM usage
+             WHERE provider IS NOT NULL AND model IS NOT NULL
+               AND (status IS NULL OR status < 400 OR status >= 500)
+             ORDER BY provider, model`,
+        ).map(row => ({
+            provider: asStr(row.provider) ?? '',
+            model: asStr(row.model) ?? '',
+        })).filter(p => p.provider !== '' && p.model !== '')
+
         const seriesByModel = all(
             `SELECT (time / ?) * ? AS bucket,
                     COALESCE(model, '(unknown)') AS model,
@@ -360,6 +382,7 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
             seriesByModel: seriesByModelOut,
             byProvider,
             byModel,
+            providerModels,
         }
     } catch (e) {
         console.error('usage stats failed:', e instanceof Error ? e.message : String(e))

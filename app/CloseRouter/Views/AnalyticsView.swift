@@ -26,7 +26,7 @@ final class AnalyticsViewModel: ObservableObject {
     @Published var selectedProvider: String?
     @Published var selectedModel: String?
 
-    private var config: APIClient.ConfigInfo?
+    private var pairs: [APIClient.ProviderModel] = []
 
     init() {
         applyPreset(.week)
@@ -46,13 +46,9 @@ final class AnalyticsViewModel: ObservableObject {
         let provider = selectedProvider
         let model = selectedModel
         Task {
-            if let c = try? await APIClient.getConfig(port: port, key: key) {
-                config = c
-                providers = providersOffering(selectedModel)
-                models = providerModels(selectedProvider)
-            }
             if let s = try? await APIClient.getAnalytics(port: port, key: key, from: from, to: to, provider: provider, model: model) {
                 stats = s
+                applyPairs(s.providerModels)
             }
             isLoading = false
         }
@@ -134,25 +130,24 @@ final class AnalyticsViewModel: ObservableObject {
         }
     }
 
-    /// Models offered by a provider, or every distinct model when no provider is selected.
+    /// Models the provider has served, or every distinct model when no provider is selected.
     private func providerModels(_ provider: String?) -> [String] {
-        guard let config else { return [] }
-        guard let provider, let p = config.providers[provider] else { return allModels() }
-        return p.models?.compactMap(\.id) ?? []
+        let scoped = provider.map { p in pairs.filter { $0.provider == p } } ?? pairs
+        return Array(Set(scoped.map(\.model))).sorted()
     }
 
-    private func allModels() -> [String] {
-        guard let config else { return [] }
-        return Set(config.providers.values.flatMap { $0.models?.compactMap(\.id) ?? [] }).sorted()
-    }
-
-    /// Providers whose catalog contains the model, or every provider when no model is selected.
+    /// Providers that have served the model, or every provider when no model is selected.
     private func providersOffering(_ model: String?) -> [String] {
-        guard let config else { return [] }
-        guard let model else { return config.providers.keys.sorted() }
-        return config.providers
-            .filter { $0.value.models?.contains { $0.id == model } ?? false }
-            .keys.sorted()
+        let scoped = model.map { m in pairs.filter { $0.model == m } } ?? pairs
+        return Array(Set(scoped.map(\.provider))).sorted()
+    }
+
+    /// Adopt the server's all-time provider/model pairs and refresh both menus
+    /// against the current selection.
+    private func applyPairs(_ newPairs: [APIClient.ProviderModel]) {
+        pairs = newPairs
+        providers = providersOffering(selectedModel)
+        models = providerModels(selectedProvider)
     }
 }
 
