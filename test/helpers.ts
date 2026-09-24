@@ -80,6 +80,7 @@ export interface MockBackend {
 
 export function startMockBackend (
     handler?: (req: IncomingMessage, res: ServerResponse, body: string) => void,
+    host = '127.0.0.1',
 ): Promise<MockBackend> {
     const requests: MockBackendRequest[] = []
     const server = createServer((req, res) => {
@@ -98,10 +99,11 @@ export function startMockBackend (
     })
     return new Promise((resolve, reject) => {
         server.on('error', reject)
-        server.listen(0, '127.0.0.1', () => {
+        server.listen(0, host, () => {
             const port = (server.address() as AddressInfo).port
+            const urlHost = host.includes(':') ? `[${host}]` : host
             resolve({
-                baseUrl: `http://127.0.0.1:${port}`,
+                baseUrl: `http://${urlHost}:${port}`,
                 close: () => new Promise<void>(r => server.close(() => r())),
                 requests,
             })

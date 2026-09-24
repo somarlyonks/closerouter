@@ -172,9 +172,9 @@ export function encodeParams (params: SqlParam[]): string {
 }
 
 function encodeParam (param: SqlParam): string | number | boolean | null | {$hex: string} {
-    // Uint8Array is the only object in SqlParam, so a typeof check narrows it
     if (param !== null && typeof param === 'object') {
-        return {$hex: Buffer.from(param).toString('hex')}
+        const bytes: Uint8Array = param
+        return {$hex: Buffer.from(bytes).toString('hex')}
     }
     return param
 }

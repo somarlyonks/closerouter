@@ -28,10 +28,10 @@
         "@types/node": "^24",
         "@typescript/native": "npm:typescript@7.0.2",
         "eslint": "^10",
-        "scriptc": "0.0.36",
+        "scriptc": "0.1.4",
         "typescript": "npm:@typescript/typescript6@6.0.2"
     },
     "allowScripts": {
-        "scriptc@0.0.36": true
+        "scriptc@0.1.4": true
     }
 }

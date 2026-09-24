@@ -7,12 +7,16 @@ import type {RequestContext} from './router'
 import type {ProviderConfig} from './config'
 
 function getPort (targetUrl: URL, isHttps: boolean): number {
-    const host = targetUrl.host
-    const colonIdx = host.indexOf(':')
-    if (colonIdx !== -1) {
-        return parseInt(host.slice(colonIdx + 1), 10)
-    }
+    if (targetUrl.port !== '') return Number(targetUrl.port)
     return isHttps ? 443 : 80
+}
+
+// URL.hostname keeps the brackets on an IPv6 literal ("[::1]"), but
+// http.request's hostname option wants the bare address.
+function getHostname (targetUrl: URL): string {
+    const hostname = targetUrl.hostname
+    if (hostname.startsWith('[') && hostname.endsWith(']')) return hostname.slice(1, -1)
+    return hostname
 }
 
 // Headers that are hop-by-hop (RFC 7230 §6.1) or owned by the proxy itself are
@@ -47,7 +51,7 @@ const RESPONSE_STRIP = new Set([
     'access-control-max-age',
 ])
 
-type RelayHeaders = Record<string, string | string[] | number | undefined>
+type RelayHeaders = Record<string, string | string[] | undefined>
 
 function relayHeaders (source: RelayHeaders, strip: ReadonlySet<string>): Record<string, string> {
     const connectionHeaders = new Set<string>()
@@ -69,12 +73,10 @@ function relayHeaders (source: RelayHeaders, strip: ReadonlySet<string>): Record
     for (const name in source) {
         const value = source[name]
         if (value === undefined || strip.has(name.toLowerCase()) || connectionHeaders.has(name.toLowerCase())) continue
-        if (typeof value === 'string') {
-            headers[name] = value
-        } else if (typeof value === 'number') {
-            headers[name] = String(value)
-        } else {
+        if (Array.isArray(value)) {
             headers[name] = value.join(', ')
+        } else {
+            headers[name] = value
         }
     }
     return headers
@@ -211,7 +213,7 @@ export function proxyRequest (
     const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
     const targetUrl = new URL(normalizedBaseUrl + path)
     const isHttps = targetUrl.protocol === 'https:'
-    const hostname = targetUrl.hostname
+    const hostname = getHostname(targetUrl)
     const port = getPort(targetUrl, isHttps)
     const urlPath = targetUrl.pathname + targetUrl.search
     const method = clientReq.method || 'POST'
@@ -288,7 +290,7 @@ export function proxyGetRequest (
     const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
     const targetUrl = new URL(normalizedBaseUrl + path)
     const isHttps = targetUrl.protocol === 'https:'
-    const hostname = targetUrl.hostname
+    const hostname = getHostname(targetUrl)
     const port = getPort(targetUrl, isHttps)
     const urlPath = targetUrl.pathname + targetUrl.search
 
