@@ -18,6 +18,8 @@ final class AnalyticsViewModel: ObservableObject {
 
     @Published private(set) var stats: APIClient.AnalyticsStats?
     @Published private(set) var isLoading = false
+    /// Message of the newest load if it failed; cleared when a new load starts.
+    @Published private(set) var loadError: String?
     @Published private(set) var providers: [String] = []
     @Published private(set) var models: [String] = []
     @Published var preset: RangePreset = .week
@@ -28,30 +30,90 @@ final class AnalyticsViewModel: ObservableObject {
 
     private var pairs: [APIClient.ProviderModel] = []
 
+    /// The single in-flight load; cancelled and replaced by every new load so
+    /// a superseded request stops hitting the wire and only the newest query
+    /// can commit.
+    private var loadTask: Task<Void, Never>?
+    /// Bumped on every load; a commit is only allowed while its generation is
+    /// still the newest one, so a superseded response is discarded.
+    private var loadGeneration = 0
+
+    /// Immutable query captured when a load starts; the fetch and its commit
+    /// read from this snapshot only, never from mutable view-model state.
+    private struct LoadQuery {
+        let port: Int
+        let key: String
+        let from: Date
+        let to: Date
+        let provider: String?
+        let model: String?
+    }
+
+    /// Outcome of one load, published only by the generation that owns it.
+    private enum LoadOutcome {
+        case loaded(APIClient.AnalyticsStats)
+        case failed(String)
+    }
+
     init() {
         applyPreset(.week)
     }
 
     /// (Re)load stats for the current filters and the provider/model option lists.
     func load() {
+        loadTask?.cancel()
+        loadGeneration += 1
+        let generation = loadGeneration
         guard server.state.isRunning else {
             stats = nil
+            loadError = nil
+            isLoading = false
             return
         }
+        let query = LoadQuery(
+            port: server.port,
+            key: server.key,
+            from: from,
+            to: to,
+            provider: selectedProvider,
+            model: selectedModel
+        )
         isLoading = true
-        let port = server.port
-        let key = server.key
-        let from = from
-        let to = to
-        let provider = selectedProvider
-        let model = selectedModel
-        Task {
-            if let s = try? await APIClient.getAnalytics(port: port, key: key, from: from, to: to, provider: provider, model: model) {
-                stats = s
-                applyPairs(s.providerModels)
-            }
-            isLoading = false
+        loadError = nil
+        loadTask = Task { [weak self] in
+            guard let self else { return }
+            self.commit(await Self.fetch(query), asOf: generation)
         }
+    }
+
+    /// Cancelling a superseded load surfaces as a thrown error here, so it
+    /// lands in `.failed` and is then discarded by the generation guard.
+    private static func fetch(_ query: LoadQuery) async -> LoadOutcome {
+        do {
+            return .loaded(try await APIClient.getAnalytics(
+                port: query.port,
+                key: query.key,
+                from: query.from,
+                to: query.to,
+                provider: query.provider,
+                model: query.model
+            ))
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+    }
+
+    /// Publish the outcome unless a newer load has already superseded it.
+    private func commit(_ outcome: LoadOutcome, asOf generation: Int) {
+        guard loadGeneration == generation else { return }
+        switch outcome {
+        case .loaded(let loaded):
+            stats = loaded
+            applyPairs(loaded.providerModels)
+        case .failed(let message):
+            loadError = message
+        }
+        isLoading = false
     }
 
     func selectPreset(_ p: RangePreset) {
@@ -296,6 +358,9 @@ struct AnalyticsView: View {
         } else if let stats = viewModel.stats {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    if let error = viewModel.loadError {
+                        loadErrorBanner(error)
+                    }
                     statCards(stats)
                     chartCard(stats)
                     if viewModel.preset == .year, !stats.heatmap.isEmpty {
@@ -306,6 +371,8 @@ struct AnalyticsView: View {
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+        } else if let error = viewModel.loadError {
+            loadErrorState(error)
         } else if ServerManager.shared.state.isRunning {
             VStack(spacing: 8) {
                 Image(systemName: "chart.bar.xaxis")
@@ -329,6 +396,38 @@ struct AnalyticsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    // MARK: Load failure
+
+    /// Shown when a refresh failed but the previous stats are still on screen.
+    private func loadErrorBanner(_ message: String) -> some View {
+        HStack {
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Spacer()
+            Button("Retry") { viewModel.load() }
+                .controlSize(.small)
+        }
+        .font(.callout)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(nsColor: .separatorColor)))
+    }
+
+    /// Shown when the first load failed and there are no stats to keep.
+    private func loadErrorState(_ message: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 36))
+                .foregroundStyle(.secondary)
+            Text("Couldn't load analytics.")
+                .font(.headline)
+            Text(message)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: Card wrapper
