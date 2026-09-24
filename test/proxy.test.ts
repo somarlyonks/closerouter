@@ -204,6 +204,28 @@ test('proxyRequest streams backend chunks to the client in order', async () => {
     }
 })
 
+test('proxyRequest dials a bracketed IPv6 backend literal', async (t) => {
+    let backend: Awaited<ReturnType<typeof startMockBackend>>
+    try {
+        backend = await startMockBackend((_req, res) => {
+            res.writeHead(200, {'content-type': 'text/plain'})
+            res.end('v6')
+        }, '::1')
+    } catch {
+        t.skip('IPv6 loopback unavailable')
+        return
+    }
+    const frontend = await startProxyFrontend({baseUrl: backend.baseUrl, apiKey: 'k', path: '/x'})
+    try {
+        const res = await fetch(`http://127.0.0.1:${frontend.port}/x`)
+        assert.equal(res.status, 200)
+        assert.equal(await res.text(), 'v6')
+    } finally {
+        await frontend.close()
+        await backend.close()
+    }
+})
+
 test('proxyRequest keeps streaming when a response log write throws', async () => {
     const backend = await startMockBackend((_req, res) => {
         res.writeHead(200, {'content-type': 'text/event-stream'})
@@ -365,7 +387,7 @@ test('proxyRequest survives a client disconnect mid-stream', async () => {
         } finally {
             console.error = originalError
         }
-        assert.equal(errors.some((msg) => String(msg).startsWith('Backend request error:')), false)
+        assert.equal(errors.some(msg => String(msg).startsWith('Backend request error:')), false)
         // The proxy must abandon the backend stream once the client is gone...
         assert.equal(backendWroteAfterDrop, false)
         // ...and the frontend must still be serving after the dropped connection.

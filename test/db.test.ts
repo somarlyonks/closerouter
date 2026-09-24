@@ -48,29 +48,29 @@ function collect (words: number[]): Array<{isColumns: boolean, data: Buffer}> {
 test('messageCollector reassembles a columns header', () => {
     const messages = collect(frame('{"columns":["a","b"]}', true))
     assert.equal(messages.length, 1)
-    assert.equal(messages[0].isColumns, true)
-    assert.equal(messages[0].data.toString('utf8'), '{"columns":["a","b"]}')
+    assert.equal(messages[0]!.isColumns, true)
+    assert.equal(messages[0]!.data.toString('utf8'), '{"columns":["a","b"]}')
 })
 
 test('messageCollector reassembles a row without the columns flag', () => {
     const messages = collect(frame('[1,"x",null]', false))
     assert.equal(messages.length, 1)
-    assert.equal(messages[0].isColumns, false)
-    assert.equal(messages[0].data.toString('utf8'), '[1,"x",null]')
+    assert.equal(messages[0]!.isColumns, false)
+    assert.equal(messages[0]!.data.toString('utf8'), '[1,"x",null]')
 })
 
 test('messageCollector completes a zero-length message immediately', () => {
     const messages = collect([0])
     assert.equal(messages.length, 1)
-    assert.equal(messages[0].isColumns, false)
-    assert.equal(messages[0].data.length, 0)
+    assert.equal(messages[0]!.isColumns, false)
+    assert.equal(messages[0]!.data.length, 0)
 })
 
 test('messageCollector strips zero padding from the last word', () => {
     const messages = collect(frame('abcdefg', false)) // 7 bytes -> 2 padded words
     assert.equal(messages.length, 1)
-    assert.equal(messages[0].data.length, 7)
-    assert.equal(messages[0].data.toString('utf8'), 'abcdefg')
+    assert.equal(messages[0]!.data.length, 7)
+    assert.equal(messages[0]!.data.toString('utf8'), 'abcdefg')
 })
 
 test('messageCollector sequences multiple messages back to back', () => {
@@ -88,8 +88,8 @@ test('messageCollector grows past the initial 64-byte buffer', () => {
     const text = 'x'.repeat(300)
     const messages = collect(frame(text, false))
     assert.equal(messages.length, 1)
-    assert.equal(messages[0].data.length, 300)
-    assert.equal(messages[0].data.toString('utf8'), text)
+    assert.equal(messages[0]!.data.length, 300)
+    assert.equal(messages[0]!.data.toString('utf8'), text)
 })
 
 test('encodeParams maps every param kind onto the shim wire format', () => {
@@ -120,9 +120,9 @@ function sqlTests (): void {
         assert.equal(inserted.lastInsertRowid, 1)
         const rows = all('SELECT id, name, score FROM t')
         assert.equal(rows.length, 1)
-        assert.equal(rows[0].id as number, 1)
-        assert.equal(rows[0].name as string, 'alice')
-        assert.equal(rows[0].score as number, 1.5)
+        assert.equal(rows[0]!.id as number, 1)
+        assert.equal(rows[0]!.name as string, 'alice')
+        assert.equal(rows[0]!.score as number, 1.5)
     })
 
     test('params bind null, booleans, and text with escapes', () => {
@@ -133,10 +133,10 @@ function sqlTests (): void {
         run('INSERT INTO t (v, n) VALUES (?, ?)', ['more', false])
         const rows = all('SELECT id, v, n FROM t ORDER BY id')
         assert.equal(rows.length, 3)
-        assert.equal(rows[0].v as string, 'a"b\nc🐱')
-        assert.ok(isNull(rows[0].n))
-        assert.equal(rows[1].n as number, 1) // true binds as 1
-        assert.equal(rows[2].n as number, 0) // false binds as 0
+        assert.equal(rows[0]!.v as string, 'a"b\nc🐱')
+        assert.ok(isNull(rows[0]!.n))
+        assert.equal(rows[1]!.n as number, 1) // true binds as 1
+        assert.equal(rows[2]!.n as number, 0) // false binds as 0
     })
 
     test('blob params round-trip as bytes', () => {
@@ -167,7 +167,7 @@ function sqlTests (): void {
     test('batch statements run in one call', () => {
         openDatabase(':memory:')
         run('CREATE TABLE t (id INTEGER PRIMARY KEY); INSERT INTO t VALUES (1); INSERT INTO t VALUES (2)')
-        assert.equal(all('SELECT COUNT(*) AS n FROM t')[0].n as number, 2)
+        assert.equal(all('SELECT COUNT(*) AS n FROM t')[0]!.n as number, 2)
     })
 
     test('changes tracks the last statement', () => {
@@ -185,7 +185,7 @@ function sqlTests (): void {
             run('INSERT INTO t VALUES (1)')
             run('INSERT INTO t VALUES (2)')
         })
-        assert.equal(all('SELECT COUNT(*) AS n FROM t')[0].n as number, 2)
+        assert.equal(all('SELECT COUNT(*) AS n FROM t')[0]!.n as number, 2)
     })
 
     test('withTransaction rolls back and rethrows a failed action', () => {
@@ -195,7 +195,7 @@ function sqlTests (): void {
             run('INSERT INTO t VALUES (1)')
             throw new Error('stop transaction')
         }), /stop transaction/)
-        assert.equal(all('SELECT COUNT(*) AS n FROM t')[0].n as number, 0)
+        assert.equal(all('SELECT COUNT(*) AS n FROM t')[0]!.n as number, 0)
     })
 
     test('a file-backed database persists across close and reopen', () => {
@@ -232,37 +232,37 @@ function sqlTests (): void {
         recordUsage({requestId: 'req-2', time: 5678, method: 'POST', path: '/v1/responses'})
         const rows = all('SELECT * FROM usage ORDER BY id')
         assert.equal(rows.length, 2)
-        assert.equal(rows[0].request_id as string, 'req-1')
-        assert.equal(rows[0].provider as string, 'p')
-        assert.equal(rows[0].time as number, 1234)
-        assert.equal(rows[0].model as string, 'm')
-        assert.equal(rows[0].status as number, 200)
-        assert.equal(rows[0].duration_ms as number, 42)
-        assert.equal(rows[0].input_tokens as number, 10)
-        assert.ok(isNull(rows[0].cached_tokens) === false)
-        assert.equal(rows[0].cached_tokens as number, 3)
-        assert.equal(rows[0].request_body as string, '{"model": "p/m"}')
-        assert.equal(rows[0].response_body as string, '{"choices": []}')
-        assert.ok(isNull(rows[1].provider))
-        assert.ok(isNull(rows[1].input_tokens))
-        assert.ok(isNull(rows[1].request_body))
-        assert.ok(isNull(rows[1].response_body))
+        assert.equal(rows[0]!.request_id as string, 'req-1')
+        assert.equal(rows[0]!.provider as string, 'p')
+        assert.equal(rows[0]!.time as number, 1234)
+        assert.equal(rows[0]!.model as string, 'm')
+        assert.equal(rows[0]!.status as number, 200)
+        assert.equal(rows[0]!.duration_ms as number, 42)
+        assert.equal(rows[0]!.input_tokens as number, 10)
+        assert.ok(isNull(rows[0]!.cached_tokens) === false)
+        assert.equal(rows[0]!.cached_tokens as number, 3)
+        assert.equal(rows[0]!.request_body as string, '{"model": "p/m"}')
+        assert.equal(rows[0]!.response_body as string, '{"choices": []}')
+        assert.ok(isNull(rows[1]!.provider))
+        assert.ok(isNull(rows[1]!.input_tokens))
+        assert.ok(isNull(rows[1]!.request_body))
+        assert.ok(isNull(rows[1]!.response_body))
         const entries = loadUsage()
         assert.equal(entries.length, 2)
-        assert.equal(entries[0].requestId as string, 'req-1')
-        assert.ok((entries[0].id as number) >= 1)
-        assert.ok(entries[0].requestBody === undefined)
-        assert.ok(entries[0].responseBody === undefined)
-        assert.ok(entries[1].requestBody === undefined)
+        assert.equal(entries[0]!.requestId as string, 'req-1')
+        assert.ok((entries[0]!.id as number) >= 1)
+        assert.ok(entries[0]!.requestBody === undefined)
+        assert.ok(entries[0]!.responseBody === undefined)
+        assert.ok(entries[1]!.requestBody === undefined)
         // bodies are fetched on demand by integer row id
-        const body = loadUsageBody(entries[0].id as number)
+        const body = loadUsageBody(entries[0]!.id as number)
         assert.equal(body?.requestBody as string, '{"model": "p/m"}')
         assert.equal(body?.responseBody as string, '{"choices": []}')
-        assert.ok(loadUsageBody(entries[1].id as number)?.requestBody === undefined)
+        assert.ok(loadUsageBody(entries[1]!.id as number)?.requestBody === undefined)
         assert.ok(loadUsageBody(-1) === undefined)
         // idempotent schema
         initUsage()
-        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, 2)
+        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0]!.n as number, 2)
     })
 
     test('expireUsageBodies clears bodies on expired successful rows and keeps the rest', () => {
@@ -281,24 +281,24 @@ function sqlTests (): void {
         const after = all('SELECT request_id, request_body, response_body FROM usage ORDER BY id')
         // rows are kept - only successful (200) expired bodies are dropped
         assert.deepEqual(after.map(r => r.request_id as string), ['old', 'old-err', 'mid', 'fresh'])
-        assert.ok(isNull(after[0].request_body) && isNull(after[0].response_body))
-        assert.equal(after[1].request_body as string, '{"req":"old-err"}') // 500 bodies kept
-        assert.equal(after[1].response_body as string, '{"res":"old-err"}')
-        assert.equal(after[2].request_body as string, '{"req":"mid"}')
-        assert.equal(after[3].request_body as string, '{"req":"fresh"}')
+        assert.ok(isNull(after[0]!.request_body) && isNull(after[0]!.response_body))
+        assert.equal(after[1]!.request_body as string, '{"req":"old-err"}') // 500 bodies kept
+        assert.equal(after[1]!.response_body as string, '{"res":"old-err"}')
+        assert.equal(after[2]!.request_body as string, '{"req":"mid"}')
+        assert.equal(after[3]!.request_body as string, '{"req":"fresh"}')
 
         // idempotent - re-running clears nothing new
         const changesBefore = get('SELECT total_changes() AS n')?.n as number
         expireUsageBodies(60)
         assert.equal(get('SELECT total_changes() AS n')?.n as number, changesBefore)
-        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, 4)
+        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0]!.n as number, 4)
 
         // a stricter policy clears the next-oldest successful row's bodies too
         expireUsageBodies(30)
         const stricter = all('SELECT request_id, request_body FROM usage ORDER BY id')
-        assert.ok(isNull(stricter[2].request_body))
-        assert.equal(stricter[1].request_body as string, '{"req":"old-err"}') // 500 still kept
-        assert.equal(stricter[3].request_body as string, '{"req":"fresh"}')
+        assert.ok(isNull(stricter[2]!.request_body))
+        assert.equal(stricter[1]!.request_body as string, '{"req":"old-err"}') // 500 still kept
+        assert.equal(stricter[3]!.request_body as string, '{"req":"fresh"}')
     })
 
     test('expireUsageBodies keeps newer rows intact through the normal API', () => {
@@ -334,24 +334,24 @@ function sqlTests (): void {
         const sweep = startRetentionSweep(7, 20)
         // the first run is immediate - the expired successful body is cleared before any tick
         const immediately = all('SELECT request_id, request_body FROM usage ORDER BY id')
-        assert.ok(isNull(immediately[0].request_body))
-        assert.equal(immediately[1].request_body as string, 'err-body') // 500 kept
-        assert.equal(immediately[2].request_body as string, 'small')
+        assert.ok(isNull(immediately[0]!.request_body))
+        assert.equal(immediately[1]!.request_body as string, 'err-body') // 500 kept
+        assert.equal(immediately[2]!.request_body as string, 'small')
         await new Promise(r => setTimeout(r, 80)) // several ticks
         sweep.stop()
 
         const rows = all('SELECT request_id, request_body FROM usage ORDER BY id')
         assert.equal(rows.length, 3)
-        assert.ok(isNull(rows[0].request_body)) // expired 200 body cleared by the sweep
-        assert.equal(rows[1].request_body as string, 'err-body') // 500 untouched
-        assert.equal(rows[2].request_body as string, 'small') // fresh body untouched
+        assert.ok(isNull(rows[0]!.request_body)) // expired 200 body cleared by the sweep
+        assert.equal(rows[1]!.request_body as string, 'err-body') // 500 untouched
+        assert.equal(rows[2]!.request_body as string, 'small') // fresh body untouched
 
         // stopping the sweep leaves newer expired rows alone until the next sweep
         const later = Date.now()
         recordUsage({requestId: 'old2', time: later - 300 * DAY, method: 'POST', path: '/v1/chat/completions', status: 200, requestBody: 'stale', responseBody: 'stale'})
         await new Promise(r => setTimeout(r, 60))
         const rows2 = all('SELECT request_id, request_body FROM usage WHERE request_id = ?', ['old2'])
-        assert.equal(rows2[0].request_body as string, 'stale')
+        assert.equal(rows2[0]!.request_body as string, 'stale')
     })
 
     test('retentionDays 0 turns retention off', async () => {
@@ -363,13 +363,13 @@ function sqlTests (): void {
 
         // a direct call with 0 clears nothing
         expireUsageBodies(0)
-        assert.equal(all('SELECT request_body FROM usage')[0].request_body as string, 'big')
+        assert.equal(all('SELECT request_body FROM usage')[0]!.request_body as string, 'big')
 
         // a 0-days sweep arms no timer and clears nothing either
         const sweep = startRetentionSweep(0, 20)
         await new Promise(r => setTimeout(r, 60))
         sweep.stop()
-        assert.equal(all('SELECT request_body FROM usage')[0].request_body as string, 'big')
+        assert.equal(all('SELECT request_body FROM usage')[0]!.request_body as string, 'big')
     })
 
     test('retention vacuum reclaims the file size left by nulled bodies', () => {
@@ -433,12 +433,12 @@ function sqlTests (): void {
         openDatabase(':memory:')
         initUsage()
         recordUsage({requestId: 'probe', time: Date.now(), method: 'POST', path: '/v1/chat/completions', status: 200})
-        const countBefore = all('SELECT COUNT(*) AS n FROM usage')[0].n as number
+        const countBefore = all('SELECT COUNT(*) AS n FROM usage')[0]!.n as number
         assert.match((await status('')).sqlite ?? '', /^\d+\.\d+/)
         // the probe wrote nothing and the handle is still the same connection
-        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, countBefore)
+        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0]!.n as number, countBefore)
         recordUsage({requestId: 'after', time: Date.now(), method: 'POST', path: '/v1/chat/completions', status: 200})
-        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, countBefore + 1)
+        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0]!.n as number, countBefore + 1)
     })
 
     test('initUsage stamps the schema version on a fresh db', () => {
@@ -446,7 +446,7 @@ function sqlTests (): void {
         assert.equal(get('PRAGMA user_version')?.user_version as number, 0)
         initUsage()
         assert.equal(get('PRAGMA user_version')?.user_version as number, SCHEMA_VERSION)
-        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, 0)
+        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0]!.n as number, 0)
     })
 
     test('initUsage rolls back fresh schema creation when setup fails', () => {
@@ -488,8 +488,8 @@ function sqlTests (): void {
         assert.equal(get('PRAGMA user_version')?.user_version as number, SCHEMA_VERSION)
         const rows = all('SELECT request_id, time, status FROM usage')
         assert.equal(rows.length, 1)
-        assert.equal(rows[0].request_id as string, 'legacy')
-        assert.equal(rows[0].status as number, 200)
+        assert.equal(rows[0]!.request_id as string, 'legacy')
+        assert.equal(rows[0]!.status as number, 200)
         // anything the current shape requires that the old db may lack is in place
         assert.ok(get(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'usage_time'`))
     })
@@ -501,7 +501,7 @@ function sqlTests (): void {
         initUsage()
         initUsage()
         assert.equal(get('PRAGMA user_version')?.user_version as number, SCHEMA_VERSION)
-        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0].n as number, 1)
+        assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0]!.n as number, 1)
     })
 
     test('initUsage refuses a db stamped with a newer schema version', () => {
@@ -537,8 +537,8 @@ function sqlTests (): void {
         assert.equal(stats.series.length, 3) // one row per day-bucket
         assert.equal(stats.byProvider.length, 2)
         assert.equal(stats.byModel.length, 2)
-        assert.equal(stats.byProvider[0].key, 'p1') // sorted by count desc
-        assert.equal(stats.byProvider[0].count, 2)
+        assert.equal(stats.byProvider[0]!.key, 'p1') // sorted by count desc
+        assert.equal(stats.byProvider[0]!.count, 2)
 
         // per-bucket per-model series: m1 spans 2 buckets, m2 1 -> 3 points
         assert.equal(stats.seriesByModel.length, 3)
@@ -595,8 +595,8 @@ function sqlTests (): void {
         assert.equal(stats.series.length, 40)
         assert.equal(stats.series.length, Math.ceil(120 / Math.ceil(120 / 45)))
         // bucket = first member of the group
-        assert.equal(stats.series[0].bucket, Math.floor(base / DAY) * DAY)
-        assert.equal(stats.series[1].bucket, Math.floor((base + 3 * DAY) / DAY) * DAY)
+        assert.equal(stats.series[0]!.bucket, Math.floor(base / DAY) * DAY)
+        assert.equal(stats.series[1]!.bucket, Math.floor((base + 3 * DAY) / DAY) * DAY)
         // all rows preserved through the merge
         assert.equal(stats.series.reduce((n, b) => n + b.count, 0), 120)
         assert.equal(stats.series.reduce((n, b) => n + b.inTokens, 0), 1200)
@@ -605,11 +605,11 @@ function sqlTests (): void {
         assert.equal(stats.seriesByModel.length, 80)
         const pt = (bucket: number, model: string) =>
             stats.seriesByModel.find(p => p.bucket === bucket && p.model === model)
-        const g0mA = pt(stats.series[0].bucket, 'mA')
+        const g0mA = pt(stats.series[0]!.bucket, 'mA')
         assert.ok(g0mA)
         assert.equal(g0mA!.count, 2) // days 0 and 2 of the group
         assert.equal(g0mA!.inTokens, 20)
-        const g0mB = pt(stats.series[0].bucket, 'mB')
+        const g0mB = pt(stats.series[0]!.bucket, 'mB')
         assert.ok(g0mB)
         assert.equal(g0mB!.count, 1) // day 1
         assert.equal(g0mB!.inTokens, 10)

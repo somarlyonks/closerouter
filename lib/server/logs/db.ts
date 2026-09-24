@@ -27,17 +27,6 @@ let initialized = false
 
 export const SCHEMA_VERSION = 1
 
-/** Forward migration steps: `migrations[v]` upgrades a database stamped at
- *  schema version v to v + 1, and must be idempotent - version 0 predates
- *  stamping, so such a db may already carry any later shape. Each step is
- *  followed by stamping its target version, so a failed step leaves the db at
- *  its last good version and init resumes there on the next start. */
-const migrations: Array<() => void> = [
-    // v0 -> v1: the pre-versioning table already matches the current shape -
-    // nothing to change, the stamp below records it as current.
-    () => { },
-]
-
 const createUsageTable = (): void => {
     run(`CREATE TABLE usage (
         id INTEGER PRIMARY KEY,
@@ -86,9 +75,14 @@ export function initUsage (): void {
         return
     }
 
+    // Forward migration steps upgrade a db stamped at version v to v + 1 and
+    // must be idempotent - version 0 predates stamping, so such a db may
+    // already carry any later shape. Each step is stamped after it runs, so a
+    // failed step leaves the db at its last good version and init resumes
+    // there on the next start. (v0 -> v1 is a no-op: the pre-versioning table
+    // already matches the current shape.)
     for (let v = version; v < SCHEMA_VERSION; v++) {
         withTransaction(() => {
-            migrations[v]()
             run(`PRAGMA user_version = ${v + 1}`)
         })
     }
