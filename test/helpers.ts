@@ -5,7 +5,7 @@ import {mkdtemp, writeFile, rm} from 'fs/promises'
 import {tmpdir} from 'os'
 import {join} from 'path'
 import type {RuntimeConfig} from '../lib/config'
-import {handle, type RequestContext, type RequestHandler, type Route} from '../lib/router'
+import {handle, routerErrorBoundary, type RequestContext, type RequestHandler, type Route} from '../lib/router'
 import {startServer} from '../lib/server'
 
 export class ExitError extends Error {
@@ -123,7 +123,9 @@ export function startHandlerServer (
     const server = createServer((req, res) => {
         const ctx: RequestContext = {req, env}
         const h = typeof handler === 'function' ? handler : handle(handler)
-        h(ctx, res)
+        // same error policy as the production server, so handler tests see
+        // failures as clients do
+        routerErrorBoundary(h)(ctx, res)
     })
     return new Promise((resolve, reject) => {
         server.on('error', reject)
@@ -180,6 +182,7 @@ export interface CapturedResponse {
     headers: Record<string, string>
     body: string
     ended: boolean
+    destroyed: boolean
     headersSent: boolean
 }
 
@@ -193,6 +196,7 @@ export function mockRes (): MockResponse {
         headers: {},
         body: '',
         ended: false,
+        destroyed: false,
         headersSent: false,
     }
     const res = {
@@ -210,6 +214,9 @@ export function mockRes (): MockResponse {
         write (chunk: string | Buffer) {
             captured.body += typeof chunk === 'string' ? chunk : chunk.toString('utf-8')
         },
+        destroy () {
+            captured.destroyed = true
+        },
         end (chunk?: string | Buffer) {
             if (chunk !== undefined) {
                 captured.body += typeof chunk === 'string' ? chunk : chunk.toString('utf-8')
@@ -226,6 +233,17 @@ export function mockReq (opts: {method?: string, url?: string, headers?: Record<
         url: opts.url ?? '/',
         headers: opts.headers ?? {},
     } as unknown as IncomingMessage
+}
+
+export function stubConsoleError (): {errors: unknown[][], restore: () => void} {
+    const errors: unknown[][] = []
+    const orig = console.error
+    console.error = (...args: unknown[]) => {
+        errors.push(args)
+    }
+    return {errors, restore: () => {
+        console.error = orig
+    }}
 }
 
 export function delay (ms: number): Promise<void> {

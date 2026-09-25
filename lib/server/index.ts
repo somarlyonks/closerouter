@@ -2,7 +2,7 @@ import {createServer, type IncomingMessage, type Server, type ServerResponse} fr
 import {printServerConfig, type RuntimeConfig} from '../config'
 import {closeDatabase} from '../db'
 import {v1Router as handleOpenAIRequest} from './v1'
-import {handle, router, path, type RequestContext, type RequestHandler} from '../router'
+import {handle, router, path, routerErrorBoundary, type RequestContext} from '../router'
 import {handleLogs, logMiddleware} from './logs'
 import {handleUsage} from './usage'
 import {handleStatus} from './status'
@@ -71,16 +71,4 @@ function handleOptions (ctx: RequestContext, res: ServerResponse) {
         'access-control-max-age': '86400',
     })
     res.end()
-}
-
-function routerErrorBoundary (handler: RequestHandler): RequestHandler {
-    return (ctx, res) => {
-        try {
-            handler(ctx, res)
-        } catch (e) {
-            console.error(e)
-            res.writeHead(500)
-            res.end()
-        }
-    }
 }

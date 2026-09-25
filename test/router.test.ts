@@ -1,8 +1,8 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {router, withMethod, needsAuth, handle, method, path} from '../lib/router'
+import {router, withMethod, needsAuth, handle, method, path, asyncHandler, routerErrorBoundary, handleServerError} from '../lib/router'
 import type {RequestContext, Route} from '../lib/router'
-import {mockReq, mockRes, sampleConfig} from './helpers'
+import {mockReq, mockRes, sampleConfig, delay, stubConsoleError} from './helpers'
 
 function ctx (opts: {method?: string, url?: string, headers?: Record<string, string>} = {}): RequestContext {
     return {
@@ -348,4 +348,134 @@ test('path patterns match the pathname: exact, raw-prefix, and subtree', () => {
     assert.equal(path('/usage@*').predicate(ctx({url: '/usage'})), true)
     assert.equal(path('/usage@*').predicate(ctx({url: '/usage/1'})), true)
     assert.equal(path('/usage@*').predicate(ctx({url: '/usage_but_does_not_exist'})), false)
+})
+
+test('dispatch returns before an adapted async route handler answers, then serves its response', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+        release = resolve
+    })
+    const res = mockRes()
+
+    handle(router(path('/'), asyncHandler(async (_c, r) => {
+        await gate
+        r.writeHead(200)
+        r.end('async body')
+    })))(ctx(), res)
+
+    // the dispatch is synchronous: the handler's response is not sent yet
+    assert.equal(res.captured.ended, false)
+    release()
+    await delay(1)
+    assert.equal(res.captured.statusCode, 200)
+    assert.equal(res.captured.body, 'async body')
+})
+
+test('an un-adapted async route handler rejection is answered with a 500 instead of an unhandled rejection', async () => {
+    const stub = stubConsoleError()
+    const res = mockRes()
+    try {
+        handle(router(path('/'), async () => {
+            throw new Error('boom')
+        }))(ctx(), res)
+        await delay(1)
+    } finally {
+        stub.restore()
+    }
+
+    assert.equal(res.captured.statusCode, 500)
+    assert.equal(res.captured.headersSent, true)
+    assert.deepEqual(JSON.parse(res.captured.body), {
+        error: {message: 'Internal server error', type: 'server_error'},
+    })
+    // the rejection is logged once through the shared error reporter
+    assert.equal(stub.errors.length, 1)
+    assert.equal((stub.errors[0]![0] as Error).message, 'boom')
+})
+
+test('an un-adapted async route handler rejection mid-stream destroys the started response', async () => {
+    const stub = stubConsoleError()
+    const res = mockRes()
+    try {
+        handle(router(path('/'), async (_c, r) => {
+            r.writeHead(200)
+            await Promise.resolve()
+            throw new Error('mid-stream boom')
+        }))(ctx(), res)
+        await delay(1)
+    } finally {
+        stub.restore()
+    }
+
+    // headers already went out: the transport is killed instead of faking a clean EOF
+    assert.equal(res.captured.statusCode, 200)
+    assert.equal(res.captured.ended, false)
+    assert.equal(res.captured.destroyed, true)
+    assert.equal(stub.errors.length, 1)
+})
+
+test('the error boundary settles an un-adapted async route handler rejection exactly once', async () => {
+    const stub = stubConsoleError()
+    const res = mockRes()
+    try {
+        // the production composition: the boundary wraps the dispatch, the
+        // dispatch settles the route handler's promise
+        routerErrorBoundary(handle(
+            router(path('/'), async () => {
+                throw new Error('boom')
+            }),
+        ))(ctx(), res)
+        await delay(1)
+    } finally {
+        stub.restore()
+    }
+
+    assert.equal(res.captured.statusCode, 500)
+    assert.equal(stub.errors.length, 1)
+    assert.equal((stub.errors[0]![0] as Error).message, 'boom')
+})
+
+test('the error boundary settles an adapted async route handler rejection exactly once', async () => {
+    const stub = stubConsoleError()
+    const res = mockRes()
+    try {
+        // the /v1/models composition: the boundary wraps the dispatch, the
+        // adapter settles its own rejection, the dispatch must not repeat it
+        routerErrorBoundary(handle(
+            router(path('/'), asyncHandler(async () => {
+                throw new Error('boom')
+            })),
+        ))(ctx(), res)
+        await delay(1)
+    } finally {
+        stub.restore()
+    }
+
+    assert.equal(res.captured.statusCode, 500)
+    assert.equal(stub.errors.length, 1)
+    assert.equal((stub.errors[0]![0] as Error).message, 'boom')
+})
+
+test('handleServerError answers a JSON 500 before headers and destroys a started response', () => {
+    const stub = stubConsoleError()
+    try {
+        const before = mockRes()
+        handleServerError(before, new Error('x'))
+        assert.equal(before.captured.statusCode, 500)
+        assert.equal(before.captured.ended, true)
+        assert.equal(before.captured.destroyed, false)
+        assert.deepEqual(JSON.parse(before.captured.body), {
+            error: {message: 'Internal server error', type: 'server_error'},
+        })
+
+        const started = mockRes()
+        started.writeHead(200)
+        handleServerError(started, new Error('x'))
+        assert.equal(started.captured.statusCode, 200)
+        assert.equal(started.captured.ended, false)
+        assert.equal(started.captured.destroyed, true)
+    } finally {
+        stub.restore()
+    }
+    assert.equal(stub.errors.length, 2)
 })
