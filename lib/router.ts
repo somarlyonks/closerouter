@@ -12,6 +12,9 @@ export interface RequestContext {
     responseLog?: ResponseLog
 }
 
+/** A route handler. An async handler cannot be mounted directly - scriptc
+ *  requires the exact void return - so adapt it with asyncHandler; the
+ *  dispatcher still settles a slipped-through rejected promise at runtime. */
 export type RequestHandler = (ctx: RequestContext, res: ServerResponse) => void
 
 export interface RoutePredicate {
@@ -90,7 +93,7 @@ export function handle (routes: Route[]): RequestHandler {
                 const nested = scan(handler, ctx, res)
                 if (nested !== undefined) answer(ctx, res, nested)
             } else {
-                handler(ctx, res)
+                callHandler(handler, ctx, res)
             }
             return undefined
         }
@@ -180,6 +183,60 @@ function handleNotFound ({req}: RequestContext, res: ServerResponse): void {
         error: {
             message: `Not found: ${req.method} ${req.url}`,
             type: 'not_found',
+        },
+    }))
+}
+
+/** Adapt an async handler for mounting: scriptc requires a route handler to
+ *  return void, so the promise an async handler returns is answered here -
+ *  its rejection would die as an unhandled rejection without this. */
+export function asyncHandler (
+    handler: (ctx: RequestContext, res: ServerResponse) => Promise<void>,
+): RequestHandler {
+    return (ctx, res) => {
+        handler(ctx, res).catch((e: unknown) => handleServerError(res, e))
+    }
+}
+
+/** Call a handler and answer the failure of a promise it should not have
+ *  returned: nothing awaits it, so its rejection is answered here instead
+ *  of dying as an unhandled rejection - a synchronous throw instead
+ *  propagates to the caller's error boundary. */
+function callHandler (handler: RequestHandler, ctx: RequestContext, res: ServerResponse): void {
+    const result = handler(ctx, res) as void | Promise<void>
+    if (typeof result === 'object' && result !== null) {
+        result.catch((e: unknown) => handleServerError(res, e))
+    }
+}
+
+/** Wrap a dispatch so a handler failure cannot kill the server or hang the
+ *  client: a synchronous throw is caught here, while the rejected promise of
+ *  an async handler is answered by callHandler - each failure reaches
+ *  handleServerError exactly once. */
+export function routerErrorBoundary (handler: RequestHandler): RequestHandler {
+    return (ctx, res) => {
+        try {
+            callHandler(handler, ctx, res)
+        } catch (e) {
+            handleServerError(res, e)
+        }
+    }
+}
+
+export function handleServerError (res: ServerResponse, e: unknown): void {
+    console.error(e)
+    if (res.headersSent) {
+        // the response already started: ending here would fake a clean EOF
+        // after a partial body, so kill the transport instead - the client sees
+        // a truncated response
+        res.destroy()
+        return
+    }
+    res.writeHead(500, {'content-type': 'application/json'})
+    res.end(JSON.stringify({
+        error: {
+            message: 'Internal server error',
+            type: 'server_error',
         },
     }))
 }

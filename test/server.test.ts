@@ -7,7 +7,8 @@ import {connect, type AddressInfo} from 'net'
 import type {MockBackend} from './helpers'
 import type {RuntimeConfig} from '../lib/config'
 import {startServer} from '../lib/server'
-import {startMockBackend, writeTempConfig, startCrServer, getFreePort} from './helpers'
+import {handle, router, type RequestHandler} from '../lib/router'
+import {startMockBackend, writeTempConfig, startCrServer, getFreePort, startHandlerServer, sampleConfig, stubConsoleError} from './helpers'
 
 const API_KEY = 'sk-test'
 
@@ -220,6 +221,96 @@ test('GET /logs serves the HTML page without auth', async () => {
     } finally {
         await s.close()
     }
+})
+
+test('error boundary answers a synchronous throw with a 500 before headers are sent', async () => {
+    const stub = stubConsoleError()
+    let srv
+    try {
+        srv = await startHandlerServer((() => {
+            throw new Error('sync boom')
+        }) as RequestHandler, sampleConfig())
+        const res = await fetch(`http://127.0.0.1:${srv.port}/`)
+        assert.equal(res.status, 500)
+        assert.deepEqual(await res.json(), {
+            error: {message: 'Internal server error', type: 'server_error'},
+        })
+    } finally {
+        stub.restore()
+        await srv?.close()
+    }
+    assert.equal(stub.errors.length, 1)
+    assert.equal((stub.errors[0]![0] as Error).message, 'sync boom')
+})
+
+test('error boundary answers an un-adapted rejected handler promise with a 500', async () => {
+    const stub = stubConsoleError()
+    let srv
+    try {
+        srv = await startHandlerServer(async () => {
+            throw new Error('async boom')
+        }, sampleConfig())
+        const res = await fetch(`http://127.0.0.1:${srv.port}/`)
+        assert.equal(res.status, 500)
+        assert.deepEqual(await res.json(), {
+            error: {message: 'Internal server error', type: 'server_error'},
+        })
+    } finally {
+        stub.restore()
+        await srv?.close()
+    }
+    assert.equal(stub.errors.length, 1)
+    assert.equal((stub.errors[0]![0] as Error).message, 'async boom')
+})
+
+test('error boundary terminates a started response instead of faking a clean EOF', async () => {
+    const stub = stubConsoleError()
+    let srv
+    try {
+        srv = await startHandlerServer(async (_ctx, res) => {
+            res.writeHead(200, {'content-type': 'text/plain'})
+            res.write('partial')
+            await new Promise<void>(r => setTimeout(r, 20))
+            throw new Error('mid-stream boom')
+        }, sampleConfig())
+        await assert.rejects(async () => {
+            const res = await fetch(`http://127.0.0.1:${srv.port}/`)
+            assert.equal(res.status, 200)
+            // the truncated body read must fail: the client must not receive a
+            // clean EOF after a partial body
+            await res.text()
+        })
+    } finally {
+        stub.restore()
+        await srv?.close()
+    }
+    assert.equal(stub.errors.length, 1)
+    assert.equal((stub.errors[0]![0] as Error).message, 'mid-stream boom')
+})
+
+test('error boundary settles an un-adapted async route handler rejection exactly once', async () => {
+    const stub = stubConsoleError()
+    let srv
+    try {
+        // the production composition: the boundary wraps the dispatch, the
+        // dispatch settles the route handler's promise
+        srv = await startHandlerServer(handle(
+            router(() => true, async () => {
+                throw new Error('route boom')
+            }),
+        ), sampleConfig())
+        const res = await fetch(`http://127.0.0.1:${srv.port}/`)
+        assert.equal(res.status, 500)
+        assert.deepEqual(await res.json(), {
+            error: {message: 'Internal server error', type: 'server_error'},
+        })
+    } finally {
+        stub.restore()
+        await srv?.close()
+    }
+    // the dispatch settles the failure; the boundary must not log it again
+    assert.equal(stub.errors.length, 1)
+    assert.equal((stub.errors[0]![0] as Error).message, 'route boom')
 })
 
 test('SIGTERM triggers graceful shutdown with exit code 0', async () => {
