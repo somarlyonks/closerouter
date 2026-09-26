@@ -79,6 +79,7 @@ export function logMiddleware (ctx: RequestContext, res: ServerResponse) {
         const lastTokenAt = responseLog?.lastTokenAt
 
         recordUsage({
+            ...usage,
             requestId: id,
             time: startedAt,
             method: req.method!,
@@ -89,9 +90,6 @@ export function logMiddleware (ctx: RequestContext, res: ServerResponse) {
             durationMs: Date.now() - startedAt,
             ttftMs: firstTokenAt !== undefined ? firstTokenAt - startedAt : undefined,
             generationMs: firstTokenAt !== undefined && lastTokenAt !== undefined ? lastTokenAt - firstTokenAt : undefined,
-            inputTokens: usage.inputTokens,
-            outputTokens: usage.outputTokens,
-            cachedTokens: usage.cachedTokens,
             requestBody: readRequestBody(),
             responseBody: responseLog.body,
         })
