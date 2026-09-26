@@ -7,7 +7,7 @@ import {
     sqliteAvailable, openDatabase, closeDatabase, run, all, get, withTransaction,
     messageCollector, encodeParams, decodeValue,
 } from '../lib/db'
-import {initUsage, recordUsage, loadUsage, loadUsageBody, loadUsageStats, expireUsageBodies, startRetentionSweep, SCHEMA_VERSION} from '../lib/server/logs/db'
+import {initUsage, recordUsage, loadUsage, loadUsageBody, loadUsageStats, loadUsageHeatmap, expireUsageBodies, startRetentionSweep, SCHEMA_VERSION} from '../lib/server/logs/db'
 import {handleStatus} from '../lib/server/status'
 import {handle} from '../lib/router'
 import type {RuntimeConfig} from '../lib/config'
@@ -653,6 +653,82 @@ function sqlTests (): void {
         assert.equal(stats.seriesByModel.length, 3)
         // m2 only ever appeared on 4xx rows, so it is not a filter option
         assert.deepEqual(stats.providerModels.map(p => `${p.provider}/${p.model}`), ['p1/m1'])
+    })
+
+    const DAY_MS = 86_400_000
+
+    // Oracle mirroring the JS bucketing this suite predates: the local-midnight
+    // epoch of the calendar day containing ms (DST-aware per-instant offset;
+    // rows seeded away from DST transition instants keep it exact).
+    const localMidnight = (ms: number): number => {
+        const offset = new Date(ms).getTimezoneOffset() * 60_000
+        return Math.floor((ms - offset) / DAY_MS) * DAY_MS + offset
+    }
+
+    const todayLocalMidnight = (): number => localMidnight(Date.now())
+
+    const seedHeatRow = (id: string, time: number, provider: string, model: string, status: number, inTok: number, outTok: number, cachedTok = 0) =>
+        recordUsage({
+            requestId: id, time, method: 'POST', path: '/v1/chat/completions',
+            provider, model, status, durationMs: 100, ttftMs: 10,
+            inputTokens: inTok, outputTokens: outTok, cachedTokens: cachedTok,
+        })
+
+    test('loadUsageHeatmap buckets rows by local calendar day, SQL-side', () => {
+        openDatabase(':memory:')
+        initUsage()
+        const today = todayLocalMidnight()
+        // rows straddle every local-day boundary: last ms of yesterday, exact
+        // midnight, mid-day, and last ms of today
+        seedHeatRow('y-end', today - 1, 'p1', 'm1', 200, 1, 2, 0)
+        seedHeatRow('t-start', today, 'p1', 'm1', 200, 10, 20, 1)
+        seedHeatRow('t-noon', today + 12 * 3_600_000, 'p2', 'm2', 200, 30, 40, 3)
+        seedHeatRow('t-4xx', today + 3_600_000, 'p1', 'm1', 404, 100, 200)
+        seedHeatRow('t-end', today + DAY_MS - 1, 'p1', 'm1', 200, 5, 6)
+
+        const heatmap = loadUsageHeatmap()
+        // only the two days holding rows - no zero-filled gaps in between
+        assert.equal(heatmap.length, 2)
+        assert.equal(heatmap[0]!.bucket, localMidnight(today - 1))
+        assert.equal(heatmap[0]!.count, 1)
+        assert.equal(heatmap[0]!.inTokens, 1)
+        assert.equal(heatmap[0]!.outTokens, 2)
+        assert.equal(heatmap[0]!.cachedTokens, 0)
+        assert.equal(heatmap[1]!.bucket, today)
+        assert.equal(heatmap[1]!.count, 3) // the 404 row is excluded
+        assert.equal(heatmap[1]!.inTokens, 45) // 10 + 30 + 5
+        assert.equal(heatmap[1]!.outTokens, 66) // 20 + 40 + 6
+        assert.equal(heatmap[1]!.cachedTokens, 4) // 1 + 3
+    })
+
+    test('loadUsageHeatmap honors from/to, provider and model filters', () => {
+        openDatabase(':memory:')
+        initUsage()
+        const today = todayLocalMidnight()
+        seedHeatRow('y1', today - 1, 'p1', 'm1', 200, 1, 2)
+        seedHeatRow('t1', today, 'p1', 'm1', 200, 10, 20)
+        seedHeatRow('t2', today + 12 * 3_600_000, 'p2', 'm2', 200, 30, 40)
+        seedHeatRow('n1', today + DAY_MS + 3_600_000, 'p1', 'm2', 200, 50, 60)
+
+        // inclusive range keeps only today
+        const range = loadUsageHeatmap({from: today, to: today + DAY_MS - 1})
+        assert.deepEqual(range.map(b => b.bucket), [today])
+        assert.equal(range[0]!.count, 2)
+
+        const byProvider = loadUsageHeatmap({provider: 'p2'})
+        assert.deepEqual(byProvider.map(b => b.bucket), [today])
+        assert.equal(byProvider[0]!.count, 1)
+        assert.equal(byProvider[0]!.inTokens, 30)
+
+        // m1 rows live on both earlier days; the day gap stays sparse
+        const byModel = loadUsageHeatmap({model: 'm1'})
+        assert.deepEqual(byModel.map(b => b.bucket), [localMidnight(today - 1), today])
+        assert.equal(byModel[0]!.count, 1)
+        assert.equal(byModel[1]!.count, 1)
+
+        const combined = loadUsageHeatmap({from: today, provider: 'p1', model: 'm1'})
+        assert.deepEqual(combined.map(b => b.bucket), [today])
+        assert.equal(combined[0]!.inTokens, 10)
     })
 }
 

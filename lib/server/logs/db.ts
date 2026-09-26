@@ -199,12 +199,30 @@ const emptyStats = (): UsageStats => ({
 const asNum = (v: SqlParam): number => typeof v === 'number' ? v : 0
 const asStr = (v: SqlParam): string | undefined => typeof v === 'string' ? v : undefined
 
-/** Local-midnight epoch ms for a timestamp, in the server's local timezone.
- *  getTimezoneOffset() is per-instant (DST-aware); scriptc has no lowering for
- *  the local-time `new Date(y, m, d)` constructor, so we avoid it. */
-function localMidnightEpoch (ms: number): number {
-    const offset = new Date(ms).getTimezoneOffset() * 60_000
-    return Math.floor((ms - offset) / DAY) * DAY + offset
+/** AND-combined time-range/provider/model filters plus the success-only rule
+ *  (4xx client errors are excluded, null status and 5xx kept), shared by every
+ *  usage aggregation query. */
+function usageWhere (filters: UsageFilters): {clause: string, params: SqlParam[]} {
+    const where: string[] = []
+    const params: SqlParam[] = []
+    if (filters.from !== undefined) {
+        where.push('time >= ?')
+        params.push(filters.from)
+    }
+    if (filters.to !== undefined) {
+        where.push('time <= ?')
+        params.push(filters.to)
+    }
+    if (filters.provider) {
+        where.push('provider = ?')
+        params.push(filters.provider)
+    }
+    if (filters.model) {
+        where.push('model = ?')
+        params.push(filters.model)
+    }
+    where.push('(status IS NULL OR status < 400 OR status >= 500)')
+    return {clause: ` WHERE ${where.join(' AND ')}`, params}
 }
 
 /** Aggregate usage rows into totals, a time series, and per-provider/model breakdowns.
@@ -214,26 +232,7 @@ function localMidnightEpoch (ms: number): number {
 export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
     if (!initialized) return emptyStats()
     try {
-        const where: string[] = []
-        const params: SqlParam[] = []
-        if (filters.from !== undefined) {
-            where.push('time >= ?')
-            params.push(filters.from)
-        }
-        if (filters.to !== undefined) {
-            where.push('time <= ?')
-            params.push(filters.to)
-        }
-        if (filters.provider) {
-            where.push('provider = ?')
-            params.push(filters.provider)
-        }
-        if (filters.model) {
-            where.push('model = ?')
-            params.push(filters.model)
-        }
-        where.push('(status IS NULL OR status < 400 OR status >= 500)')
-        const clause = where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''
+        const {clause, params} = usageWhere(filters)
 
         const total = all(
             `SELECT COUNT(*) AS count,
@@ -395,48 +394,30 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
  * loadUsageStats (AND-combined, success-only). Days with no rows are absent
  * from the result on purpose - the client treats a missing day as zero, so
  * the server never zero-fills. Each bucket's timestamp is the local-midnight
- * epoch ms of its calendar day. Rows are bucketed in JS because SQLite's
- * local-tz date helpers return strings that scriptc can't round-trip.
+ * epoch ms of its calendar day, computed entirely in SQL so only one row per
+ * day crosses the FFI boundary: date(...,'localtime') yields the row's local
+ * day, and reinterpreting that day's '00:00' with the 'utc' modifier converts
+ * local midnight back to a UTC epoch.
  */
 export function loadUsageHeatmap (filters: UsageFilters = {}): UsageBucket[] {
     if (!initialized) return []
     try {
-        const where: string[] = []
-        const params: SqlParam[] = []
-        if (filters.from !== undefined) {
-            where.push('time >= ?')
-            params.push(filters.from)
-        }
-        if (filters.to !== undefined) {
-            where.push('time <= ?')
-            params.push(filters.to)
-        }
-        if (filters.provider) {
-            where.push('provider = ?')
-            params.push(filters.provider)
-        }
-        if (filters.model) {
-            where.push('model = ?')
-            params.push(filters.model)
-        }
-        where.push('(status IS NULL OR status < 400 OR status >= 500)')
-        const clause = where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''
-
-        const rows = all(
-            `SELECT time, input_tokens, output_tokens, cached_tokens FROM usage${clause}`,
+        const {clause, params} = usageWhere(filters)
+        return all(
+            `SELECT CAST(strftime('%s', date(time / 1000, 'unixepoch', 'localtime') || ' 00:00', 'utc') AS INTEGER) * 1000 AS bucket,
+                    COUNT(*) AS count,
+                    COALESCE(SUM(input_tokens), 0) AS in_tokens,
+                    COALESCE(SUM(output_tokens), 0) AS out_tokens,
+                    COALESCE(SUM(cached_tokens), 0) AS cached_tokens
+             FROM usage${clause} GROUP BY bucket ORDER BY bucket`,
             params,
-        )
-        const byDay = new Map<number, UsageBucket>()
-        for (const row of rows) {
-            const day = localMidnightEpoch(asNum(row.time))
-            const b = byDay.get(day) ?? {bucket: day, count: 0, inTokens: 0, outTokens: 0, cachedTokens: 0}
-            b.count++
-            b.inTokens += asNum(row.input_tokens)
-            b.outTokens += asNum(row.output_tokens)
-            b.cachedTokens += asNum(row.cached_tokens)
-            byDay.set(day, b)
-        }
-        return [...byDay.values()].sort((a, b) => a.bucket - b.bucket)
+        ).map(row => ({
+            bucket: asNum(row.bucket),
+            count: asNum(row.count),
+            inTokens: asNum(row.in_tokens),
+            outTokens: asNum(row.out_tokens),
+            cachedTokens: asNum(row.cached_tokens),
+        }))
     } catch (e) {
         console.error('usage heatmap failed:', e instanceof Error ? e.message : String(e))
         return []
