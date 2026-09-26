@@ -3,8 +3,9 @@
 // server - a broken storage backend logs and drops the row.
 
 import {sqliteAvailable, all, get, run, withTransaction, type SqlParam} from '../../db'
+import type {UsageCounts} from './helper'
 
-export interface UsageEntry {
+export interface UsageEntry extends UsageCounts {
     id?: number
     requestId: string
     time: number
@@ -16,9 +17,6 @@ export interface UsageEntry {
     durationMs?: number
     ttftMs?: number
     generationMs?: number
-    inputTokens?: number
-    outputTokens?: number
-    cachedTokens?: number
     requestBody?: string
     responseBody?: string
 }
