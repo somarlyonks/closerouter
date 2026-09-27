@@ -9,7 +9,7 @@
 
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import type {IncomingMessage, ServerResponse} from 'http'
+import type {IncomingMessage, Server, ServerResponse} from 'http'
 import {createServer} from 'http'
 import {sqliteAvailable, openDatabase} from '../lib/db'
 import {initUsage} from '../lib/server/logs/db'
@@ -37,7 +37,7 @@ function startBackend (handler: (req: IncomingMessage, res: ServerResponse) => v
     })
 }
 
-function listen (server: ReturnType<typeof startServer>): Promise<number> {
+function listen (server: Server): Promise<number> {
     return new Promise(resolve => server.on('listening', () => resolve((server.address() as {port: number}).port)))
 }
 
@@ -100,7 +100,7 @@ function integrationTests (): void {
         })
         openDatabase(':memory:')
         initUsage()
-        const server = startServer(configFor(backend.baseUrl))
+        const {server} = startServer(configFor(backend.baseUrl))
         const port = await listen(server)
         try {
             const body = JSON.stringify({model: 'p/m', messages: []})
@@ -151,7 +151,7 @@ function integrationTests (): void {
         })
         openDatabase(':memory:')
         initUsage()
-        const server = startServer(configFor(backend.baseUrl))
+        const {server} = startServer(configFor(backend.baseUrl))
         const port = await listen(server)
         try {
             const res = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
@@ -195,7 +195,7 @@ function integrationTests (): void {
         })
         openDatabase(':memory:')
         initUsage()
-        const server = startServer(configFor(backend.baseUrl))
+        const {server} = startServer(configFor(backend.baseUrl))
         const port = await listen(server)
         try {
             const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {

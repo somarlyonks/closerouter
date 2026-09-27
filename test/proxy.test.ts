@@ -5,6 +5,7 @@ import type {IncomingHttpHeaders} from 'http'
 import type {AddressInfo} from 'net'
 import {proxyRequest, proxyGetRequest} from '../lib/proxy'
 import type {ResponseLog} from '../lib/server/logs/helper'
+import {createUpstreamTracker, type UpstreamTracker} from '../lib/server/helper'
 import {startMockBackend, delay} from './helpers'
 
 interface FrontendOpts {
@@ -14,11 +15,12 @@ interface FrontendOpts {
     rewriteBody?: (body: string) => string
     preReadBody?: string
     responseLog?: ResponseLog
+    upstream?: UpstreamTracker
 }
 
 function startProxyFrontend (opts: FrontendOpts): Promise<{port: number, close: () => Promise<void>}> {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-        proxyRequest(req, res, opts.baseUrl, opts.apiKey, opts.path ?? '/x', opts.rewriteBody, opts.preReadBody, opts.responseLog)
+        proxyRequest(req, res, opts.baseUrl, opts.apiKey, opts.path ?? '/x', opts.rewriteBody, opts.preReadBody, opts.responseLog, opts.upstream)
     })
     return new Promise((resolve, reject) => {
         server.on('error', reject)
@@ -306,6 +308,84 @@ test('proxyRequest closes the client response when the backend errors mid-stream
         await frontend.close()
         await backend.close()
         await delay(0)
+    }
+})
+
+test('proxyRequest abort ends the downstream response so shutdown can drain', async () => {
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200, {'content-type': 'text/event-stream'})
+        const timer = setInterval(() => res.write('data: {}\n\n'), 20)
+        res.on('close', () => clearInterval(timer))
+    })
+    const upstream = createUpstreamTracker()
+    const frontend = await startProxyFrontend({
+        baseUrl: backend.baseUrl,
+        apiKey: 'k',
+        path: '/x',
+        preReadBody: '{}',
+        upstream,
+    })
+    try {
+        const res = await new Promise<IncomingMessage>((resolve, reject) => {
+            const req = request({hostname: '127.0.0.1', port: frontend.port, path: '/x', method: 'POST'}, resolve)
+            req.on('error', reject)
+            req.end('{}')
+        })
+        await new Promise<void>(resolve => res.once('data', () => resolve()))
+        assert.equal(upstream.size(), 1)
+
+        // Aborting destroys the upstream request; the proxy must then end the
+        // downstream SSE response so its socket drains and server.close can
+        // complete. (The destroyed request emits 'error' on the backend request,
+        // which the proxy turns into completion of the client response.)
+        upstream.abortAll()
+        await new Promise<void>((resolve, reject) => {
+            res.once('close', () => resolve())
+            res.once('end', () => resolve())
+            setTimeout(() => reject(new Error('downstream response was not ended by the abort')), 1000).unref()
+        })
+        assert.equal(upstream.size(), 0)
+    } finally {
+        await frontend.close()
+        await backend.close()
+    }
+})
+
+test('proxyGetRequest abort rejects the pending promise so callers do not hang', async () => {
+    const backend = await startMockBackend(() => {/* hold the request open */})
+    const upstream = createUpstreamTracker()
+    try {
+        const pending = proxyGetRequest(backend.baseUrl, 'k', '/models', upstream)
+        await delay(50)
+        assert.equal(upstream.size(), 1)
+        upstream.abortAll()
+        // destroying the request surfaces as a socket error on its own 'error'
+        // path, which must settle the promise instead of leaving it pending
+        await assert.rejects(pending, /socket hang up|ECONNRESET/i)
+        assert.equal(upstream.size(), 0)
+    } finally {
+        await backend.close()
+    }
+})
+
+test('proxyGetRequest abort mid-body settles the tracker and rejects', async () => {
+    // Headers and a partial body, then hold the response open: the abort lands
+    // after 'response' but before 'end', a path that may emit 'close' without
+    // 'end' or 'error'.
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200, {'content-type': 'text/plain'})
+        res.write('partial')
+    })
+    const upstream = createUpstreamTracker()
+    try {
+        const pending = proxyGetRequest(backend.baseUrl, 'k', '/models', upstream)
+        await delay(50)
+        assert.equal(upstream.size(), 1)
+        upstream.abortAll()
+        await assert.rejects(pending)
+        assert.equal(upstream.size(), 0)
+    } finally {
+        await backend.close()
     }
 })
 

@@ -4,6 +4,7 @@ import {ClientRequest, IncomingMessage, ServerResponse} from 'http'
 import {appendResponseBody, feedStreamUsage, logResponse, safeLog} from './server/logs/helper'
 import type {ResponseLog, UsageCounts} from './server/logs/helper'
 import type {RequestContext} from './router'
+import type {UpstreamTracker} from './server/helper'
 import type {ProviderConfig} from './config'
 
 function getPort (targetUrl: URL, isHttps: boolean): number {
@@ -147,7 +148,7 @@ function safeEnd (client: ClientState, body?: string): void {
     }
 }
 
-function forwardResponse (backendRes: IncomingMessage, client: ClientState, responseLog: ResponseLog | undefined): void {
+function forwardResponse (backendRes: IncomingMessage, client: ClientState, responseLog: ResponseLog | undefined, settleUpstream: () => void): void {
     const statusCode = backendRes.statusCode ?? 500
     const headers: Record<string, string> = {
         ...relayHeaders(backendRes.headers, name => !RESPONSE_STRIP.has(name)),
@@ -185,6 +186,10 @@ function forwardResponse (backendRes: IncomingMessage, client: ClientState, resp
     backendRes.on('error', () => {
         safeEnd(client)
     })
+    // 'close' always fires - including for an aborted stream that emits neither
+    // 'end' nor 'error' - so settling here can never leak a tracked upstream
+    // request. Settling is idempotent, so 'end'/'error' need not repeat it.
+    backendRes.on('close', settleUpstream)
 }
 
 function handleBackendError (err: Error, client: ClientState, responseLog: ResponseLog | undefined): void {
@@ -213,6 +218,7 @@ export function proxyRequest (
     rewriteBody?: (body: string) => string,
     preReadBody?: string,
     responseLog?: ResponseLog,
+    upstream?: UpstreamTracker,
 ): void {
     const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
     const targetUrl = new URL(normalizedBaseUrl + path)
@@ -238,8 +244,14 @@ export function proxyRequest (
         headers['authorization'] = `Bearer ${apiKey}`
         headers['content-length'] = contentLength
         const backendReq = backendRequest(isHttps, hostname, port, urlPath, method, headers)
+        const tracked = upstream !== undefined
+            ? upstream.track(() => backendReq.destroy())
+            : undefined
+        const settleUpstream = (): void => {
+            if (tracked !== undefined) tracked()
+        }
         backendReq.on('response', (backendRes) => {
-            forwardResponse(backendRes, client, responseLog)
+            forwardResponse(backendRes, client, responseLog, settleUpstream)
         })
 
         // A dropped client socket must not keep pulling from the backend:
@@ -251,12 +263,17 @@ export function proxyRequest (
             backendReq.destroy()
         }
         backendReq.on('error', (err: Error) => {
+            settleUpstream()
             // Destroying the request after a client drop can surface the torn
             // -down socket as ECONNRESET; that is expected, not a backend
             // failure, so it must not be logged or answered as a 502.
             if (clientDropped) return
             handleBackendError(err, client, responseLog)
         })
+        // 'close' fires after the response completes and on a destroy that
+        // emits no 'error', so settling here keeps a tracked request from
+        // leaking even when the error path is skipped.
+        backendReq.on('close', settleUpstream)
         clientRes.on('close', () => {
             if (!client.ended) dropBackend()
         })
@@ -294,6 +311,7 @@ export function proxyGetRequest (
     baseUrl: string,
     apiKey: string,
     path: string,
+    upstream?: UpstreamTracker,
 ): Promise<{statusCode: number, body: string}> {
     const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
     const targetUrl = new URL(normalizedBaseUrl + path)
@@ -307,16 +325,31 @@ export function proxyGetRequest (
             isHttps, hostname, port, urlPath, 'GET',
             {Authorization: `Bearer ${apiKey}`},
         )
+        const tracked = upstream !== undefined
+            ? upstream.track(() => req.destroy())
+            : undefined
+        const chunks: Buffer[] = []
+        let settled = false
+        // One settle path for every end: resolving twice is harmless, but a
+        // single guard keeps the tracker release exactly-once whatever order
+        // 'end', 'error' and 'close' arrive in.
+        const settle = (err: Error | undefined, statusCode?: number): void => {
+            if (settled) return
+            settled = true
+            if (tracked !== undefined) tracked()
+            if (err !== undefined) reject(err)
+            else resolve({statusCode: statusCode ?? 500, body: Buffer.concat(chunks).toString('utf-8')})
+        }
         req.on('response', (res) => {
-            const chunks: Buffer[] = []
             res.on('data', (chunk: Buffer) => chunks.push(chunk))
-            res.on('end', () => {
-                const body = Buffer.concat(chunks).toString('utf-8')
-                resolve({statusCode: res.statusCode ?? 500, body})
-            })
-            res.on('error', reject)
+            res.on('end', () => settle(undefined, res.statusCode ?? 500))
+            res.on('error', (err: Error) => settle(err))
+            // A response aborted mid-body can emit 'close' without 'end' or
+            // 'error'; failing the pending promise there keeps model-list
+            // fetches from hanging shutdown.
+            res.on('close', () => settle(new Error('upstream response closed before completion')))
         })
-        req.on('error', reject)
+        req.on('error', (err: Error) => settle(err))
         req.end()
     })
 }
@@ -408,6 +441,7 @@ export function proxyModelRequest (
             rewriteBody,
             bodyStr,
             ctx.responseLog,
+            ctx.env.upstream,
         )
     })
 

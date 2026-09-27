@@ -12,15 +12,15 @@
         "closerouter.json"
     ],
     "scripts": {
-        "test:db": "node build.ts && scriptc build test/db.test.ts --ffi native/ffi.json -o dist/db-test && ./dist/db-test",
-        "test:logs": "node build.ts && scriptc build test/logs.integration.test.ts --ffi native/ffi.json -o dist/logs-test && ./dist/logs-test",
-        "test:telemetry": "node build.ts && scriptc build test/telemetry.test.ts --ffi native/ffi.json -o dist/telemetry-test && ./dist/telemetry-test",
+        "test:db": "node build.ts && scriptc build test/db.test.ts --ffi native/ffi.json --strip -o dist/db-test && ./dist/db-test",
+        "test:logs": "node build.ts && scriptc build test/logs.integration.test.ts --ffi native/ffi.json --strip -o dist/logs-test && ./dist/logs-test",
+        "test:telemetry": "node build.ts && scriptc build test/telemetry.test.ts --ffi native/ffi.json --strip -o dist/telemetry-test && ./dist/telemetry-test",
         "test:seed": "node test/seed-usage.js --seed 20 --backfill",
         "test": "node build.ts && node --import ./test/loader.mjs --test \"test/**/*.test.ts\"",
         "prestart": "node build.ts",
-        "start": "scriptc run lib/cli.ts --ffi native/ffi.json",
+        "start": "scriptc run lib/cli.ts --ffi native/ffi.json --optimization=dev",
         "prebuild:cli": "node build.ts",
-        "build:cli": "scriptc build lib/cli.ts --ffi native/ffi.json -o dist/closerouter",
+        "build:cli": "scriptc build lib/cli.ts --ffi native/ffi.json --strip -o dist/closerouter",
         "prebuild": "xcodegen generate --spec app/project.yml",
         "build": "xcodebuild -project app/CloseRouter.xcodeproj -scheme CloseRouter -configuration Release -derivedDataPath dist/xcodebuild build && rm -rf dist/CloseRouter.app && ditto dist/xcodebuild/Build/Products/Release/CloseRouter.app dist/CloseRouter.app"
     },
@@ -29,10 +29,10 @@
         "@types/node": "^24",
         "@typescript/native": "npm:typescript@7.0.2",
         "eslint": "^10",
-        "scriptc": "0.1.4",
+        "scriptc": "0.1.7",
         "typescript": "npm:@typescript/typescript6@6.0.2"
     },
     "allowScripts": {
-        "scriptc@0.1.4": true
+        "scriptc@0.1.7": true
     }
 }

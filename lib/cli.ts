@@ -3,8 +3,8 @@ import {readFileSync} from 'fs'
 import {spawn} from 'child_process'
 import {startServer} from './server'
 import {loadConfig, parseConfig, printServerConfig, type RuntimeConfig} from './config'
-import {sqliteAvailable, openDatabase, run, getSqliteVersion} from './db'
-import {initUsage, startRetentionSweep} from './server/logs/db'
+import {sqliteAvailable, openDatabase, closeDatabase, run, getSqliteVersion} from './db'
+import {closeUsageLog, initUsage, startRetentionSweep} from './server/logs/db'
 import packageJson from '../package.json' with {type: 'json'}
 
 const DEFAULT_CONFIG = resolve(process.cwd(), 'closerouter.json')
@@ -106,17 +106,69 @@ function startDetached (configPath: string): void {
     console.log(`closerouter started in background (pid ${child.pid ?? 'unknown'})`)
 }
 
-function initStorage ({dbPath, retentionDays}: RuntimeConfig): void {
-    if (dbPath === undefined) return
+const DRAIN_PERIOD_MS = 5_000
+const FORCE_EXIT_GRACE_MS = 10_000
+
+/** Close the usage database, returning a teardown that stops the sweep and
+ *  disables recording before the handle closes, so a late response 'close'
+ *  handler drops its row instead of touching the dead handle. */
+function initStorage ({dbPath, retentionDays}: RuntimeConfig): () => void {
+    if (dbPath === undefined) return () => {}
     if (!sqliteAvailable()) {
         console.log('sqlite unavailable in this build - usage is not persisted')
-        return
+        return () => {}
     }
     openDatabase(dbPath)
     run('PRAGMA journal_mode=WAL')
     initUsage()
-    startRetentionSweep(retentionDays)
+    const sweep = startRetentionSweep(retentionDays)
     console.log(`usage log at ${dbPath}`)
+    return () => {
+        sweep.stop()
+        closeUsageLog()
+        closeDatabase()
+    }
+}
+
+function runServer (config: RuntimeConfig): void {
+    const closeStorage = initStorage(config)
+    const {server, upstream} = startServer(config)
+    let shuttingDown = false
+
+    // server.close stops accepting connections and fires its callback once they
+    // all drain; the response 'close' telemetry rows are written by then, so
+    // storage can be closed and the process exited 0. Parked keep-alive sockets
+    // are retired explicitly so that drain can complete; upstream work still
+    // running at the drain deadline is aborted so an endless generation cannot
+    // keep its connection (and the process) open; the force deadline is the
+    // backstop for transports that refuse to unwind even then.
+    const shutdown = (signal: string): void => {
+        if (shuttingDown) {
+            console.log(`received ${signal} while shutting down, forcing exit`)
+            process.exit(1)
+        }
+        shuttingDown = true
+        console.log(`received ${signal}, shutting down`)
+        server.close(() => {
+            closeStorage()
+            process.exit(0)
+        })
+        // Retire parked keep-alive sockets with a FIN so server.close can
+        // complete instead of waiting out their keep-alive timeout.
+        server.closeIdleConnections()
+        setTimeout(() => {
+            const stuck = upstream.size()
+            if (stuck > 0) console.log(`aborting ${stuck} in-flight upstream request(s) past the drain period`)
+            upstream.abortAll()
+        }, DRAIN_PERIOD_MS).unref()
+        setTimeout(() => {
+            console.log(`forcing shutdown after grace period`)
+            process.exit(1)
+        }, FORCE_EXIT_GRACE_MS).unref()
+    }
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'))
+    process.on('SIGINT', () => shutdown('SIGINT'))
 }
 
 function runDbCheck (): void {
@@ -194,8 +246,7 @@ async function main (): Promise<void> {
             process.exit(0)
         }
 
-        initStorage(config)
-        startServer(config)
+        runServer(config)
         return
     }
 

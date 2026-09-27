@@ -1,6 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {spawn, type ChildProcess} from 'child_process'
+import {Agent, get, type IncomingMessage} from 'node:http'
 import {once} from 'events'
 import {resolve, dirname} from 'path'
 import {connect, type AddressInfo} from 'net'
@@ -54,7 +55,7 @@ async function setup (): Promise<{
 test('server binds 127.0.0.1 only and reports it as the bound address', async () => {
     const backend = await startMockBackend()
     const port = await getFreePort()
-    const server = startServer({
+    const {server} = startServer({
         dbPath: '',
         retentionDays: 7,
         port,
@@ -81,6 +82,32 @@ test('server binds 127.0.0.1 only and reports it as the bound address', async ()
                 resolveConnect()
             })
         })
+    } finally {
+        await new Promise<void>(r => server.close(() => r()))
+        await backend.close()
+    }
+})
+
+test('startServer adds no process-wide signal listeners', async () => {
+    const backend = await startMockBackend()
+    const port = await getFreePort()
+    const before = {
+        sigint: process.listenerCount('SIGINT'),
+        sigterm: process.listenerCount('SIGTERM'),
+    }
+    const {server} = startServer({
+        dbPath: '',
+        retentionDays: 7,
+        port,
+        key: API_KEY,
+        providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
+    })
+    try {
+        await once(server, 'listening')
+        // the shutdown sequence lives in the CLI server lifecycle; a reusable
+        // startServer must not register handlers on the host process
+        assert.equal(process.listenerCount('SIGINT'), before.sigint)
+        assert.equal(process.listenerCount('SIGTERM'), before.sigterm)
     } finally {
         await new Promise<void>(r => server.close(() => r()))
         await backend.close()
@@ -394,6 +421,85 @@ test('in-flight request drains before graceful shutdown completes', async () => 
     } finally {
         if (child.exitCode === null) child.kill('SIGKILL')
         await backend.close()
+        await cleanup()
+    }
+})
+
+// One GET /status over a keep-alive agent; resolves once the response is fully
+// consumed, leaving the socket parked in the agent's pool.
+function requestStatus (port: number, agent: Agent): Promise<IncomingMessage> {
+    return new Promise((resolveRequest, rejectRequest) => {
+        const req = get({host: '127.0.0.1', port, path: '/status', agent}, (res) => {
+            res.on('end', () => resolveRequest(res))
+            res.resume()
+        })
+        req.on('error', rejectRequest)
+    })
+}
+
+test('closeIdleConnections retires a parked keep-alive socket so server.close completes', async () => {
+    const backend = await startMockBackend()
+    const port = await getFreePort()
+    const {server} = startServer({
+        dbPath: '',
+        retentionDays: 7,
+        port,
+        key: API_KEY,
+        providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
+    })
+    const agent = new Agent({keepAlive: true})
+    try {
+        await once(server, 'listening')
+        const res = await requestStatus(port, agent)
+        assert.equal(res.statusCode, 200)
+        // The socket is parked in the agent; closeIdleConnections retires it so
+        // server.close completes now instead of waiting out the keep-alive timeout.
+        const closed = new Promise<void>(r => server.close(() => r()))
+        server.closeIdleConnections()
+        await Promise.race([
+            closed,
+            new Promise<never>((_, reject) => {
+                setTimeout(() => reject(new Error('server.close did not complete: parked socket was not retired')), 2000).unref()
+            }),
+        ])
+    } finally {
+        agent.destroy()
+        await new Promise<void>(r => server.close(() => r()))
+        await backend.close()
+    }
+})
+
+test('SIGTERM exits 0 promptly with a parked keep-alive client', async () => {
+    const port = await getFreePort()
+    const {path, cleanup} = await writeTempConfig({
+        port,
+        key: API_KEY,
+        providers: {p: {base_url: 'http://127.0.0.1:1', api_key: 'bk', models: []}},
+    })
+    const child = spawn(process.execPath, [
+        '--import', resolve(process.cwd(), 'test/loader.mjs'),
+        resolve(process.cwd(), 'lib/cli.ts'),
+    ], {
+        cwd: dirname(path),
+        stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const agent = new Agent({keepAlive: true})
+    try {
+        await waitForReady(child)
+        await requestStatus(port, agent)
+        // The keep-alive socket stays parked in the test process; the child must
+        // still exit cleanly now instead of waiting out the keep-alive timeout
+        // (or the force-exit grace period).
+        const started = Date.now()
+        child.kill('SIGTERM')
+        const [code, signal] = await once(child, 'exit')
+        assert.equal(code, 0)
+        assert.equal(signal, null)
+        const elapsed = Date.now() - started
+        assert.ok(elapsed < 5000, `shutdown took ${elapsed}ms: parked socket was not retired`)
+    } finally {
+        agent.destroy()
+        if (child.exitCode === null) child.kill('SIGKILL')
         await cleanup()
     }
 })

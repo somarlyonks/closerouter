@@ -88,6 +88,13 @@ export function initUsage (): void {
     initialized = true
 }
 
+/** Stop all usage recording and reads. Called once the underlying database is
+ *  closed, so a response 'close' handler firing afterwards can never touch the
+ *  dead handle (its row is dropped instead of corrupting state). */
+export function closeUsageLog (): void {
+    initialized = false
+}
+
 export function loadUsage (limit = 500): UsageEntry[] {
     if (!initialized) return []
     try {

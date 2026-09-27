@@ -228,15 +228,16 @@ function resolveRef (root: SchemaNode, ref: string): SchemaNode | undefined {
 
 function checkType (type: unknown, value: unknown): boolean {
     if (Array.isArray(type)) return type.some(candidate => checkType(candidate, value))
-    // scriptc does not support switching on unknown, hence the equality chain.
-    if (type === 'object') return isRecord(value)
-    if (type === 'array') return Array.isArray(value)
-    if (type === 'null') return value === null
-    if (type === 'boolean') return typeof value === 'boolean'
-    if (type === 'integer') return typeof value === 'number' && Number.isInteger(value)
-    if (type === 'number') return typeof value === 'number'
-    if (type === 'string') return typeof value === 'string'
-    return true // absent or unknown type name: never the value's fault
+    switch (type) {
+        case 'object': return isRecord(value)
+        case 'array': return Array.isArray(value)
+        case 'null': return value === null
+        case 'boolean': return typeof value === 'boolean'
+        case 'integer': return typeof value === 'number' && Number.isInteger(value)
+        case 'number': return typeof value === 'number'
+        case 'string': return typeof value === 'string'
+        default: return true // absent or unknown type name: never the value's fault
+    }
 }
 
 function describeType (type: unknown): string {
