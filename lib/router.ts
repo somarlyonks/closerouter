@@ -1,9 +1,13 @@
 import type {IncomingMessage, ServerResponse} from 'http'
 import type {RuntimeConfig} from './config'
+import type {UpstreamTracker} from './server/helper'
 import type {ResponseLog} from './server/logs/helper'
 
 type Env = {
     config: RuntimeConfig
+    /** Tracks in-flight upstream provider requests; absent in tests and
+     *  when no shutdown tracking is wired (recording is then skipped). */
+    upstream?: UpstreamTracker
 }
 
 export interface RequestContext {

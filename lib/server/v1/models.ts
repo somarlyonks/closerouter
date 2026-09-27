@@ -1,5 +1,6 @@
 import {ServerResponse} from 'http'
 import type {RequestContext} from '../../router'
+import type {UpstreamTracker} from '../helper'
 import {proxyGetRequest} from '../../proxy'
 
 export function normalizeModel (provider: string, model: unknown): unknown {
@@ -21,7 +22,7 @@ export async function handleListModels (
     const modelsByProvider = await Promise.all(Object.entries(providers).map(async ([name, provider]) => {
         let models: unknown[]
         try {
-            models = (await fetchProviderModels(provider.base_url, provider.api_key))
+            models = (await fetchProviderModels(provider.base_url, provider.api_key, ctx.env.upstream))
         } catch (err) {
             console.error(
                 `Failed to fetch models from provider "${name}", using config models instead:`,
@@ -45,8 +46,8 @@ export async function handleListModels (
     res.end(JSON.stringify(payload, undefined, 2))
 }
 
-async function fetchProviderModels (baseUrl: string, apiKey: string): Promise<unknown[]> {
-    const {statusCode, body} = await proxyGetRequest(baseUrl, apiKey, '/models')
+async function fetchProviderModels (baseUrl: string, apiKey: string, upstream: UpstreamTracker | undefined): Promise<unknown[]> {
+    const {statusCode, body} = await proxyGetRequest(baseUrl, apiKey, '/models', upstream)
     if (statusCode !== 200) throw new Error(`Provider returned status ${statusCode}`)
 
     let parsed: unknown

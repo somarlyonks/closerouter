@@ -22,7 +22,7 @@ test('routing matrix: method x path dispatch is frozen', async () => {
         key: KEY,
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: ['m']}},
     }
-    const server = startServer(config)
+    const {server} = startServer(config)
     await once(server, 'listening')
 
     const auth = {authorization: `Bearer ${KEY}`}

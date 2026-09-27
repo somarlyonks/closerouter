@@ -6,12 +6,6 @@
 // marks the {"columns":[...]} header) followed by big-endian 4-byte words of
 // UTF-8 JSON payload, last word zero-padded.
 //
-// scriptc 0.0.32 bug workaround: a native call whose result is captured into a
-// variable (const rc = sqliteExec(...)) silently loses its FFI binding and
-// throws ReferenceError at runtime. Every native call in this module is
-// therefore used directly - in an if-condition, as a bare statement, or as a
-// nested call argument - never stored in a binding. Keep that pattern here.
-//
 // Only one connection can be open at a time (the shim keeps a single handle);
 // openDatabase() on an already-open database closes the old one first.
 // INTEGER values beyond 2^53 lose precision (JSON numbers through f64).
@@ -100,9 +94,7 @@ export function all (sql: string, params: SqlParam[] = []): SqlRow[] {
 
 /** Run a query and return the first row, or undefined when there are none. */
 export function get (sql: string, params: SqlParam[] = []): SqlRow | undefined {
-    const rows = all(sql, params)
-    // scriptc throws RangeError on out-of-bounds indexing where node yields undefined
-    return rows.length > 0 ? rows[0] : undefined
+    return all(sql, params)[0]
 }
 
 export function messageCollector (onMessage: (isColumns: boolean, data: Buffer) => void): (word: number) => void {
