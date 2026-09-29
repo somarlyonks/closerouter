@@ -134,6 +134,26 @@ test('OPTIONS responds with CORS preflight headers', async () => {
     }
 })
 
+test('CORS headers cover error responses too', async () => {
+    const s = await setup()
+    try {
+        const unauthorized = await fetch(`http://127.0.0.1:${s.port}/v1/models`)
+        assert.equal(unauthorized.status, 401)
+        assert.equal(unauthorized.headers.get('access-control-allow-origin'), '*')
+
+        const notFound = await fetch(`http://127.0.0.1:${s.port}/nope`)
+        assert.equal(notFound.status, 404)
+        assert.equal(notFound.headers.get('access-control-allow-origin'), '*')
+
+        const methodNotAllowed = await fetch(`http://127.0.0.1:${s.port}/status`, {method: 'POST'})
+        assert.equal(methodNotAllowed.status, 405)
+        assert.equal(methodNotAllowed.headers.get('allow'), 'GET')
+        assert.equal(methodNotAllowed.headers.get('access-control-allow-origin'), '*')
+    } finally {
+        await s.close()
+    }
+})
+
 test('v1 routes require authentication', async () => {
     const s = await setup()
     try {

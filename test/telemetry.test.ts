@@ -83,16 +83,17 @@ function listen (server: ReturnType<typeof createServer>, holder: {log?: Respons
  *  request gets a fresh captured responseLog, logMiddleware runs first (as in
  *  lib/server/index), provider/model are stamped (as proxyModelRequest does
  *  once the gate passes), and proxyRequest forwards to the backend. */
-function startProxiedHarness (backendUrl: string, endpoint: string, requestBody: string): Promise<Harness> {
+function startProxiedHarness (backendUrl: string, endpoint: string): Promise<Harness> {
     const config = harnessConfig(backendUrl)
     const holder: {log?: ResponseLog} = {}
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         const responseLog: ResponseLog = {}
         holder.log = responseLog
-        logMiddleware({req, env: {config}, responseLog}, res)
+        const ctx: RequestContext = {req, env: {config}, responseLog}
+        logMiddleware(ctx, res)
         responseLog.provider = 'p'
         responseLog.model = 'm'
-        proxyRequest(req, res, backendUrl, 'bk', endpoint, undefined, requestBody, responseLog)
+        proxyRequest(ctx, res, backendUrl, 'bk', endpoint)
     })
     return listen(server, holder)
 }
@@ -204,7 +205,7 @@ function telemetryTests (): void {
         openDatabase(':memory:')
         initUsage()
         const requestBody = JSON.stringify({model: 'p/m', messages: []})
-        const harness = await startProxiedHarness(backend.baseUrl, '/chat/completions', requestBody)
+        const harness = await startProxiedHarness(backend.baseUrl, '/chat/completions')
         try {
             const issuedAt = Date.now()
             const res = await postJson(harness.port, requestBody, 'telemetry-stream')
@@ -244,7 +245,7 @@ function telemetryTests (): void {
         openDatabase(':memory:')
         initUsage()
         const requestBody = JSON.stringify({model: 'p/m', messages: []})
-        const harness = await startProxiedHarness(backend.baseUrl, '/chat/completions', requestBody)
+        const harness = await startProxiedHarness(backend.baseUrl, '/chat/completions')
         try {
             const issuedAt = Date.now()
             const res = await postJson(harness.port, requestBody, 'telemetry-json')
@@ -276,7 +277,7 @@ function telemetryTests (): void {
         initUsage()
         const requestBody = JSON.stringify({model: 'p/m', messages: []})
         // nothing listens on port 1 - the upstream dial fails before headers
-        const harness = await startProxiedHarness('http://127.0.0.1:1', '/chat/completions', requestBody)
+        const harness = await startProxiedHarness('http://127.0.0.1:1', '/chat/completions')
         try {
             const issuedAt = Date.now()
             const res = await postJson(harness.port, requestBody, 'telemetry-502')
@@ -349,7 +350,7 @@ function telemetryTests (): void {
         openDatabase(':memory:')
         initUsage()
         const requestBody = JSON.stringify({model: 'p/m', messages: []})
-        const harness = await startProxiedHarness(backend.baseUrl, '/chat/completions', requestBody)
+        const harness = await startProxiedHarness(backend.baseUrl, '/chat/completions')
         try {
             const issuedAt = Date.now()
             await new Promise<void>((resolve) => {
@@ -402,7 +403,7 @@ function telemetryTests (): void {
         openDatabase(':memory:')
         initUsage()
         const requestBody = JSON.stringify({model: 'p/m', messages: []})
-        const harness = await startProxiedHarness(backend.baseUrl, '/chat/completions', requestBody)
+        const harness = await startProxiedHarness(backend.baseUrl, '/chat/completions')
         try {
             const issuedAt = Date.now()
             const res = await postJson(harness.port, requestBody, 'telemetry-bounded')

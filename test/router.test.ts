@@ -1,6 +1,8 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {router, withMethod, needsAuth, handle, method, path, asyncHandler, routerErrorBoundary, handleServerError} from '../lib/router'
+import {EventEmitter} from 'events'
+import type {IncomingMessage} from 'http'
+import {router, withMethod, needsAuth, handle, method, path, asyncHandler, routerErrorBoundary, handleServerError, readRequestBody} from '../lib/router'
 import type {RequestContext, Route} from '../lib/router'
 import {mockReq, mockRes, sampleConfig, delay, stubConsoleError} from './helpers'
 
@@ -478,4 +480,28 @@ test('handleServerError answers a JSON 500 before headers and destroys a started
         stub.restore()
     }
     assert.equal(stub.errors.length, 2)
+})
+
+function bodyRequest (): {context: RequestContext, req: EventEmitter} {
+    const req = new EventEmitter()
+    return {context: {req: req as unknown as IncomingMessage, env: {config: sampleConfig()}}, req}
+}
+
+test('readRequestBody reads the stream once and memoizes the result', async () => {
+    const {context, req} = bodyRequest()
+    const first = readRequestBody(context)
+    assert.equal(readRequestBody(context), first, 'repeat calls share one read')
+
+    req.emit('data', Buffer.from('{"model":'))
+    req.emit('data', Buffer.from('"p/m"}'))
+    req.emit('end')
+
+    assert.equal(await first, '{"model":"p/m"}')
+})
+
+test('readRequestBody resolves an empty string for a bodyless request', async () => {
+    const {context, req} = bodyRequest()
+    const pending = readRequestBody(context)
+    req.emit('end')
+    assert.equal(await pending, '')
 })

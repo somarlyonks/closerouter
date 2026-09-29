@@ -14,6 +14,7 @@ export interface RequestContext {
     req: IncomingMessage
     env: Env
     responseLog?: ResponseLog
+    body?: Promise<string>
 }
 
 /** A route handler. An async handler cannot be mounted directly - scriptc
@@ -97,7 +98,7 @@ export function handle (routes: Route[]): RequestHandler {
                 const nested = scan(handler, ctx, res)
                 if (nested !== undefined) answer(ctx, res, nested)
             } else {
-                callHandler(handler, ctx, res)
+                invokeHandler(handler, ctx, res)
             }
             return undefined
         }
@@ -159,72 +160,43 @@ export function needsAuth (handler: RequestHandler | Route[]) {
     return router(
         ctx => ctx.req.headers.authorization === `Bearer ${ctx.env.config.key}`,
         handler,
-        (_ctx, res) => {
-            res.writeHead(401, {'content-type': 'application/json'})
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Invalid or missing API key. Use Authorization: Bearer <key>',
-                    type: 'authentication_error',
-                },
-            }))
-        },
+        (_ctx, res) => respondError(res, 401, 'authentication_error', 'Invalid or missing API key. Use Authorization: Bearer <key>'),
     )
 }
 
 function handleMethodNotAllowed ({req}: RequestContext, res: ServerResponse, allow: string): void {
     res.writeHead(405, {'content-type': 'application/json', 'allow': allow})
-    res.end(JSON.stringify({
-        error: {
-            message: `Method not allowed: ${req.method} ${req.url}`,
-            type: 'method_not_allowed',
-        },
+    res.end(errorBody({
+        type: 'method_not_allowed',
+        message: `Method not allowed: ${req.method} ${req.url}`,
     }))
 }
 
 function handleNotFound ({req}: RequestContext, res: ServerResponse): void {
-    res.writeHead(404, {'content-type': 'application/json'})
-    res.end(JSON.stringify({
-        error: {
-            message: `Not found: ${req.method} ${req.url}`,
-            type: 'not_found',
-        },
-    }))
+    respondError(res, 404, 'not_found', `Not found: ${req.method} ${req.url}`)
 }
 
-/** Adapt an async handler for mounting: scriptc requires a route handler to
- *  return void, so the promise an async handler returns is answered here -
- *  its rejection would die as an unhandled rejection without this. */
+function invokeHandler (handler: RequestHandler, ctx: RequestContext, res: ServerResponse): void {
+    let pending: void | Promise<void>
+    try {
+        pending = handler(ctx, res) as void | Promise<void>
+    } catch (e) {
+        handleServerError(res, e)
+        return
+    }
+    if (typeof pending === 'object' && pending !== null) {
+        pending.catch((e: unknown) => handleServerError(res, e))
+    }
+}
+
 export function asyncHandler (
     handler: (ctx: RequestContext, res: ServerResponse) => Promise<void>,
 ): RequestHandler {
-    return (ctx, res) => {
-        handler(ctx, res).catch((e: unknown) => handleServerError(res, e))
-    }
+    return (ctx, res) => invokeHandler(handler, ctx, res)
 }
 
-/** Call a handler and answer the failure of a promise it should not have
- *  returned: nothing awaits it, so its rejection is answered here instead
- *  of dying as an unhandled rejection - a synchronous throw instead
- *  propagates to the caller's error boundary. */
-function callHandler (handler: RequestHandler, ctx: RequestContext, res: ServerResponse): void {
-    const result = handler(ctx, res) as void | Promise<void>
-    if (typeof result === 'object' && result !== null) {
-        result.catch((e: unknown) => handleServerError(res, e))
-    }
-}
-
-/** Wrap a dispatch so a handler failure cannot kill the server or hang the
- *  client: a synchronous throw is caught here, while the rejected promise of
- *  an async handler is answered by callHandler - each failure reaches
- *  handleServerError exactly once. */
 export function routerErrorBoundary (handler: RequestHandler): RequestHandler {
-    return (ctx, res) => {
-        try {
-            callHandler(handler, ctx, res)
-        } catch (e) {
-            handleServerError(res, e)
-        }
-    }
+    return (ctx, res) => invokeHandler(handler, ctx, res)
 }
 
 export function handleServerError (res: ServerResponse, e: unknown): void {
@@ -236,23 +208,22 @@ export function handleServerError (res: ServerResponse, e: unknown): void {
         res.destroy()
         return
     }
-    res.writeHead(500, {'content-type': 'application/json'})
-    res.end(JSON.stringify({
-        error: {
-            message: 'Internal server error',
-            type: 'server_error',
-        },
-    }))
+    respondError(res, 500, 'server_error', 'Internal server error')
+}
+
+/** Serialize an OpenAI-shaped error envelope. */
+export function errorBody (error: {message: string, type: string}): string {
+    return JSON.stringify({error})
+}
+
+/** Answer with an OpenAI-shaped JSON error. */
+export function respondError (res: ServerResponse, status: number, type: string, message: string): void {
+    res.writeHead(status, {'content-type': 'application/json'})
+    res.end(errorBody({message, type}))
 }
 
 export function handleBadRequest (res: ServerResponse, message: string): void {
-    res.writeHead(400, {'content-type': 'application/json'})
-    res.end(JSON.stringify({
-        error: {
-            message,
-            type: 'invalid_request_error',
-        },
-    }))
+    respondError(res, 400, 'invalid_request_error', message)
 }
 
 export function handleHTML (html: string): RequestHandler {
@@ -264,4 +235,16 @@ export function handleHTML (html: string): RequestHandler {
         })
         res.end(html)
     }
+}
+
+export function readRequestBody (ctx: RequestContext): Promise<string> {
+    const existing = ctx.body
+    if (existing !== undefined) return existing
+    const chunks: Buffer[] = []
+    const pending = new Promise<string>((resolve) => {
+        ctx.req.on('data', (chunk: Buffer) => chunks.push(chunk))
+        ctx.req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
+    })
+    ctx.body = pending
+    return pending
 }

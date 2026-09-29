@@ -4,23 +4,31 @@ import {createServer, request, IncomingMessage, ServerResponse} from 'http'
 import type {IncomingHttpHeaders} from 'http'
 import type {AddressInfo} from 'net'
 import {proxyRequest, proxyGetRequest} from '../lib/proxy'
+import type {RequestContext} from '../lib/router'
 import type {ResponseLog} from '../lib/server/logs/helper'
-import {createUpstreamTracker, type UpstreamTracker} from '../lib/server/helper'
-import {startMockBackend, delay} from './helpers'
+import {createUpstreamTracker, applyCors, type UpstreamTracker} from '../lib/server/helper'
+import {startMockBackend, sampleConfig, delay} from './helpers'
 
 interface FrontendOpts {
     baseUrl: string
     apiKey: string
     path?: string
     rewriteBody?: (body: string) => string
-    preReadBody?: string
     responseLog?: ResponseLog
     upstream?: UpstreamTracker
 }
 
 function startProxyFrontend (opts: FrontendOpts): Promise<{port: number, close: () => Promise<void>}> {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-        proxyRequest(req, res, opts.baseUrl, opts.apiKey, opts.path ?? '/x', opts.rewriteBody, opts.preReadBody, opts.responseLog, opts.upstream)
+        const ctx: RequestContext = {
+            req,
+            env: {config: sampleConfig(), upstream: opts.upstream},
+            responseLog: opts.responseLog,
+        }
+        // applyCors mirrors lib/server/index so the pipeline under test carries
+        // the same CORS headers production does.
+        applyCors(res)
+        proxyRequest(ctx, res, opts.baseUrl, opts.apiKey, opts.path ?? '/x', opts.rewriteBody)
     })
     return new Promise((resolve, reject) => {
         server.on('error', reject)
@@ -166,26 +174,6 @@ test('proxyRequest applies rewriteBody to the outgoing body', async () => {
     }
 })
 
-test('proxyRequest uses preReadBody instead of the client body', async () => {
-    const backend = await startMockBackend((_req, res) => {
-        res.writeHead(200)
-        res.end('ok')
-    })
-    const frontend = await startProxyFrontend({
-        baseUrl: backend.baseUrl,
-        apiKey: 'k',
-        path: '/x',
-        preReadBody: 'preset',
-    })
-    try {
-        await fetch(`http://127.0.0.1:${frontend.port}/x`, {method: 'POST', body: 'ignored'})
-        assert.equal(backend.requests[0].body, 'preset')
-    } finally {
-        await frontend.close()
-        await backend.close()
-    }
-})
-
 test('proxyRequest streams backend chunks to the client in order', async () => {
     const backend = await startMockBackend((_req, res) => {
         res.writeHead(200, {'content-type': 'text/event-stream'})
@@ -322,7 +310,6 @@ test('proxyRequest abort ends the downstream response so shutdown can drain', as
         baseUrl: backend.baseUrl,
         apiKey: 'k',
         path: '/x',
-        preReadBody: '{}',
         upstream,
     })
     try {

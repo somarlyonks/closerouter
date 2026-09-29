@@ -4,9 +4,9 @@
  *  `additionalProperties` (boolean or schema), `oneOf`, `enum`, `items`,
  *  `minimum`/`maximum`, `minLength`, `minProperties`, and `format: "uri"`.
  *
- *  The macOS app's ConfigValidator mirrors these exact semantics (see the
- *  shared fixtures in test/), so keep both sides in sync when extending the
- *  supported keyword set. Unknown keywords are ignored.
+ *  The macOS app validates configs by shelling out to the compiled binary's
+ *  `test` command (ConfigTester), so this validator is the single source of
+ *  truth for the supported keyword set. Unknown keywords are ignored.
  *
  *  Schema nodes are handled as `Record<string, unknown>` rather than the
  *  exported JSONSchema interface: schema documents arrive from JSON.parse,

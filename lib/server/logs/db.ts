@@ -2,7 +2,7 @@
 // recorded when the client response closes. Recording never throws into the
 // server - a broken storage backend logs and drops the row.
 
-import {sqliteAvailable, all, get, run, withTransaction, type SqlParam} from '../../db'
+import {sqliteAvailable, all, get, run, withTransaction, type SqlParam, type SqlRow, type SqlValue} from '../../db'
 import type {UsageCounts} from './helper'
 
 export interface UsageEntry extends UsageCounts {
@@ -95,6 +95,13 @@ export function closeUsageLog (): void {
     initialized = false
 }
 
+/** Row-value coercers shared by every usage read. SQLite hands back loosely
+ *  typed columns, so each is narrowed back to its expected JS type. */
+const asNum = (v: SqlValue | undefined): number => typeof v === 'number' ? v : 0
+const asOptNum = (v: SqlValue | undefined): number | undefined => typeof v === 'number' ? v : undefined
+const asStr = (v: SqlValue | undefined): string | undefined => typeof v === 'string' ? v : undefined
+const asStr0 = (v: SqlValue | undefined): string => typeof v === 'string' ? v : ''
+
 export function loadUsage (limit = 500): UsageEntry[] {
     if (!initialized) return []
     try {
@@ -102,20 +109,20 @@ export function loadUsage (limit = 500): UsageEntry[] {
             'SELECT id, request_id, time, method, path, provider, model, status, duration_ms, ttft_ms, generation_ms, input_tokens, output_tokens, cached_tokens FROM (SELECT * FROM usage ORDER BY id DESC LIMIT ?) ORDER BY id ASC',
             [limit],
         ).map(row => ({
-            id: typeof row.id === 'number' ? row.id : undefined,
-            requestId: typeof row.request_id === 'string' ? row.request_id : '',
-            time: typeof row.time === 'number' ? row.time : 0,
-            method: typeof row.method === 'string' ? row.method : '',
-            path: typeof row.path === 'string' ? row.path : '',
-            provider: typeof row.provider === 'string' ? row.provider : undefined,
-            model: typeof row.model === 'string' ? row.model : undefined,
-            status: typeof row.status === 'number' ? row.status : undefined,
-            durationMs: typeof row.duration_ms === 'number' ? row.duration_ms : undefined,
-            ttftMs: typeof row.ttft_ms === 'number' ? row.ttft_ms : undefined,
-            generationMs: typeof row.generation_ms === 'number' ? row.generation_ms : undefined,
-            inputTokens: typeof row.input_tokens === 'number' ? row.input_tokens : undefined,
-            outputTokens: typeof row.output_tokens === 'number' ? row.output_tokens : undefined,
-            cachedTokens: typeof row.cached_tokens === 'number' ? row.cached_tokens : undefined,
+            id: asOptNum(row.id),
+            requestId: asStr0(row.request_id),
+            time: asNum(row.time),
+            method: asStr0(row.method),
+            path: asStr0(row.path),
+            provider: asStr(row.provider),
+            model: asStr(row.model),
+            status: asOptNum(row.status),
+            durationMs: asOptNum(row.duration_ms),
+            ttftMs: asOptNum(row.ttft_ms),
+            generationMs: asOptNum(row.generation_ms),
+            inputTokens: asOptNum(row.input_tokens),
+            outputTokens: asOptNum(row.output_tokens),
+            cachedTokens: asOptNum(row.cached_tokens),
         }))
     } catch (e) {
         console.error('usage load failed:', e instanceof Error ? e.message : String(e))
@@ -130,8 +137,8 @@ export function loadUsageBody (id: number): {requestBody?: string, responseBody?
         const row = get('SELECT request_body, response_body FROM usage WHERE id = ?', [id])
         if (!row) return undefined
         return {
-            requestBody: typeof row.request_body === 'string' ? row.request_body : undefined,
-            responseBody: typeof row.response_body === 'string' ? row.response_body : undefined,
+            requestBody: asStr(row.request_body),
+            responseBody: asStr(row.response_body),
         }
     } catch (e) {
         console.error('usage body load failed:', e instanceof Error ? e.message : String(e))
@@ -201,9 +208,6 @@ const emptyStats = (): UsageStats => ({
     providerModels: [],
 })
 
-const asNum = (v: SqlParam): number => typeof v === 'number' ? v : 0
-const asStr = (v: SqlParam): string | undefined => typeof v === 'string' ? v : undefined
-
 /** AND-combined time-range/provider/model filters plus the success-only rule
  *  (4xx client errors are excluded, null status and 5xx kept), shared by every
  *  usage aggregation query. */
@@ -230,10 +234,25 @@ function usageWhere (filters: UsageFilters): {clause: string, params: SqlParam[]
     return {clause: ` WHERE ${where.join(' AND ')}`, params}
 }
 
-/** Aggregate usage rows into totals, a time series, and per-provider/model breakdowns.
- *  Filters are AND-combined. Bucket width is hourly for spans <= 3 days, daily otherwise;
- *  series longer than 45 buckets are merged into consecutive groups of ceil(n / 45)
- *  buckets (so at most ceil(n / groupSize) <= 45 groups) so charts stay readable and smooth. */
+function rowMetrics (row: SqlRow): {count: number, inTokens: number, outTokens: number, cachedTokens: number} {
+    return {
+        count: asNum(row.count),
+        inTokens: asNum(row.in_tokens),
+        outTokens: asNum(row.out_tokens),
+        cachedTokens: asNum(row.cached_tokens),
+    }
+}
+
+function collectMetericsByKey (row: SqlRow): UsageGroup {
+    const metrics = rowMetrics(row)
+    return {...metrics, key: asStr(row.key) ?? '(unknown)'}
+}
+
+function collectMetericsByBucket (row: SqlRow): UsageBucket {
+    const metrics = rowMetrics(row)
+    return {...metrics, bucket: asNum(row.bucket)}
+}
+
 export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
     if (!initialized) return emptyStats()
     try {
@@ -254,22 +273,6 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
         const span = (filters.from !== undefined && filters.to !== undefined) ? filters.to - filters.from : 0
         const bucketMs = span > 0 && span <= 3 * DAY ? HOUR : DAY
 
-        const series = all(
-            `SELECT (time / ?) * ? AS bucket,
-                    COUNT(*) AS count,
-                    COALESCE(SUM(input_tokens), 0) AS in_tokens,
-                    COALESCE(SUM(output_tokens), 0) AS out_tokens,
-                    COALESCE(SUM(cached_tokens), 0) AS cached_tokens
-             FROM usage${clause} GROUP BY bucket ORDER BY bucket`,
-            [bucketMs, bucketMs, ...params],
-        ).map(row => ({
-            bucket: asNum(row.bucket),
-            count: asNum(row.count),
-            inTokens: asNum(row.in_tokens),
-            outTokens: asNum(row.out_tokens),
-            cachedTokens: asNum(row.cached_tokens),
-        }))
-
         const byProvider = all(
             `SELECT provider AS key, COUNT(*) AS count,
                     COALESCE(SUM(input_tokens), 0) AS in_tokens,
@@ -277,13 +280,7 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
                     COALESCE(SUM(cached_tokens), 0) AS cached_tokens
              FROM usage${clause} GROUP BY provider ORDER BY count DESC`,
             params,
-        ).map(row => ({
-            key: asStr(row.key) ?? '(unknown)',
-            count: asNum(row.count),
-            inTokens: asNum(row.in_tokens),
-            outTokens: asNum(row.out_tokens),
-            cachedTokens: asNum(row.cached_tokens),
-        }))
+        ).map(collectMetericsByKey)
 
         const byModel = all(
             `SELECT model AS key, COUNT(*) AS count,
@@ -292,13 +289,7 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
                     COALESCE(SUM(cached_tokens), 0) AS cached_tokens
              FROM usage${clause} GROUP BY model ORDER BY count DESC`,
             params,
-        ).map(row => ({
-            key: asStr(row.key) ?? '(unknown)',
-            count: asNum(row.count),
-            inTokens: asNum(row.in_tokens),
-            outTokens: asNum(row.out_tokens),
-            cachedTokens: asNum(row.cached_tokens),
-        }))
+        ).map(collectMetericsByKey)
 
         // All-time provider/model pairs for the filter menus: deliberately
         // ignores from/to and the provider/model filters so an active filter
@@ -314,65 +305,32 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
             model: asStr(row.model) ?? '',
         })).filter(p => p.provider !== '' && p.model !== '')
 
-        const seriesByModel = all(
-            `SELECT (time / ?) * ? AS bucket,
-                    COALESCE(model, '(unknown)') AS model,
-                    COUNT(*) AS count,
-                    COALESCE(SUM(input_tokens), 0) AS in_tokens,
-                    COALESCE(SUM(output_tokens), 0) AS out_tokens
-             FROM usage${clause} GROUP BY bucket, model ORDER BY bucket`,
-            [bucketMs, bucketMs, ...params],
-        ).map(row => ({
-            bucket: asNum(row.bucket),
-            model: asStr(row.model) ?? '(unknown)',
-            count: asNum(row.count),
-            inTokens: asNum(row.in_tokens),
-            outTokens: asNum(row.out_tokens),
-        }))
-
-        // Merge the series down to at most 45 groups so charts stay readable at
-        // long spans (e.g. a 1-year custom range yields 365 daily buckets).
-        // Group size = ceil(n / 45); group count = ceil(n / groupSize) <= 45.
-        // The group's bucket timestamp is its first member's, and seriesByModel
-        // follows the same grouping so both charts stay in sync.
-        const MAX_BUCKETS = 45
-        let seriesOut = series
-        let seriesByModelOut = seriesByModel
-        if (series.length > MAX_BUCKETS) {
-            const groupSize = Math.ceil(series.length / MAX_BUCKETS)
-            const grouped: UsageBucket[] = []
-            const groupStartOfBucket = new Map<number, number>()
-            for (let i = 0; i < series.length; i++) {
-                const src = series[i]
-                const gi = Math.floor(i / groupSize)
-                const start = grouped.length > gi ? grouped[gi].bucket : src.bucket
-                groupStartOfBucket.set(src.bucket, start)
-                const g = grouped.length > gi
-                    ? grouped[gi]
-                    : {bucket: src.bucket, count: 0, inTokens: 0, outTokens: 0, cachedTokens: 0}
-                g.count += src.count
-                g.inTokens += src.inTokens
-                g.outTokens += src.outTokens
-                g.cachedTokens += src.cachedTokens
-                grouped[gi] = g
-            }
-            const groupedByModel = new Map<string, UsageSeriesModelPoint>()
-            for (const p of seriesByModel) {
-                const start = groupStartOfBucket.get(p.bucket)
-                if (start === undefined) continue
-                const key = `${start}|${p.model}`
-                const g = groupedByModel.get(key)
-                if (g === undefined) {
-                    groupedByModel.set(key, {bucket: start, model: p.model, count: p.count, inTokens: p.inTokens, outTokens: p.outTokens})
-                } else {
-                    g.count += p.count
-                    g.inTokens += p.inTokens
-                    g.outTokens += p.outTokens
-                }
-            }
-            seriesOut = grouped
-            seriesByModelOut = [...groupedByModel.values()].sort((a, b) => a.bucket - b.bucket || a.model.localeCompare(b.model))
-        }
+        const {series, seriesByModel} = mergeSeries(
+            all(
+                `SELECT (time / ?) * ? AS bucket,
+                        COUNT(*) AS count,
+                        COALESCE(SUM(input_tokens), 0) AS in_tokens,
+                        COALESCE(SUM(output_tokens), 0) AS out_tokens,
+                        COALESCE(SUM(cached_tokens), 0) AS cached_tokens
+                 FROM usage${clause} GROUP BY bucket ORDER BY bucket`,
+                [bucketMs, bucketMs, ...params],
+            ).map(collectMetericsByBucket),
+            all(
+                `SELECT (time / ?) * ? AS bucket,
+                        COALESCE(model, '(unknown)') AS model,
+                        COUNT(*) AS count,
+                        COALESCE(SUM(input_tokens), 0) AS in_tokens,
+                        COALESCE(SUM(output_tokens), 0) AS out_tokens
+                 FROM usage${clause} GROUP BY bucket, model ORDER BY bucket`,
+                [bucketMs, bucketMs, ...params],
+            ).map(row => ({
+                bucket: asNum(row.bucket),
+                model: asStr(row.model) ?? '(unknown)',
+                count: asNum(row.count),
+                inTokens: asNum(row.in_tokens),
+                outTokens: asNum(row.out_tokens),
+            })),
+        )
 
         return {
             count: asNum(total.count),
@@ -382,8 +340,8 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
             avgDurationMs: Math.round(asNum(total.avg_duration)),
             avgTtftMs: Math.round(asNum(total.avg_ttft)),
             errorCount: asNum(total.error_count),
-            series: seriesOut,
-            seriesByModel: seriesByModelOut,
+            series,
+            seriesByModel,
             byProvider,
             byModel,
             providerModels,
@@ -391,6 +349,55 @@ export function loadUsageStats (filters: UsageFilters = {}): UsageStats {
     } catch (e) {
         console.error('usage stats failed:', e instanceof Error ? e.message : String(e))
         return emptyStats()
+    }
+}
+
+/** Fold a series longer than 45 buckets into at most 45 groups so charts stay
+ *  readable at long spans (e.g. a 1-year custom range yields 365 daily
+ *  buckets). Group size = ceil(n / 45), so the group count is
+ *  ceil(n / groupSize) <= 45; groups are consecutive runs of the present
+ *  buckets, so a group's bucket timestamp is its first member's. seriesByModel
+ *  is folded by the same bucket->group mapping so both charts stay in sync. */
+function mergeSeries (series: UsageBucket[], seriesByModel: UsageSeriesModelPoint[]): {series: UsageBucket[], seriesByModel: UsageSeriesModelPoint[]} {
+    const MAX_BUCKETS = 45
+    if (series.length <= MAX_BUCKETS) return {series, seriesByModel}
+
+    const groupSize = Math.ceil(series.length / MAX_BUCKETS)
+    const grouped: UsageBucket[] = []
+    const groupStartOfBucket = new Map<number, number>()
+    for (let i = 0; i < series.length; i++) {
+        const src = series[i]
+        const gi = Math.floor(i / groupSize)
+        const start = grouped.length > gi ? grouped[gi].bucket : src.bucket
+        groupStartOfBucket.set(src.bucket, start)
+        const g = grouped.length > gi
+            ? grouped[gi]
+            : {bucket: src.bucket, count: 0, inTokens: 0, outTokens: 0, cachedTokens: 0}
+        g.count += src.count
+        g.inTokens += src.inTokens
+        g.outTokens += src.outTokens
+        g.cachedTokens += src.cachedTokens
+        grouped[gi] = g
+    }
+
+    const groupedByModel = new Map<string, UsageSeriesModelPoint>()
+    for (const p of seriesByModel) {
+        const start = groupStartOfBucket.get(p.bucket)
+        if (start === undefined) continue
+        const key = `${start}|${p.model}`
+        const g = groupedByModel.get(key)
+        if (g === undefined) {
+            groupedByModel.set(key, {bucket: start, model: p.model, count: p.count, inTokens: p.inTokens, outTokens: p.outTokens})
+        } else {
+            g.count += p.count
+            g.inTokens += p.inTokens
+            g.outTokens += p.outTokens
+        }
+    }
+
+    return {
+        series: grouped,
+        seriesByModel: [...groupedByModel.values()].sort((a, b) => a.bucket - b.bucket || a.model.localeCompare(b.model)),
     }
 }
 
@@ -416,13 +423,7 @@ export function loadUsageHeatmap (filters: UsageFilters = {}): UsageBucket[] {
                     COALESCE(SUM(cached_tokens), 0) AS cached_tokens
              FROM usage${clause} GROUP BY bucket ORDER BY bucket`,
             params,
-        ).map(row => ({
-            bucket: asNum(row.bucket),
-            count: asNum(row.count),
-            inTokens: asNum(row.in_tokens),
-            outTokens: asNum(row.out_tokens),
-            cachedTokens: asNum(row.cached_tokens),
-        }))
+        ).map(collectMetericsByBucket)
     } catch (e) {
         console.error('usage heatmap failed:', e instanceof Error ? e.message : String(e))
         return []

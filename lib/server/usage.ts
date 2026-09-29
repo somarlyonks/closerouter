@@ -18,7 +18,6 @@ export const handleUsage = withMethod('GET')(needsAuth((ctx, res) => {
     res.writeHead(200, {
         'content-type': 'application/json',
         'cache-control': 'no-cache',
-        'access-control-allow-origin': '*',
     })
     res.end(JSON.stringify({...stats, heatmap}))
 }))
