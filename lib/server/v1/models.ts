@@ -40,7 +40,6 @@ export async function handleListModels (
 
     res.writeHead(200, {
         'content-type': 'application/json',
-        'access-control-allow-origin': '*',
     })
     const payload: unknown = {object: 'list', data}
     res.end(JSON.stringify(payload, undefined, 2))

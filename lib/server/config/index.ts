@@ -1,5 +1,5 @@
-import {parseConfig, applyConfig, resolveDbPath, type RuntimeConfig, type ProviderConfig} from '../../config'
-import {router, method, needsAuth, withMethod, handleHTML, handleBadRequest} from '../../router'
+import {parseConfig, applyConfig, resolveDbPath, mapProviders, type RuntimeConfig, type ProviderConfig} from '../../config'
+import {router, method, needsAuth, withMethod, handleHTML, handleBadRequest, respondError, readRequestBody} from '../../router'
 import {html as indexHTML} from './index.html'
 
 /** The config as served to clients: no raw document, no provider api_keys,
@@ -14,14 +14,10 @@ interface PublicConfig {
 }
 
 function stripConfigApiKey (config: RuntimeConfig): PublicConfig {
-    const providerEntries: [string, Record<string, unknown>][] = []
-    for (const [name, provider] of Object.entries(config.providers)) {
-        providerEntries.push([name, {
-            base_url: provider.base_url,
-            models: provider.models || [],
-        }])
-    }
-    const providers: Record<string, Record<string, unknown>> = Object.fromEntries(providerEntries)
+    const providers = mapProviders(config.providers, (_name, provider): Record<string, unknown> => ({
+        base_url: provider.base_url,
+        models: provider.models || [],
+    }))
 
     return {
         port: config.port,
@@ -43,22 +39,20 @@ function mergeProviderSecrets (raw: string, stored: Record<string, ProviderConfi
     const obj = parsed as Record<string, unknown>
     if (typeof obj.providers !== 'object' || !obj.providers) return raw
 
-    const mergedProviderEntries: [string, unknown][] = []
-    for (const [name, provider] of Object.entries(obj.providers as Record<string, unknown>)) {
-        if (typeof provider !== 'object' || !provider) continue
+    const providers = mapProviders(obj.providers as Record<string, unknown>, (name, provider): Record<string, unknown> | undefined => {
+        if (typeof provider !== 'object' || !provider) return undefined
         const p = provider as Record<string, unknown>
         const copy: Record<string, unknown> = {}
         for (const [k, v] of Object.entries(p)) copy[k] = v
-        const typed = p.api_key
-        if ((typed === undefined || typed === '') && Object.keys(stored).includes(name)) {
+        if ((p.api_key === undefined || p.api_key === '') && Object.keys(stored).includes(name)) {
             copy.api_key = stored[name].api_key
         }
-        mergedProviderEntries.push([name, copy])
-    }
+        return copy
+    })
 
     const merged: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(obj)) merged[k] = v
-    merged.providers = Object.fromEntries(mergedProviderEntries)
+    merged.providers = providers
     return JSON.stringify(merged)
 }
 
@@ -69,7 +63,6 @@ export const handleConfig = router(
         needsAuth((ctx, res) => {
             res.writeHead(200, {
                 'content-type': 'application/json',
-                'access-control-allow-origin': '*',
             })
             res.end(JSON.stringify(stripConfigApiKey(ctx.env.config), undefined, 2))
         }),
@@ -77,11 +70,7 @@ export const handleConfig = router(
     ),
     withMethod('PUT')(needsAuth(
         (ctx, res) => {
-            const chunks: Buffer[] = []
-            ctx.req.on('data', (chunk: Buffer) => chunks.push(chunk))
-            ctx.req.on('end', () => {
-                const raw = Buffer.concat(chunks).toString('utf-8')
-
+            readRequestBody(ctx).then((raw) => {
                 let config: RuntimeConfig
                 try {
                     config = parseConfig(mergeProviderSecrets(raw, ctx.env.config.providers))
@@ -107,20 +96,11 @@ export const handleConfig = router(
 
                 res.writeHead(200, {
                     'content-type': 'application/json',
-                    'access-control-allow-origin': '*',
                 })
                 res.end(JSON.stringify(stripConfigApiKey(config), undefined, 2))
             })
             ctx.req.on('error', (err: Error) => {
-                if (!res.headersSent) {
-                    res.writeHead(400, {'content-type': 'application/json'})
-                    res.end(JSON.stringify({
-                        error: {
-                            message: `Failed to read request: ${err.message}`,
-                            type: 'client_error',
-                        },
-                    }))
-                }
+                if (!res.headersSent) respondError(res, 400, 'client_error', `Failed to read request: ${err.message}`)
             })
         },
     )),

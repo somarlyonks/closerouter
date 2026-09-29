@@ -35,6 +35,18 @@ export interface RuntimeConfig {
     path?: string
 }
 
+export function mapProviders<In, Out> (
+    providers: Record<string, In>,
+    project: (name: string, provider: In) => Out | undefined,
+): Record<string, Out> {
+    const entries: [string, Out][] = []
+    for (const name of Object.keys(providers)) {
+        const projected = project(name, providers[name])
+        if (projected !== undefined) entries.push([name, projected])
+    }
+    return Object.fromEntries(entries)
+}
+
 /** Parse and validate a config document. Shape, constraints, and defaults all
  *  come from the embedded schema.json (via validateSchema /
  *  applySchemaDefaults); the only remaining work is the typed projection into
@@ -53,16 +65,14 @@ export function parseConfig (raw: string): RuntimeConfig {
 
     const config = applySchemaDefaults(schema, parsed) as Record<string, unknown>
 
-    const providerEntries: [string, ProviderConfig][] = []
-    for (const [name, provider] of Object.entries(config.providers as Record<string, unknown>)) {
-        const p = provider as Record<string, unknown>
-        providerEntries.push([name, {
+    const providers = mapProviders(
+        config.providers as Record<string, Record<string, unknown>>,
+        (_name, p): ProviderConfig => ({
             base_url: p.base_url as string,
             api_key: p.api_key as string,
             models: p.models as ModelConfig[] | undefined,
-        }])
-    }
-    const providers: Record<string, ProviderConfig> = Object.fromEntries(providerEntries)
+        }),
+    )
 
     return {
         port: config.port as number,

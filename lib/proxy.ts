@@ -3,22 +3,9 @@ import * as https from 'https'
 import {ClientRequest, IncomingMessage, ServerResponse} from 'http'
 import {appendResponseBody, feedStreamUsage, logResponse, safeLog} from './server/logs/helper'
 import type {ResponseLog, UsageCounts} from './server/logs/helper'
-import type {RequestContext} from './router'
+import {errorBody, readRequestBody, respondError, type RequestContext} from './router'
 import type {UpstreamTracker} from './server/helper'
 import type {ProviderConfig} from './config'
-
-function getPort (targetUrl: URL, isHttps: boolean): number {
-    if (targetUrl.port !== '') return Number(targetUrl.port)
-    return isHttps ? 443 : 80
-}
-
-// URL.hostname keeps the brackets on an IPv6 literal ("[::1]"), but
-// http.request's hostname option wants the bare address.
-function getHostname (targetUrl: URL): string {
-    const hostname = targetUrl.hostname
-    if (hostname.startsWith('[') && hostname.endsWith(']')) return hostname.slice(1, -1)
-    return hostname
-}
 
 // Headers that are hop-by-hop (RFC 7230 §6.1) or owned by the proxy itself are
 // never relayed in either direction. Content-Length and Authorization are
@@ -43,6 +30,8 @@ const REQUEST_ALLOW = new Set([
 ])
 
 // Provider → client: everything else on the response is relayed verbatim.
+// The proxy's own CORS headers are applied centrally (server/helper.ts), so
+// provider-sent CORS is stripped to avoid duplicate, conflicting values.
 const RESPONSE_STRIP = new Set([
     ...HOP_BY_HOP,
     'set-cookie', // don't let providers plant cookies on the caller
@@ -101,6 +90,39 @@ function backendRequest (
     return http.request({hostname, port, path, method, headers: headers})
 }
 
+interface Target {
+    isHttps: boolean
+    hostname: string
+    port: number
+    urlPath: string
+}
+
+function resolveTarget (baseUrl: string, path: string): Target {
+    const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
+    const targetUrl = new URL(normalizedBaseUrl + path)
+    const isHttps = targetUrl.protocol === 'https:'
+
+    return {
+        isHttps,
+        hostname: getHostname(targetUrl),
+        port: getPort(targetUrl, isHttps),
+        urlPath: targetUrl.pathname + targetUrl.search,
+    }
+
+    function getPort (targetUrl: URL, isHttps: boolean): number {
+        if (targetUrl.port !== '') return Number(targetUrl.port)
+        return isHttps ? 443 : 80
+    }
+
+    // URL.hostname keeps the brackets on an IPv6 literal ("[::1]"), but
+    // http.request's hostname option wants the bare address.
+    function getHostname (targetUrl: URL): string {
+        const hostname = targetUrl.hostname
+        if (hostname.startsWith('[') && hostname.endsWith(']')) return hostname.slice(1, -1)
+        return hostname
+    }
+}
+
 interface ClientState {
     readonly res: ServerResponse
     ended: boolean
@@ -150,11 +172,7 @@ function safeEnd (client: ClientState, body?: string): void {
 
 function forwardResponse (backendRes: IncomingMessage, client: ClientState, responseLog: ResponseLog | undefined, settleUpstream: () => void): void {
     const statusCode = backendRes.statusCode ?? 500
-    const headers: Record<string, string> = {
-        ...relayHeaders(backendRes.headers, name => !RESPONSE_STRIP.has(name)),
-        'access-control-allow-origin': '*',
-        'access-control-expose-headers': '*',
-    }
+    const headers = relayHeaders(backendRes.headers, name => !RESPONSE_STRIP.has(name))
 
     safeWriteHead(client, statusCode, headers)
     safeLog('record response headers', () => logResponse(responseLog, {status: statusCode, headers}))
@@ -194,11 +212,9 @@ function forwardResponse (backendRes: IncomingMessage, client: ClientState, resp
 
 function handleBackendError (err: Error, client: ClientState, responseLog: ResponseLog | undefined): void {
     console.error('Backend request error:', err)
-    const body = JSON.stringify({
-        error: {
-            message: `Backend request failed: ${err.message}`,
-            type: 'proxy_error',
-        },
+    const body = errorBody({
+        type: 'proxy_error',
+        message: `Backend request failed: ${err.message}`,
     })
     if (!client.res.headersSent) {
         safeWriteHead(client, 502, {'content-type': 'application/json'})
@@ -210,22 +226,17 @@ function handleBackendError (err: Error, client: ClientState, responseLog: Respo
 }
 
 export function proxyRequest (
-    clientReq: IncomingMessage,
+    ctx: RequestContext,
     clientRes: ServerResponse,
     baseUrl: string,
     apiKey: string,
     path: string,
     rewriteBody?: (body: string) => string,
-    preReadBody?: string,
-    responseLog?: ResponseLog,
-    upstream?: UpstreamTracker,
 ): void {
-    const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
-    const targetUrl = new URL(normalizedBaseUrl + path)
-    const isHttps = targetUrl.protocol === 'https:'
-    const hostname = getHostname(targetUrl)
-    const port = getPort(targetUrl, isHttps)
-    const urlPath = targetUrl.pathname + targetUrl.search
+    const clientReq = ctx.req
+    const responseLog = ctx.responseLog
+    const upstream = ctx.env.upstream
+    const {isHttps, hostname, port, urlPath} = resolveTarget(baseUrl, path)
     const method = clientReq.method || 'POST'
     const client = createClientState(clientRes)
 
@@ -282,29 +293,19 @@ export function proxyRequest (
         backendReq.end()
     }
 
-    if (preReadBody !== undefined) {
-        sendToBackend(preReadBody)
-    } else {
-        const chunks: Buffer[] = []
-        clientReq.on('data', (chunk: Buffer) => chunks.push(chunk))
-        clientReq.on('end', () => {
-            sendToBackend(Buffer.concat(chunks).toString('utf-8'))
-        })
-        clientReq.on('error', (err: Error) => {
-            console.error('Client request error:', err)
-            if (!client.res.headersSent) {
-                const body = JSON.stringify({
-                    error: {
-                        message: `Bad request: ${err.message}`,
-                        type: 'client_error',
-                    },
-                })
-                safeWriteHead(client, 400, {'content-type': 'application/json'})
-                safeLog('record client error', () => logResponse(responseLog, {status: 400, headers: {'content-type': 'application/json'}, body}))
-                safeEnd(client, body)
-            }
-        })
-    }
+    readRequestBody(ctx).then(sendToBackend)
+    clientReq.on('error', (err: Error) => {
+        console.error('Client request error:', err)
+        if (!client.res.headersSent) {
+            const body = errorBody({
+                type: 'client_error',
+                message: `Bad request: ${err.message}`,
+            })
+            safeWriteHead(client, 400, {'content-type': 'application/json'})
+            safeLog('record client error', () => logResponse(responseLog, {status: 400, headers: {'content-type': 'application/json'}, body}))
+            safeEnd(client, body)
+        }
+    })
 }
 
 export function proxyGetRequest (
@@ -313,12 +314,7 @@ export function proxyGetRequest (
     path: string,
     upstream?: UpstreamTracker,
 ): Promise<{statusCode: number, body: string}> {
-    const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
-    const targetUrl = new URL(normalizedBaseUrl + path)
-    const isHttps = targetUrl.protocol === 'https:'
-    const hostname = getHostname(targetUrl)
-    const port = getPort(targetUrl, isHttps)
-    const urlPath = targetUrl.pathname + targetUrl.search
+    const {isHttps, hostname, port, urlPath} = resolveTarget(baseUrl, path)
 
     return new Promise((resolve, reject) => {
         const req = backendRequest(
@@ -359,35 +355,18 @@ export function proxyModelRequest (
     res: ServerResponse,
     endpoint: string,
 ): void {
-    const chunks: Buffer[] = []
-    const req = ctx.req
-    req.on('data', (chunk: Buffer) => chunks.push(chunk))
-    req.on('end', () => {
-        const bodyStr = Buffer.concat(chunks).toString('utf-8')
-
+    readRequestBody(ctx).then((bodyStr) => {
         let model: string | undefined
         try {
             const body = JSON.parse(bodyStr)
             model = body.model
         } catch {
-            res.writeHead(400, {'content-type': 'application/json'})
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Invalid JSON in request body',
-                    type: 'invalid_request_error',
-                },
-            }))
+            respondError(res, 400, 'invalid_request_error', 'Invalid JSON in request body')
             return
         }
 
         if (!model) {
-            res.writeHead(400, {'content-type': 'application/json'})
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Missing "model" field in request body',
-                    type: 'invalid_request_error',
-                },
-            }))
+            respondError(res, 400, 'invalid_request_error', 'Missing "model" field in request body')
             return
         }
 
@@ -395,24 +374,12 @@ export function proxyModelRequest (
         const providerName = model.slice(0, slashIdx)
         const realModel = model.slice(slashIdx + 1)
         if (slashIdx <= 0 || !providerName || !realModel) {
-            res.writeHead(404, {'content-type': 'application/json'})
-            res.end(JSON.stringify({
-                error: {
-                    message: `Model "${model}" is unavailable`,
-                    type: 'model_not_found',
-                },
-            }))
+            respondError(res, 404, 'model_not_found', `Model "${model}" is unavailable`)
             return
         }
 
         if (!(providerName in ctx.env.config.providers)) {
-            res.writeHead(404, {'content-type': 'application/json'})
-            res.end(JSON.stringify({
-                error: {
-                    message: `Provider "${providerName}" is not configured`,
-                    type: 'model_not_found',
-                },
-            }))
+            respondError(res, 404, 'model_not_found', `Provider "${providerName}" is not configured`)
             return
         }
         const provider = ctx.env.config.providers[providerName]
@@ -432,30 +399,12 @@ export function proxyModelRequest (
             }
         }
 
-        proxyRequest(
-            req,
-            res,
-            provider.base_url,
-            provider.api_key,
-            endpoint,
-            rewriteBody,
-            bodyStr,
-            ctx.responseLog,
-            ctx.env.upstream,
-        )
+        proxyRequest(ctx, res, provider.base_url, provider.api_key, endpoint, rewriteBody)
     })
 
-    req.on('error', (err) => {
+    ctx.req.on('error', (err) => {
         console.error('Error reading request body:', err)
-        if (!res.headersSent) {
-            res.writeHead(400, {'content-type': 'application/json'})
-            res.end(JSON.stringify({
-                error: {
-                    message: `Failed to read request: ${err.message}`,
-                    type: 'client_error',
-                },
-            }))
-        }
+        if (!res.headersSent) respondError(res, 400, 'client_error', `Failed to read request: ${err.message}`)
     })
 }
 

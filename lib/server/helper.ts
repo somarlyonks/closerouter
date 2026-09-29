@@ -1,3 +1,5 @@
+import type {ServerResponse} from 'http'
+
 /** In-flight upstream provider requests, tracked so shutdown can abort the
  *  stragglers: an endless generation must not hold server.close (and the
  *  process) open, nor keep burning provider resources after the drain period
@@ -32,4 +34,13 @@ export function createUpstreamTracker (): UpstreamTracker {
             return requests.length
         },
     }
+}
+
+/** Baseline CORS headers for every response, applied once before dispatch so
+ *  no route handler repeats them and error responses (401/404/405/500) stay
+ *  readable from a browser. The proxy strips the provider's own CORS headers,
+ *  so these are the single source of CORS truth in either direction. */
+export function applyCors (res: ServerResponse): void {
+    res.setHeader('access-control-allow-origin', '*')
+    res.setHeader('access-control-expose-headers', '*')
 }

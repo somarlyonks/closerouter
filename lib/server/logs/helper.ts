@@ -66,6 +66,17 @@ export function applyUsageObject (usage: UsageCounts, obj: Record<string, unknow
     }
 }
 
+export function applySSEFrame (usage: UsageCounts, line: string): void {
+    if (!line.startsWith('data:')) return
+    const payload = line.slice(5).trim()
+    if (!payload || payload === '[DONE]') return
+    try {
+        applyUsageObject(usage, JSON.parse(payload) as Record<string, unknown>)
+    } catch {
+        // Ignore non-JSON SSE frames (comments, keep-alives, chunk boundaries).
+    }
+}
+
 export function feedStreamUsage (state: {carry: string}, usage: UsageCounts, chunk: Buffer | string): void {
     const text = typeof chunk === 'string' ? chunk : chunk.toString('utf-8')
     state.carry += text
@@ -73,21 +84,10 @@ export function feedStreamUsage (state: {carry: string}, usage: UsageCounts, chu
     while ((newlineIdx = state.carry.indexOf('\n')) !== -1) {
         const line = state.carry.slice(0, newlineIdx)
         state.carry = state.carry.slice(newlineIdx + 1)
-        applyFrame(usage, line)
+        applySSEFrame(usage, line)
     }
     if (state.carry.length > MAX_STREAM_CARRY) {
         // Keep only the tail; usage frames arrive near the end of the stream.
         state.carry = state.carry.slice(-MAX_STREAM_CARRY)
-    }
-
-    function applyFrame (usage: UsageCounts, line: string): void {
-        if (!line.startsWith('data:')) return
-        const payload = line.slice(5).trim()
-        if (!payload || payload === '[DONE]') return
-        try {
-            applyUsageObject(usage, JSON.parse(payload) as Record<string, unknown>)
-        } catch {
-            // Ignore non-JSON SSE frames (comments, keep-alives, chunk boundaries).
-        }
     }
 }

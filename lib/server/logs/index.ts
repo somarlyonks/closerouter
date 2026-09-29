@@ -1,7 +1,7 @@
 import type {IncomingMessage, ServerResponse} from 'http'
 import {randomUUID} from 'crypto'
-import {router, needsAuth, withMethod, path, handleHTML, type RequestContext} from '../../router'
-import {MAX_BODY, applyUsageObject} from './helper'
+import {router, needsAuth, withMethod, path, handleHTML, readRequestBody, type RequestContext} from '../../router'
+import {MAX_BODY, applySSEFrame, applyUsageObject} from './helper'
 import type {UsageCounts} from './helper'
 import {recordUsage, loadUsage, loadUsageBody} from './db'
 import {html as indexHTML} from './index.html'
@@ -22,7 +22,6 @@ export const handleLogs = withMethod('GET')(router(
             res.writeHead(200, {
                 'content-type': 'application/json',
                 'cache-control': 'no-cache',
-                'access-control-allow-origin': '*',
             })
             res.end(JSON.stringify({entries: loadUsage()}))
         }),
@@ -35,7 +34,6 @@ export const handleLogs = withMethod('GET')(router(
             res.writeHead(body ? 200 : 404, {
                 'content-type': 'application/json',
                 'cache-control': 'no-cache',
-                'access-control-allow-origin': '*',
             })
             res.end(JSON.stringify(body ?? {error: {message: 'usage entry not found', type: 'not_found'}}))
         }),
@@ -59,40 +57,30 @@ export function logMiddleware (ctx: RequestContext, res: ServerResponse) {
     const id = readClientRequestId(req) ?? randomUUID()
     res.setHeader('x-closerouter-request-id', id)
     const startedAt = Date.now()
-    const bodyChunks: Buffer[] = []
-    let bodyBytes = 0
-    req.on('data', (chunk: Buffer) => {
-        if (bodyBytes < MAX_BODY) {
-            bodyChunks.push(chunk)
-            bodyBytes += chunk.length
-        }
-    })
-
-    const readRequestBody = () => bodyChunks.length > 0 ? Buffer.concat(bodyChunks).toString('utf-8').slice(0, MAX_BODY) : undefined
+    const bodyText = readRequestBody(ctx)
 
     res.on('close', () => {
         if (responseLog?.provider === undefined || responseLog.model === undefined) return
-        const usage = hasUsage(responseLog?.usage)
-            ? responseLog!.usage!
-            : extractTokenUsage(responseLog?.body)
-        const firstTokenAt = responseLog?.firstTokenAt
-        const lastTokenAt = responseLog?.lastTokenAt
+        const {provider, model} = responseLog
+        const usage = hasUsage(responseLog.usage) ? responseLog.usage! : extractTokenUsage(responseLog.body)
+        const firstTokenAt = responseLog.firstTokenAt
+        const lastTokenAt = responseLog.lastTokenAt
 
-        recordUsage({
+        bodyText.then(raw => recordUsage({
             ...usage,
             requestId: id,
             time: startedAt,
             method: req.method!,
             path: req.url!,
-            provider: responseLog.provider,
-            model: responseLog.model,
+            provider,
+            model,
             status: responseLog.status ?? (res.headersSent ? res.statusCode : undefined),
             durationMs: Date.now() - startedAt,
             ttftMs: firstTokenAt !== undefined ? firstTokenAt - startedAt : undefined,
             generationMs: firstTokenAt !== undefined && lastTokenAt !== undefined ? lastTokenAt - firstTokenAt : undefined,
-            requestBody: readRequestBody(),
+            requestBody: raw.length > 0 ? raw.slice(0, MAX_BODY) : undefined,
             responseBody: responseLog.body,
-        })
+        }))
     })
 }
 
@@ -116,16 +104,7 @@ export function extractTokenUsage (body: string | undefined): UsageCounts {
     }
 
     if (result.inputTokens === undefined || result.outputTokens === undefined) {
-        for (const line of body.split('\n')) {
-            if (!line.startsWith('data:')) continue
-            const payload = line.slice(5).trim()
-            if (!payload || payload === '[DONE]') continue
-            try {
-                applyUsageObject(result, JSON.parse(payload) as Record<string, unknown>)
-            } catch {
-                // Ignore non-JSON SSE frames.
-            }
-        }
+        for (const line of body.split('\n')) applySSEFrame(result, line)
     }
 
     return result
