@@ -50,10 +50,8 @@ type RelayRule = (name: string) => boolean
 function relayHeaders (source: RelayHeaders, isRelayed: RelayRule): Record<string, string> {
     const connectionHeaders = new Set<string>()
     const connection = source.connection
-    // The Connection header names extra hop-by-hop headers (RFC 7230 §6.1).
-    // Build a plain string[] - scriptc traps on array literals that could hold
-    // undefined ( IncomingMessage.headers.connection is undefined when the
-    // client sends none), so no `[connection]` shorthand.
+    // The Connection header names extra hop-by-hop headers (RFC 7230 §6.1);
+    // normalize its string | string[] | undefined shape before reading it.
     const connectionValues: string[] = Array.isArray(connection)
         ? connection
         : typeof connection === 'string' ? [connection] : []

@@ -8,10 +8,10 @@
  *  `test` command (ConfigTester), so this validator is the single source of
  *  truth for the supported keyword set. Unknown keywords are ignored.
  *
- *  Schema nodes are handled as `Record<string, unknown>` rather than the
- *  exported JSONSchema interface: schema documents arrive from JSON.parse,
- *  and scriptc cannot runtime-cast `unknown` to a recursive interface. The
- *  interface remains as the documented shape for literals and annotations. */
+ *  Schema nodes are handled as `Record<string, unknown>`: documents arrive
+ *  from JSON.parse and the validator reads arbitrary keywords and narrows at
+ *  runtime, so the open record is the working shape. JSONSchema remains as the
+ *  documented shape for literals and annotations. */
 
 export interface JSONSchema {
     // Schemas carry documentation and other ignored keywords (title,
