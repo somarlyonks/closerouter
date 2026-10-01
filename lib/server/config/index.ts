@@ -1,3 +1,4 @@
+import type {ServerResponse} from 'http'
 import {parseConfig, applyConfig, resolveDbPath, mapProviders, type RuntimeConfig, type ProviderConfig} from '../../config'
 import {router, method, needsAuth, withMethod, handleHTML, handleBadRequest, respondError, readRequestBody} from '../../router'
 import {html as indexHTML} from './index.html'
@@ -26,6 +27,10 @@ function stripConfigApiKey (config: RuntimeConfig): PublicConfig {
         retentionDays: config.retentionDays,
         providers,
     }
+}
+
+function sendPublicConfig (res: ServerResponse, config: RuntimeConfig): void {
+    res.end(JSON.stringify(stripConfigApiKey(config), null, 2) ?? '')
 }
 
 function mergeProviderSecrets (raw: string, stored: Record<string, ProviderConfig>): string {
@@ -64,7 +69,7 @@ export const handleConfig = router(
             res.writeHead(200, {
                 'content-type': 'application/json',
             })
-            res.end(JSON.stringify(stripConfigApiKey(ctx.env.config), undefined, 2))
+            sendPublicConfig(res, ctx.env.config)
         }),
         handleHTML(indexHTML),
     ),
@@ -97,7 +102,7 @@ export const handleConfig = router(
                 res.writeHead(200, {
                     'content-type': 'application/json',
                 })
-                res.end(JSON.stringify(stripConfigApiKey(config), undefined, 2))
+                sendPublicConfig(res, config)
             })
             ctx.req.on('error', (err: Error) => {
                 if (!res.headersSent) respondError(res, 400, 'client_error', `Failed to read request: ${err.message}`)
