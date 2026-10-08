@@ -22,6 +22,7 @@ CloseRouter:
             [x] forwarding with SSE streaming
             [x] headers relay
             [x] Google provider adapter
+            [x] upstream idle timeout, answered as 504 upstream_timeout
         routes:
             v1:
                 [x] chat/completions
