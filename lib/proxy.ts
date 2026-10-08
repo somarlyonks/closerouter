@@ -47,6 +47,25 @@ type RelayHeaders = Record<string, string | string[] | undefined>
 
 type RelayRule = (name: string) => boolean
 
+/** How long an upstream may go without moving a byte before the proxy gives
+ *  up: it spans the dial, the wait for response headers, and mid-stream gaps.
+ *  Generous enough that a slow but live generation is never cut off, while a
+ *  stalled provider is dropped instead of holding the request open. */
+export const UPSTREAM_IDLE_TIMEOUT_MS = 180_000
+
+function armUpstreamIdleTimeout (req: ClientRequest, ms: number, onTimeout: (message: string) => void): void {
+    if (ms <= 0) return
+    req.setTimeout(ms, () => onTimeout(`Upstream idle timeout after ${ms}ms`))
+}
+
+function firstHeader (value: string | string[] | undefined): string | undefined {
+    return Array.isArray(value) ? value[0] : value
+}
+
+function isEventStream (contentType: string | undefined): boolean {
+    return contentType !== undefined && contentType.toLowerCase().includes('text/event-stream')
+}
+
 function relayHeaders (source: RelayHeaders, isRelayed: RelayRule): Record<string, string> {
     const connectionHeaders = new Set<string>()
     const connection = source.connection
@@ -208,6 +227,31 @@ function forwardResponse (backendRes: IncomingMessage, client: ClientState, resp
     backendRes.on('close', settleUpstream)
 }
 
+function handleUpstreamTimeout (
+    message: string,
+    client: ClientState,
+    responseLog: ResponseLog | undefined,
+    upstreamContentType: string | undefined,
+): void {
+    console.error(message)
+    const body = errorBody({
+        type: 'upstream_timeout',
+        message,
+    })
+    if (!client.res.headersSent) {
+        safeWriteHead(client, 504, {'content-type': 'application/json'})
+        safeLog('record upstream timeout', () => logResponse(responseLog, {status: 504, headers: {'content-type': 'application/json'}, body}))
+        safeEnd(client, body)
+        return
+    }
+    // The status is already committed to the client. An SSE client only
+    // understands `data:`-framed events, so wrap the error to keep its parser
+    // in sync; any other body type is appended as-is.
+    const payload = isEventStream(upstreamContentType) ? `data: ${body}\n\n` : body
+    safeLog('record upstream timeout body', () => appendResponseBody(responseLog, payload))
+    safeEnd(client, payload)
+}
+
 function handleBackendError (err: Error, client: ClientState, responseLog: ResponseLog | undefined): void {
     console.error('Backend request error:', err)
     const body = errorBody({
@@ -230,6 +274,7 @@ export function proxyRequest (
     apiKey: string,
     path: string,
     rewriteBody?: (body: string) => string,
+    idleTimeoutMs: number = UPSTREAM_IDLE_TIMEOUT_MS,
 ): void {
     const clientReq = ctx.req
     const responseLog = ctx.responseLog
@@ -259,7 +304,15 @@ export function proxyRequest (
         const settleUpstream = (): void => {
             if (tracked !== undefined) tracked()
         }
+        let timedOut = false
+        let responseContentType: string | undefined
+        armUpstreamIdleTimeout(backendReq, idleTimeoutMs, (message) => {
+            timedOut = true
+            handleUpstreamTimeout(message, client, responseLog, responseContentType)
+            backendReq.destroy()
+        })
         backendReq.on('response', (backendRes) => {
+            responseContentType = firstHeader(backendRes.headers['content-type'])
             forwardResponse(backendRes, client, responseLog, settleUpstream)
         })
 
@@ -277,6 +330,7 @@ export function proxyRequest (
             // -down socket as ECONNRESET; that is expected, not a backend
             // failure, so it must not be logged or answered as a 502.
             if (clientDropped) return
+            if (timedOut) return
             handleBackendError(err, client, responseLog)
         })
         // 'close' fires after the response completes and on a destroy that
@@ -311,6 +365,7 @@ export function proxyGetRequest (
     apiKey: string,
     path: string,
     upstream?: UpstreamTracker,
+    idleTimeoutMs: number = UPSTREAM_IDLE_TIMEOUT_MS,
 ): Promise<{statusCode: number, body: string}> {
     const {isHttps, hostname, port, urlPath} = resolveTarget(baseUrl, path)
 
@@ -334,6 +389,10 @@ export function proxyGetRequest (
             if (err !== undefined) reject(err)
             else resolve({statusCode: statusCode ?? 500, body: Buffer.concat(chunks).toString('utf-8')})
         }
+        armUpstreamIdleTimeout(req, idleTimeoutMs, (message) => {
+            settle(new Error(message))
+            req.destroy()
+        })
         req.on('response', (res) => {
             res.on('data', (chunk: Buffer) => chunks.push(chunk))
             res.on('end', () => settle(undefined, res.statusCode ?? 500))

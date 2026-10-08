@@ -16,6 +16,7 @@ interface FrontendOpts {
     rewriteBody?: (body: string) => string
     responseLog?: ResponseLog
     upstream?: UpstreamTracker
+    idleTimeoutMs?: number
 }
 
 function startProxyFrontend (opts: FrontendOpts): Promise<{port: number, close: () => Promise<void>}> {
@@ -28,7 +29,7 @@ function startProxyFrontend (opts: FrontendOpts): Promise<{port: number, close: 
         // applyCors mirrors lib/server/index so the pipeline under test carries
         // the same CORS headers production does.
         applyCors(res)
-        proxyRequest(ctx, res, opts.baseUrl, opts.apiKey, opts.path ?? '/x', opts.rewriteBody)
+        proxyRequest(ctx, res, opts.baseUrl, opts.apiKey, opts.path ?? '/x', opts.rewriteBody, opts.idleTimeoutMs)
     })
     return new Promise((resolve, reject) => {
         server.on('error', reject)
@@ -566,6 +567,112 @@ test('proxyRequest relays provider response headers to the client', async () => 
         assert.equal(body, 'ok')
     } finally {
         await frontend.close()
+        await backend.close()
+    }
+})
+
+test('proxyRequest answers 504 when the upstream never sends response headers', async () => {
+    const backend = await startMockBackend(() => {
+        // Hold the request open: never write headers or end.
+    })
+    const frontend = await startProxyFrontend({
+        baseUrl: backend.baseUrl, apiKey: 'k', path: '/x',
+        idleTimeoutMs: 100,
+    })
+    try {
+        const {statusCode, body} = await rawRequest(frontend.port, '/x', {method: 'POST', body: '{}'})
+        assert.equal(statusCode, 504)
+        const json = JSON.parse(body) as {error: {type: string, message: string}}
+        assert.equal(json.error.type, 'upstream_timeout')
+        assert.match(json.error.message, /idle timeout after 100ms/)
+    } finally {
+        await frontend.close()
+        await backend.close()
+    }
+})
+
+test('proxyRequest ends the client response when the upstream stalls mid-stream', async () => {
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200, {'content-type': 'text/event-stream'})
+        res.write('data: first\n\n')
+        // Then stall without ending, so only the idle deadline can settle it.
+    })
+    const frontend = await startProxyFrontend({
+        baseUrl: backend.baseUrl, apiKey: 'k', path: '/x',
+        idleTimeoutMs: 100,
+    })
+    try {
+        const {statusCode, body} = await rawRequest(frontend.port, '/x', {method: 'POST', body: '{}'})
+        assert.equal(statusCode, 200)
+        assert.match(body, /^data: first\n\n/)
+        const errorFrame = body.split('\n').find(line => line.startsWith('data: ') && line.includes('upstream_timeout'))
+        assert.ok(errorFrame, 'expected an SSE data frame carrying the timeout error')
+        const json = JSON.parse(errorFrame.slice('data: '.length)) as {error: {type: string}}
+        assert.equal(json.error.type, 'upstream_timeout')
+    } finally {
+        await frontend.close()
+        await backend.close()
+    }
+})
+
+test('proxyRequest appends the timeout error body when a JSON response stalls mid-body', async () => {
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200, {'content-type': 'application/json'})
+        res.write('{"partial":')
+        // Then stall without ending, so only the idle deadline can settle it.
+    })
+    const frontend = await startProxyFrontend({
+        baseUrl: backend.baseUrl, apiKey: 'k', path: '/x',
+        idleTimeoutMs: 100,
+    })
+    try {
+        const {statusCode, body} = await rawRequest(frontend.port, '/x', {method: 'POST', body: '{}'})
+        assert.equal(statusCode, 200)
+        assert.match(body, /^\{"partial":\{"error":/)
+        assert.match(body, /upstream_timeout/)
+    } finally {
+        await frontend.close()
+        await backend.close()
+    }
+})
+
+test('proxyRequest keeps a slow but active stream alive past the idle window', async () => {
+    const backend = await startMockBackend((_req, res) => {
+        res.writeHead(200, {'content-type': 'text/event-stream'})
+        let n = 0
+        const timer = setInterval(() => {
+            n += 1
+            res.write(`data: ${n}\n\n`)
+            if (n === 4) {
+                clearInterval(timer)
+                res.end()
+            }
+        }, 50)
+    })
+    const frontend = await startProxyFrontend({
+        baseUrl: backend.baseUrl, apiKey: 'k', path: '/x',
+        idleTimeoutMs: 200,
+    })
+    try {
+        const {statusCode, body} = await rawRequest(frontend.port, '/x', {method: 'POST', body: '{}'})
+        assert.equal(statusCode, 200)
+        assert.equal(body, 'data: 1\n\ndata: 2\n\ndata: 3\n\ndata: 4\n\n')
+    } finally {
+        await frontend.close()
+        await backend.close()
+    }
+})
+
+test('proxyGetRequest rejects when the upstream never sends response headers', async () => {
+    const backend = await startMockBackend(() => {
+        // Never respond; only the idle deadline can settle it.
+    })
+    try {
+        await assert.rejects(
+            proxyGetRequest(backend.baseUrl, 'k', '/models', undefined, 100),
+            /idle timeout after 100ms/,
+        )
+    } finally {
         await backend.close()
     }
 })
