@@ -124,3 +124,11 @@ CloseRouter:
                 [x] UpdateChecker (GitHub releases API, semver compare)
                 [x] Settings > Updates section (Check Now, auto-check toggle, download link)
                 [x] auto-check on launch via AppDelegate
+    plugin:
+        pi-closerouter:
+            [x] resolve endpoint + key: env -> pi settings.json -> local closerouter.json -> defaults
+            [x] register `closerouter` provider with api "openai-completions"
+            [x] discover models via refreshModels and a background warm from GET /v1/models
+            [x] map discovered models to ProviderModelConfig
+            [x] enrich specs from pi's bundled catalog by exact <provider>/<model> match
+            [x] limit exposed models and override specs with settings closerouter.models

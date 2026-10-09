@@ -1,0 +1,31 @@
+{
+    "name": "pi-closerouter",
+    "version": "0.1.0",
+    "description": "pi provider extension that adds a local closerouter gateway's models",
+    "license": "MIT",
+    "author": "Yang Sheng <somarl@live.com>",
+    "type": "module",
+    "keywords": [
+        "pi-package"
+    ],
+    "pi": {
+        "extensions": [
+            "./index.ts"
+        ]
+    },
+    "scripts": {
+        "test": "node --test pi-closerouter.test.ts",
+        "typecheck": "tsc --noEmit"
+    },
+    "peerDependencies": {
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*"
+    },
+    "files": [
+        "index.ts",
+        "config.ts",
+        "models.ts",
+        "values.ts",
+        "README.md"
+    ]
+}

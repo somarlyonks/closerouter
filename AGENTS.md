@@ -46,6 +46,8 @@
 │   ├── ffi.json                # FFI shim list consumed by scriptc
 │   └── build.ts                # Compiles the FFI shims in place
 ├── app/                        # macOS menu-bar client (SwiftUI, xcodegen project.yml)
+├── plugin/                     # Integrations distributed outside the compiled binary
+│   └── pi-closerouter/         # pi package that adds a local closerouter as a pi provider
 ├── test/                       # node:test suites, run on the .ts sources via test/loader.mjs
 │   ├── *.test.ts               # Suites per module (router, proxy, db, routes, cli, ...)
 │   ├── helpers.ts              # Mock req/res, mock backend, server + config helpers
