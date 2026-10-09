@@ -1,7 +1,7 @@
 import {createServer, type IncomingMessage, type Server, type ServerResponse} from 'http'
 import {printServerConfig, type RuntimeConfig} from '../config'
 import {v1Router as handleOpenAIRequest} from './v1'
-import {createUpstreamTracker, applyCors, type UpstreamTracker} from './helper'
+import {createUpstreamTracker, createModelsCache, applyCors, type UpstreamTracker} from './helper'
 import {handle, router, path, routerErrorBoundary, type RequestContext} from '../router'
 import {handleLogs, logMiddleware} from './logs'
 import {handleUsage} from './usage'
@@ -17,6 +17,7 @@ export interface RunningServer {
 
 export function startServer (config: RuntimeConfig): RunningServer {
     const upstream = createUpstreamTracker()
+    const modelsCache = createModelsCache()
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         console.log(`${req.method} ${req.url}`)
         if (!req.method || !req.url) return
@@ -26,6 +27,7 @@ export function startServer (config: RuntimeConfig): RunningServer {
             env: {
                 config,
                 upstream,
+                modelsCache,
             },
             responseLog: {},
         }

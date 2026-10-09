@@ -88,6 +88,7 @@ export const handleConfig = router(
                 const previousRetentionDays = ctx.env.config.retentionDays
                 const previousDb = ctx.env.config.dbPath
                 applyConfig(ctx.env.config, config)
+                ctx.env.modelsCache?.invalidate()
 
                 if (config.port !== previousPort) {
                     console.log(`config port changed ${previousPort} -> ${config.port}; restart for the new port to take effect`)

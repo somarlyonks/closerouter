@@ -1,6 +1,6 @@
 import type {IncomingMessage, ServerResponse} from 'http'
 import type {RuntimeConfig} from './config'
-import type {UpstreamTracker} from './server/helper'
+import type {ModelsCache, UpstreamTracker} from './server/helper'
 import type {ResponseLog} from './server/logs/helper'
 
 type Env = {
@@ -8,6 +8,8 @@ type Env = {
     /** Tracks in-flight upstream provider requests; absent in tests and
      *  when no shutdown tracking is wired (recording is then skipped). */
     upstream?: UpstreamTracker
+    /** Caches the aggregated model list; absent when caching is not wired. */
+    modelsCache?: ModelsCache
 }
 
 export interface RequestContext {
