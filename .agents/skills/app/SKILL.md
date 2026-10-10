@@ -15,10 +15,16 @@ tracked in **`closerouter.todo`** (see the `todo` skill). This skill is the impl
 
 ## Build & run
 
-- **Release app (canonical):** `npm run build` - runs `prebuild` (xcodegen) then xcodebuild; the
+- **Release app + disk image (canonical):** `npm run build` - runs `build:app` then `build:dmg`,
+  producing **`dist/CloseRouter.app`** and **`dist/CloseRouter.dmg`**.
+- **Release app only:** `npm run build:app` - runs `prebuild:app` (xcodegen) then xcodebuild; the
   "Embed closerouter binary" phase rebuilds `dist/closerouter` on every app build. Output lands in
   **`dist/CloseRouter.app`** (built under `dist/xcodebuild/` and copied up for easy access).
 - **Binary only:** `npm run build:cli` (`scriptc build lib/cli.ts --ffi native/ffi.json -o dist/closerouter`).
+- **Disk image (.dmg) only:** `npm run build:dmg` (`app/scripts/make-dmg.sh`) packages the built
+  `dist/CloseRouter.app` into `dist/CloseRouter.dmg` with the conventional drag-to-Applications
+  layout (app + `/Applications` symlink). Uses only built-in tools (`diskutil image create`, `PlistBuddy`).
+  Run `npm run build:app` first, or the script fails if `dist/CloseRouter.app` is missing.
 - **Debug (fast):** `xcodebuild -project app/CloseRouter.xcodeproj -scheme CloseRouter -configuration Debug -derivedDataPath app/build/DerivedData build` then run
   `app/build/DerivedData/Build/Products/Debug/CloseRouter.app`.
 - **In Xcode:** open `app/CloseRouter.xcodeproj`, hit Run. A "Embed closerouter binary" Run Script phase
@@ -28,7 +34,7 @@ tracked in **`closerouter.todo`** (see the `todo` skill). This skill is the impl
   (`swift scripts/make-icon.swift <appiconset-dir>`), not committed as hand-edited PNGs.
 - **Editor setup (sourcekit-lsp):** a fresh checkout or clean leaves the editor without project
   context, so cross-file symbols look undefined (see the pitfall below). Restore it once:
-  1. `npm run prebuild` → regenerates `app/CloseRouter.xcodeproj`.
+  1. `npm run prebuild:app` → regenerates `app/CloseRouter.xcodeproj`.
   2. `xcode-build-server config -project app/CloseRouter.xcodeproj -scheme CloseRouter` → writes
      `buildServer.json` at the repo root (gitignored). `xcode-build-server` is a prerequisite
      (`brew install xcode-build-server`).
@@ -103,7 +109,7 @@ app/CloseRouter/
 - **The app project is xcodegen-generated**: `app/project.yml` is the source of truth, and
   `app/CloseRouter.xcodeproj` is a **generated, gitignored artifact** - never edit it by hand, and it
   isn't in the repo. `xcodegen` is a required prerequisite (`brew install xcodegen`). Regenerate with
-  `npm run prebuild` (also runs automatically before `npm run build`); on a fresh
+  `npm run prebuild:app` (also runs automatically before `npm run build:app`); on a fresh
   checkout run it once before opening Xcode or using sourcekit-lsp/xcode-build-server. To add a new
   Swift file just drop it under `app/CloseRouter/` (the `sources` glob picks it up); to add/change a
   resource edit `project.yml` (some resources are out-of-tree: `../closerouter.json`,

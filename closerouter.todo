@@ -69,6 +69,7 @@ CloseRouter:
             [x] icon
             [x] run script build wiring
             [x] fix zed language server
+            [x] dmg output
         process core:
             [x] ServerManager (spawn/monitor/restart)
             [x] menu bar start/stop + open window
