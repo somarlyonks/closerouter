@@ -6,10 +6,10 @@ import {once} from 'events'
 import {resolve, dirname} from 'path'
 import {connect, type AddressInfo} from 'net'
 import type {MockBackend} from './helpers'
-import type {RuntimeConfig} from '../lib/config'
+import {hashConfig, loadConfig, type RuntimeConfig} from '../lib/config'
 import {startServer} from '../lib/server'
 import {handle, router, type RequestHandler} from '../lib/router'
-import {startMockBackend, writeTempConfig, startCrServer, getFreePort, startHandlerServer, sampleConfig, stubConsoleError} from './helpers'
+import {startMockBackend, writeTempConfig, writeTempFile, startCrServer, getFreePort, startHandlerServer, sampleConfig, stubConsoleError} from './helpers'
 
 const API_KEY = 'sk-test'
 
@@ -236,13 +236,33 @@ test('GET /status returns ok without auth', async () => {
         const res = await fetch(`http://127.0.0.1:${s.port}/status`)
         assert.equal(res.status, 200)
         assert.equal(res.headers.get('content-type'), 'application/json')
-        const json = await res.json() as {status: string, sqlite?: string}
+        const json = await res.json() as {status: string, pid?: number, sqlite?: string}
         assert.equal(json.status, 'ok')
+        assert.equal(json.pid, process.pid)
         // the db is configured (in-memory '') but plain node has no SQLite
         // symbols, so the version probe fails silently and nothing is reported
         assert.equal(json.sqlite, undefined)
     } finally {
         await s.close()
+    }
+})
+
+test('GET /status reports the loaded config document hash', async () => {
+    const port = await getFreePort()
+    const raw = JSON.stringify({
+        port,
+        key: API_KEY,
+        providers: {p: {base_url: 'http://127.0.0.1:1', api_key: 'bk', models: []}},
+    })
+    const {path, cleanup} = await writeTempFile(raw)
+    const srv = await startCrServer(loadConfig(path))
+    try {
+        const res = await fetch(`http://127.0.0.1:${srv.port}/status`)
+        const json = await res.json() as {config?: string}
+        assert.equal(json.config, hashConfig(raw))
+    } finally {
+        await srv.close()
+        await cleanup()
     }
 })
 

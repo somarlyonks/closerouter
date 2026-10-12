@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {dirname, resolve, join} from 'node:path'
-import {loadConfig, parseConfig} from '../lib/config'
+import {hashConfig, loadConfig, parseConfig} from '../lib/config'
 import {captureExit, writeTempConfig, writeTempFile} from './helpers'
 
 test('loadConfig returns config with schema defaults when omitted', async () => {
@@ -18,6 +18,22 @@ test('loadConfig returns config with schema defaults when omitted', async () => 
     } finally {
         await cleanup()
     }
+})
+
+test('loadConfig fingerprints the exact config document', async () => {
+    const raw = JSON.stringify({providers: {p: {base_url: 'http://x', api_key: 'k'}}}, undefined, 4)
+    const {path, cleanup} = await writeTempFile(raw)
+    try {
+        assert.equal(loadConfig(path).hash, hashConfig(raw))
+    } finally {
+        await cleanup()
+    }
+})
+
+test('hashConfig is deterministic and input-sensitive', () => {
+    assert.equal(hashConfig('{}'), hashConfig('{}'))
+    assert.equal(hashConfig('{}').length, 64)
+    assert.notEqual(hashConfig('{}'), hashConfig('{ }'))
 })
 
 test('loadConfig preserves explicit port and key', async () => {

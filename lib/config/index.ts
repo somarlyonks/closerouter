@@ -1,5 +1,6 @@
 import {readFileSync, existsSync} from 'fs'
 import {resolve, dirname} from 'path'
+import {createHash} from 'crypto'
 import {validateSchema, applySchemaDefaults, type SchemaIssue} from './json-schema'
 import {json as schema} from './schema.json.ts'
 
@@ -31,8 +32,18 @@ export interface RuntimeConfig {
     dbPath: string | undefined
     retentionDays: number
     providers: Record<string, ProviderConfig>
+    /** SHA-256 of the exact config document the runtime was loaded from -
+     *  lets a client confirm the running server reflects the config it saved.
+     *  Absent for programmatically built configs. */
+    hash?: string
     /** absent for programmatically built configs */
     path?: string
+}
+
+/** Fingerprint the exact config document (before any secret merge or schema
+ *  defaulting), so a client can hash the same bytes it persisted. */
+export function hashConfig (raw: string): string {
+    return createHash('sha256').update(raw).digest('hex')
 }
 
 export function mapProviders<In, Out> (
@@ -113,6 +124,7 @@ export function loadConfig (configPath: string): RuntimeConfig {
     try {
         const config = parseConfig(raw)
         config.dbPath = resolveDbPath(config.dbPath, configPath)
+        config.hash = hashConfig(raw)
         return {...config, path: configPath}
     } catch (e) {
         exitFor(e instanceof Error ? e.message : String(e))
@@ -122,6 +134,7 @@ export function loadConfig (configPath: string): RuntimeConfig {
 export function applyConfig (store: RuntimeConfig, config: RuntimeConfig): void {
     store.key = config.key
     store.providers = config.providers
+    store.hash = config.hash
 }
 
 export function printServerConfig (config: RuntimeConfig, host = '127.0.0.1') {

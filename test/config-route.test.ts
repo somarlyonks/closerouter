@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {dirname, join} from 'path'
-import {loadConfig} from '../lib/config'
+import {hashConfig, loadConfig} from '../lib/config'
 import {getFreePort, startCrServer, startMockBackend, writeTempConfig} from './helpers'
 
 const API_KEY = 'sk-test'
@@ -29,6 +29,28 @@ async function setup (): Promise<{
         },
     }
 }
+
+test('PUT /config updates the /status config hash to the submitted document', async () => {
+    const s = await setup()
+    try {
+        const body = JSON.stringify({
+            port: s.port,
+            key: API_KEY,
+            providers: {p: {base_url: 'http://127.0.0.1:1', api_key: 'new-key', models: []}},
+        })
+        const put = await fetch(`http://127.0.0.1:${s.port}/config`, {
+            method: 'PUT',
+            headers: {'content-type': 'application/json', authorization: `Bearer ${API_KEY}`},
+            body,
+        })
+        assert.equal(put.status, 200)
+        const status = await fetch(`http://127.0.0.1:${s.port}/status`)
+        const json = await status.json() as {config?: string}
+        assert.equal(json.config, hashConfig(body))
+    } finally {
+        await s.close()
+    }
+})
 
 test('PUT /config requires authentication', async () => {
     const s = await setup()

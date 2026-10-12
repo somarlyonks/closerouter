@@ -37,10 +37,21 @@ final class ServerManager: ObservableObject {
     private var process: Process?
     private var healthTask: Task<Void, Never>?
     private var stopRequested = false
+    /// SHA-256 of the saved config at spawn time; /status must report it (and
+    /// the child's pid) before the server is declared running.
+    private var expectedConfigHash: String?
+
     private var restartBackoff: TimeInterval = 1.0
     /// Byte offset in the stderr log where the current child's output begins, so a
     /// port-conflict from an earlier start can't be misread as the current child's.
     private var stderrStartOffset: UInt64 = 0
+
+    private struct StatusResponse {
+        let pid: Int?
+        let version: String?
+        let dbAvailable: Bool
+        let configHash: String?
+    }
 
     private var stderrPath: String {
         FileManager.default.temporaryDirectory
@@ -98,6 +109,11 @@ final class ServerManager: ObservableObject {
         } catch {
             NSLog("failed to prepare config: \(error.localizedDescription)")
             return
+        }
+
+        expectedConfigHash = try? ConfigStore.hashConfig()
+        if expectedConfigHash == nil {
+            NSLog("failed to hash the saved config; the server cannot be verified as running")
         }
 
         let process = Process()
@@ -238,12 +254,15 @@ final class ServerManager: ObservableObject {
                 guard let self else { return }
                 let status = await self.queryStatus()
                 if Task.isCancelled || self.stopRequested { return }
-                // Only trust a successful query - a transient timeout must not
-                // flap the db-backed pages while the server is still running.
-                if status.version != nil {
+                // Only a response that proves it came from our child may drive
+                // the db pages - a foreign server on the port must not.
+                if self.isFromSpawnedChild(status) {
                     self.dbAvailable = status.dbAvailable
                 }
-                if let version = status.version, let process = self.process, process.isRunning {
+                // Declare running only once the response identifies the spawned
+                // child and the config document it loaded matches the saved one.
+                if self.isFromSpawnedChild(status), self.configMatchesSaved(status),
+                   let version = status.version, let process = self.process, process.isRunning {
                     self.restartBackoff = 1.0
                     if !self.state.isRunning {
                         self.state = .running(version: version)
@@ -263,17 +282,37 @@ final class ServerManager: ObservableObject {
         healthTask = nil
     }
 
-    /// GET /status; returns the closerouter version and whether a working db
-    /// is configured (the sqlite field is only present then).
-    private func queryStatus() async -> (version: String?, dbAvailable: Bool) {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/status") else { return (nil, false) }
+    /// True when /status answered with the version and pid of the child this
+    /// manager spawned.
+    private func isFromSpawnedChild(_ status: StatusResponse) -> Bool {
+        guard let pid = status.pid, let process, process.isRunning else { return false }
+        return status.version != nil && pid == Int(process.processIdentifier)
+    }
+
+    /// True when the running server loaded the same config document that is on
+    /// disk, so a stale or externally edited config is never declared running.
+    private func configMatchesSaved(_ status: StatusResponse) -> Bool {
+        guard let expectedConfigHash else { return false }
+        return status.configHash == expectedConfigHash
+    }
+
+    /// GET /status; returns the closerouter version, pid, config hash and
+    /// whether a working db is configured (the sqlite field is only present then).
+    private func queryStatus() async -> StatusResponse {
+        let unknown = StatusResponse(pid: nil, version: nil, dbAvailable: false, configHash: nil)
+        guard let url = URL(string: "http://127.0.0.1:\(port)/status") else { return unknown }
         var request = URLRequest(url: url)
         request.timeoutInterval = 2
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return (nil, false)
+            return unknown
         }
-        return (obj["version"] as? String, obj["sqlite"] != nil)
+        return StatusResponse(
+            pid: obj["pid"] as? Int,
+            version: obj["version"] as? String,
+            dbAvailable: obj["sqlite"] != nil,
+            configHash: obj["config"] as? String
+        )
     }
 }

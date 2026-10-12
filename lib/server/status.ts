@@ -7,6 +7,8 @@ export const handleStatus = withMethod('GET')((ctx, res) => {
     res.end(JSON.stringify({
         version: packageJson.version,
         status: 'ok',
+        pid: process.pid,
+        config: ctx.env.config.hash,
         sqlite: sqliteVersion(),
     }))
 
