@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Reads and manages the closerouter config file in Application Support.
@@ -27,6 +28,14 @@ enum ConfigStore {
         let port = obj["port"] as? Int ?? defaultPort
         let key = (obj["key"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? runtimeDefaultKey
         return (port, key)
+    }
+
+    /// SHA-256 of the saved config file's bytes. Matches the `config` hash the
+    /// server reports in /status, which fingerprints the exact document it
+    /// loaded, so a mismatch means the running server is not using this file.
+    static func hashConfig() throws -> String {
+        let data = try Data(contentsOf: configURL)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Persists a raw config string to disk.

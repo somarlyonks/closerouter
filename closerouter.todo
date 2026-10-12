@@ -44,6 +44,8 @@ CloseRouter:
                 [x] server ok
                 [x] server version
                 [x] sqlite version when db configured
+                [x] pid
+                [x] config document hash
             usage:
                 [x] filters
                 [x] exclude 4xx client error responses
@@ -74,6 +76,9 @@ CloseRouter:
             [x] ServerManager (spawn/monitor/restart)
             [x] menu bar start/stop + open window
             [x] default config in Application Support
+            status identity check:
+                [x] hash the saved config in ConfigStore/ServerManager (sha-256)
+                [x] compare pid and config hash from /status
         overview:
             [x] status banner
             [x] usage totals

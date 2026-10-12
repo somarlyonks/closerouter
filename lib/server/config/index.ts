@@ -1,5 +1,5 @@
 import type {ServerResponse} from 'http'
-import {parseConfig, applyConfig, resolveDbPath, mapProviders, type RuntimeConfig, type ProviderConfig} from '../../config'
+import {parseConfig, applyConfig, resolveDbPath, mapProviders, hashConfig, type RuntimeConfig, type ProviderConfig} from '../../config'
 import {router, method, needsAuth, withMethod, handleHTML, handleBadRequest, respondError, readRequestBody} from '../../router'
 import {html as indexHTML} from './index.html'
 
@@ -80,6 +80,7 @@ export const handleConfig = router(
                 try {
                     config = parseConfig(mergeProviderSecrets(raw, ctx.env.config.providers))
                     config.dbPath = resolveDbPath(config.dbPath, ctx.env.config.path)
+                    config.hash = hashConfig(raw)
                 } catch (e) {
                     return handleBadRequest(res, e instanceof Error ? e.message : 'Invalid config')
                 }
