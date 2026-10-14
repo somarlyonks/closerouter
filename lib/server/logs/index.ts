@@ -3,7 +3,7 @@ import {randomUUID} from 'crypto'
 import {router, needsAuth, withMethod, path, handleHTML, readRequestBody, type RequestContext} from '../../router'
 import {MAX_BODY, applySSEFrame, applyUsageObject} from './helper'
 import type {UsageCounts} from './helper'
-import {recordUsage, loadUsage, loadUsageBody} from './db'
+import {recordUsage, loadUsage, loadUsageBody, type UsageLogQuery} from './db'
 import {html as indexHTML} from './index.html'
 
 function hasUsage (usage: UsageCounts | undefined): boolean {
@@ -18,12 +18,13 @@ export const handleLogs = withMethod('GET')(router(
     path('/logs'),
     router(
         r => r.req.headers['accept'] === 'application/json',
-        needsAuth((_ctx, res) => {
+        needsAuth((ctx, res) => {
+            const payload = JSON.stringify(loadUsage(parseLogSearchParams(new URL('http://localhost' + (ctx.req.url ?? '/')))))
             res.writeHead(200, {
                 'content-type': 'application/json',
                 'cache-control': 'no-cache',
             })
-            res.end(JSON.stringify({entries: loadUsage()}))
+            res.end(payload)
         }),
         handleHTML(indexHTML),
     ),
@@ -39,6 +40,19 @@ export const handleLogs = withMethod('GET')(router(
         }),
     ),
 ))
+
+function parseLogSearchParams (url: URL): UsageLogQuery {
+    const num = (name: string): number | undefined => {
+        const v = url.searchParams.get(name)
+        return v !== null && /^\d+$/.test(v) ? Number(v) : undefined
+    }
+
+    return {
+        limit: num('limit'),
+        offset: num('offset'),
+        search: url.searchParams.get('q') ?? undefined,
+    }
+}
 
 function logDetailId (url: string | undefined): number | undefined {
     if (!url) return undefined

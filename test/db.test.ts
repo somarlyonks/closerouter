@@ -247,7 +247,7 @@ function sqlTests (): void {
         assert.ok(isNull(rows[1]!.input_tokens))
         assert.ok(isNull(rows[1]!.request_body))
         assert.ok(isNull(rows[1]!.response_body))
-        const entries = loadUsage()
+        const entries = loadUsage().entries
         assert.equal(entries.length, 2)
         assert.equal(entries[0]!.requestId as string, 'req-1')
         assert.ok((entries[0]!.id as number) >= 1)
@@ -263,6 +263,39 @@ function sqlTests (): void {
         // idempotent schema
         initUsage()
         assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0]!.n as number, 2)
+    })
+
+    test('loadUsage pages newest-first and counts every filter match', () => {
+        openDatabase(':memory:')
+        initUsage()
+        const row = (id: string, provider: string, model: string, status = 200) =>
+            recordUsage({requestId: id, time: Date.now(), method: 'POST', path: '/v1/chat/completions', provider, model, status})
+        row('r1', 'alpha', 'a-1')
+        row('r2', 'beta', 'b-1')
+        row('r3', 'alpha', 'a-2')
+        row('r4', 'beta', 'b-2')
+        row('r5', 'alpha', 'a-1')
+
+        // page 0 holds the newest rows, returned oldest-first within the page
+        const first = loadUsage({limit: 2, offset: 0})
+        assert.equal(first.total, 5)
+        assert.deepEqual(first.entries.map(e => e.requestId), ['r4', 'r5'])
+
+        const second = loadUsage({limit: 2, offset: 2})
+        assert.equal(second.total, 5)
+        assert.deepEqual(second.entries.map(e => e.requestId), ['r2', 'r3'])
+
+        const last = loadUsage({limit: 2, offset: 4})
+        assert.deepEqual(last.entries.map(e => e.requestId), ['r1'])
+
+        // the search spans provider, model and path, and shrinks the total
+        const byProvider = loadUsage({search: 'alpha'})
+        assert.equal(byProvider.total, 3)
+        assert.deepEqual(byProvider.entries.map(e => e.requestId), ['r1', 'r3', 'r5'])
+        const byModel = loadUsage({search: 'b-1'})
+        assert.deepEqual(byModel.entries.map(e => e.requestId), ['r2'])
+        assert.equal(loadUsage({search: 'chat/completions'}).total, 5)
+        assert.equal(loadUsage({search: 'no-such-row'}).total, 0)
     })
 
     test('expireUsageBodies clears bodies on expired successful rows and keeps the rest', () => {
@@ -311,9 +344,9 @@ function sqlTests (): void {
         expireUsageBodies(90)
         const rows = all('SELECT request_id FROM usage ORDER BY id')
         assert.equal(rows.length, 2) // both rows survive
-        assert.equal(loadUsage().length, 2)
+        assert.equal(loadUsage().entries.length, 2)
         // the expired row's bodies are gone; the fresh row's are still fetchable
-        const ids = loadUsage()
+        const ids = loadUsage().entries
         const oldEntry = ids.find(e => e.requestId === 'old')!
         const newEntry = ids.find(e => e.requestId === 'new')!
         assert.ok(loadUsageBody(oldEntry.id as number)?.requestBody === undefined)

@@ -18,6 +18,7 @@ enum APIClientError: LocalizedError {
 enum APIClient {
     struct LogEntriesResponse: Decodable {
         let entries: [LogHistory]
+        let total: Int?
     }
 
     struct LogBodyDetail: Decodable {
@@ -204,8 +205,17 @@ enum APIClient {
         return document.db.path
     }
 
-    static func getLogEntries(port: Int, key: String) async throws -> [LogGroup] {
-        var req = URLRequest(url: url(port: port, path: "logs"))
+    static func getLogEntries(port: Int, key: String, limit: Int, offset: Int, search: String?) async throws -> LogPage {
+        var components = URLComponents(url: url(port: port, path: "logs"), resolvingAgainstBaseURL: false)!
+        var items = [
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "offset", value: String(offset)),
+        ]
+        if let search, !search.isEmpty {
+            items.append(URLQueryItem(name: "q", value: search))
+        }
+        components.queryItems = items
+        var req = URLRequest(url: components.url!)
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = 10
@@ -215,7 +225,8 @@ enum APIClient {
             throw APIClientError.server(status: http.statusCode, message: extractError(data) ?? "Failed to load logs (HTTP \(http.statusCode))")
         }
         let payload = try JSONDecoder().decode(LogEntriesResponse.self, from: data)
-        return payload.entries.map(LogGroup.init(history:))
+        let groups = payload.entries.map(LogGroup.init(history:))
+        return LogPage(groups: groups, total: payload.total ?? groups.count)
     }
 
     static func getLogDetail(port: Int, key: String, id: Int) async throws -> LogBodyDetail {
