@@ -58,50 +58,55 @@ struct LogGroup: Identifiable, Equatable {
         requestBody = history.requestBody
         responseBody = history.responseBody
     }
-
-    /// Adopt a refreshed history row for the same id. Rows are immutable
-    /// once recorded, so this is effectively a no-op; it exists to keep the
-    /// dedup merge stable if a row ever changes.
-    mutating func merge(_ other: LogGroup) {
-        provider = other.provider ?? provider
-        model = other.model ?? model
-        status = other.status ?? status
-        durationMs = other.durationMs ?? durationMs
-        ttftMs = other.ttftMs ?? ttftMs
-        generationMs = other.generationMs ?? generationMs
-        inputTokens = other.inputTokens ?? inputTokens
-        outputTokens = other.outputTokens ?? outputTokens
-        cachedTokens = other.cachedTokens ?? cachedTokens
-        requestBody = other.requestBody ?? requestBody
-        responseBody = other.responseBody ?? responseBody
-    }
 }
 
-/// Maintains the logs table by on-demand GET /logs history fetches (manual
-/// Refresh), deduplicating rows by usage-DB row id.
+/// One page of log history plus the total number of matching rows.
+struct LogPage {
+    let groups: [LogGroup]
+    let total: Int
+}
+
+/// Loads one page at a time from GET /logs, newest page first. Filtering and
+/// paging happen server-side so search spans the whole history rather than
+/// only the rows currently on screen.
 @MainActor
 final class LogsViewModel: ObservableObject {
     private let server = ServerManager.shared
 
     @Published private(set) var groups: [LogGroup] = []
+    @Published private(set) var total = 0
     @Published private(set) var lastUpdated: Date?
+    @Published private(set) var isLoading = false
     @Published var filterText = ""
+    /// Zero-based page index; page 0 holds the newest rows.
+    @Published private(set) var page = 0
 
     private var groupsById: [Int: Int] = [:]
     /// dbIds currently fetching bodies for. @Published so the detail pane re-renders
     /// when a fetch starts (spinner) and when it ends (falls through to "No body").
     @Published private(set) var loadingBodies: Set<Int> = []
     private var stateCancellable: AnyCancellable?
-    private let maxRows = 500
+    private var filterCancellable: AnyCancellable?
+    /// In-flight page fetch; a newer refresh cancels it so a stale response can
+    /// never overwrite the page the user is looking at.
+    private var loadTask: Task<Void, Never>?
+    /// Monotonic id compared after each await - cancellation is cooperative, so
+    /// a fetch that already resolved still checks this before applying its rows.
+    private var loadGeneration = 0
+    private let pageSize = 100
 
-    var displayedGroups: [LogGroup] {
-        guard !filterText.isEmpty else { return groups }
-        let f = filterText.lowercased()
-        return groups.filter { group in
-            group.method.lowercased().contains(f)
-                || group.path.lowercased().contains(f)
-                || (group.status.map { String($0).contains(f) } ?? false)
-        }
+    var displayedGroups: [LogGroup] { groups }
+
+    var pageCount: Int { max(1, Int(ceil(Double(total) / Double(pageSize)))) }
+    var canGoPrevious: Bool { page > 0 }
+    var canGoNext: Bool { (page + 1) * pageSize < total }
+
+    /// "1–100 of 184", or "0 requests" when nothing matches.
+    var rangeDescription: String {
+        guard total > 0 else { return "0 requests" }
+        let first = page * pageSize + 1
+        let last = min(total, (page + 1) * pageSize)
+        return "\(first)–\(last) of \(total)"
     }
 
     // MARK: Lifecycle
@@ -111,9 +116,26 @@ final class LogsViewModel: ObservableObject {
         stateCancellable = server.$state.sink { [weak self] state in
             Task { @MainActor in
                 guard let self else { return }
-                if state.isRunning { self.refresh() }
+                if state.isRunning {
+                    self.refresh()
+                } else {
+                    self.groups = []
+                    self.total = 0
+                    self.groupsById.removeAll()
+                }
             }
         }
+        filterCancellable = $filterText
+            .dropFirst()
+            .removeDuplicates()
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.server.state.isRunning else { return }
+                    self.page = 0
+                    self.refresh()
+                }
+            }
         if server.state.isRunning {
             refresh()
         }
@@ -122,21 +144,36 @@ final class LogsViewModel: ObservableObject {
     func stop() {
         stateCancellable?.cancel()
         stateCancellable = nil
+        filterCancellable?.cancel()
+        filterCancellable = nil
+        loadTask?.cancel()
+        loadTask = nil
+        loadGeneration += 1
+        isLoading = false
     }
 
-    // MARK: Controls
+    // MARK: Paging
 
     func refresh() {
         guard server.state.isRunning else { return }
-        Task { [weak self] in
-            await self?.load()
+        loadTask?.cancel()
+        loadGeneration += 1
+        let generation = loadGeneration
+        loadTask = Task { [weak self] in
+            await self?.load(generation: generation)
         }
     }
 
-    func clear() {
-        groups.removeAll()
-        groupsById.removeAll()
-        loadingBodies.removeAll()
+    func goPrevious() {
+        guard canGoPrevious else { return }
+        page -= 1
+        refresh()
+    }
+
+    func goNext() {
+        guard canGoNext else { return }
+        page += 1
+        refresh()
     }
 
     /// History entries never carry bodies (the server omits them from /logs JSON),
@@ -163,27 +200,23 @@ final class LogsViewModel: ObservableObject {
 
     // MARK: Loading
 
-    private func load() async {
+    private func load(generation: Int) async {
         guard server.state.isRunning else { return }
-        guard let entries = try? await APIClient.getLogEntries(port: server.port, key: server.key) else { return }
-        for group in entries { apply(group) }
-        lastUpdated = Date()
-    }
-
-    // MARK: Entry handling
-
-    private func apply(_ group: LogGroup) {
-        if let idx = groupsById[group.id] {
-            groups[idx].merge(group)
-            objectWillChange.send()
-        } else {
-            groups.insert(group, at: 0)
-            if groups.count > maxRows {
-                groups.removeLast(groups.count - maxRows)
-            }
-            rebuildIndex()
-            objectWillChange.send()
+        isLoading = true
+        defer { if generation == loadGeneration { isLoading = false } }
+        let offset = page * pageSize
+        guard let result = try? await APIClient.getLogEntries(port: server.port, key: server.key, limit: pageSize, offset: offset, search: filterText) else { return }
+        guard generation == loadGeneration else { return }
+        let lastPage = max(0, Int(ceil(Double(result.total) / Double(pageSize))) - 1)
+        if page > lastPage {
+            page = lastPage
+            return await load(generation: generation)
         }
+        // The server returns each page oldest-first; show newest at the top.
+        groups = Array(result.groups.reversed())
+        total = result.total
+        rebuildIndex()
+        lastUpdated = Date()
     }
 
     private func rebuildIndex() {

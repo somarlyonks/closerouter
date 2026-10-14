@@ -67,7 +67,7 @@ CloseRouter.app
 | `PUT /config` | `Bearer <key>` | save config (validates server-side) |
 | `GET /usage` | `Bearer <key>` | analytics; optional `?from&to&provider&model` → totals, `series`, `byProvider`, `byModel` |
 | `GET /v1/models` | `Bearer <key>` | `{object, data:[{id:"provider/model",owned_by}]}` |
-| `GET /logs` | `Bearer <key>` | history → `{entries:[...]}` (fetch per row via `/logs/<id>`) |
+| `GET /logs` | `Bearer <key>` | history page → `{entries, total}`; `?limit&offset&q` (page 0 = newest page, `q` matches method/path/provider/model/status; fetch bodies per row via `/logs/<id>`) |
 | `GET /logs/<id>` | `Bearer <key>` | one row's request/response bodies |
 
 ## File map
@@ -81,7 +81,7 @@ app/CloseRouter/
     ServerManager.swift       spawn/monitor/restart child, /status health, uptime, notifications
     ConfigStore.swift         config path, defaults, read/save/port helpers
     APIClient.swift           HTTP client + Overview DTOs + ConfigValidator
-    LogStream.swift           LogHistory/LogGroup models + LogsViewModel (refresh, filter, clear)
+    LogStream.swift           LogHistory/LogGroup/LogPage models + LogsViewModel (server-side filter, prev/next paging)
     Preferences.swift         UserDefaults-backed prefs (launchAtLogin, startServerOnLaunch, ...)
     AppNotifications.swift    UNUserNotificationCenter wrapper
   Editor/
@@ -93,7 +93,7 @@ app/CloseRouter/
     SidebarView.swift         sidebar list
     OverviewView.swift        dashboard (status banner, stat cards, providers, models)
     AnalyticsView.swift       analytics (date range + provider/model filters, chart, breakdowns)
-    LogsView.swift            history table + detail inspector
+    LogsView.swift            history table + detail inspector (filter field, Refresh, prev/next pager)
     SettingsView.swift        launch-at-login (SMAppService), prefs, server controls, about
 ```
 
@@ -225,9 +225,10 @@ down.post(tap: .cghidEventTap); usleep(80000); up.post(tap: .cghidEventTap)
 - **Dirty status flips on load.** `.onChange(of: text)` fires *after* `onAppear`'s `loadConfig()`
   resets `isDirty`, so a pristine config showed "Unsaved changes" with an enabled Save. Guard the
   load-time swap with a `suppressNextChange` flag instead of tracking dirty purely off `text`.
-- **`/logs` JSON history is the only read shape** (live SSE was removed). History entries come from the
-  usage DB: numeric `id`, the request UUID in `requestId`. Decode with `LogHistory` (map to `LogGroup`
-  via the numeric `id`). Clients fetch `/logs` on demand and deduplicate by the DB row `id`.
+- **`/logs` JSON history is the only read shape** (live SSE was removed). Rows come from the usage
+  DB: numeric `id`, the request UUID in `requestId`. Decode with `LogHistory` (map to `LogGroup` via
+  the numeric `id`). The app requests one page at a time (`limit`/`offset`/`q`) and reads `total`, so
+  paging and the filter both run in SQL, not over the rows on screen.
 - **Token usage covers non-streaming responses.** Streaming usage is extracted live by the proxy
   (`feedStreamUsage` parses `data:` frames into `responseLog.usage`); non-streaming leaves `usage` as
   an empty `{}`, and `logMiddleware` (`lib/server/logs/index.ts`) falls back to

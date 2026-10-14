@@ -102,31 +102,80 @@ const asOptNum = (v: SqlValue | undefined): number | undefined => typeof v === '
 const asStr = (v: SqlValue | undefined): string | undefined => typeof v === 'string' ? v : undefined
 const asStr0 = (v: SqlValue | undefined): string => typeof v === 'string' ? v : ''
 
-export function loadUsage (limit = 500): UsageEntry[] {
-    if (!initialized) return []
+const USAGE_COLUMNS = 'id, request_id, time, method, path, provider, model, status, duration_ms, ttft_ms, generation_ms, input_tokens, output_tokens, cached_tokens'
+
+function mapUsageRow (row: SqlRow): UsageEntry {
+    return {
+        id: asOptNum(row.id),
+        requestId: asStr0(row.request_id),
+        time: asNum(row.time),
+        method: asStr0(row.method),
+        path: asStr0(row.path),
+        provider: asStr(row.provider),
+        model: asStr(row.model),
+        status: asOptNum(row.status),
+        durationMs: asOptNum(row.duration_ms),
+        ttftMs: asOptNum(row.ttft_ms),
+        generationMs: asOptNum(row.generation_ms),
+        inputTokens: asOptNum(row.input_tokens),
+        outputTokens: asOptNum(row.output_tokens),
+        cachedTokens: asOptNum(row.cached_tokens),
+    }
+}
+
+export interface UsageLogQuery {
+    limit?: number
+    offset?: number
+    /** Case-insensitive substring matched against method, path, provider,
+     *  model and status. */
+    search?: string
+}
+
+export interface UsageLogPage {
+    entries: UsageEntry[]
+    /** Rows matching the search, across every page. */
+    total: number
+}
+
+const LOG_LIMIT_MAX = 1000
+const LOG_LIMIT_DEFAULT = 500
+
+/** Single-term case-insensitive substring filter, OR-combined across the
+ *  matched columns; shared by the page query and its count. */
+function logMatch (search: string | undefined): {clause: string, params: SqlParam[]} {
+    const term = search?.trim().toLowerCase()
+    if (!term) return {clause: '', params: []}
+    const like = `%${term}%`
+    return {
+        clause: ` WHERE (lower(method) LIKE ? OR lower(path) LIKE ? OR lower(provider) LIKE ? OR lower(model) LIKE ? OR CAST(status AS TEXT) LIKE ?)`,
+        params: [like, like, like, like, like],
+    }
+}
+
+/** One page of history, newest page first: page 0 holds the newest rows. The
+ *  page itself is returned oldest-first so callers can prepend rows; total
+ *  counts every search match, not just this page. */
+export function loadUsage (query: UsageLogQuery = {}): UsageLogPage {
+    if (!initialized) return {entries: [], total: 0}
+    const limit = Math.min(LOG_LIMIT_MAX, Math.max(1, Math.floor(query.limit ?? LOG_LIMIT_DEFAULT)))
+    const offset = Math.max(0, Math.floor(query.offset ?? 0))
+    const {clause, params} = logMatch(query.search)
     try {
-        return all(
-            'SELECT id, request_id, time, method, path, provider, model, status, duration_ms, ttft_ms, generation_ms, input_tokens, output_tokens, cached_tokens FROM (SELECT * FROM usage ORDER BY id DESC LIMIT ?) ORDER BY id ASC',
-            [limit],
-        ).map(row => ({
-            id: asOptNum(row.id),
-            requestId: asStr0(row.request_id),
-            time: asNum(row.time),
-            method: asStr0(row.method),
-            path: asStr0(row.path),
-            provider: asStr(row.provider),
-            model: asStr(row.model),
-            status: asOptNum(row.status),
-            durationMs: asOptNum(row.duration_ms),
-            ttftMs: asOptNum(row.ttft_ms),
-            generationMs: asOptNum(row.generation_ms),
-            inputTokens: asOptNum(row.input_tokens),
-            outputTokens: asOptNum(row.output_tokens),
-            cachedTokens: asOptNum(row.cached_tokens),
-        }))
+        let total = 0
+        let entries: UsageEntry[] = []
+        // One transaction so the count and the page always see the same rows,
+        // even if inserts ever run off this synchronous call path.
+        withTransaction(() => {
+            total = asNum(get(`SELECT COUNT(*) AS count FROM usage${clause}`, params)?.count)
+            entries = all(
+                `SELECT ${USAGE_COLUMNS} FROM (SELECT * FROM usage${clause} ORDER BY id DESC LIMIT ? OFFSET ?) ORDER BY id ASC`,
+                [...params, limit, offset],
+            ).map(mapUsageRow)
+        })
+        return {entries, total}
     } catch (e) {
-        console.error('usage load failed:', e instanceof Error ? e.message : String(e))
-        return []
+        console.error('usage page load failed:', e instanceof Error ? e.message : String(e))
+        return {entries: [], total: 0}
     }
 }
 

@@ -119,7 +119,7 @@ interface UsageRow {
 }
 
 function findRow (requestId: string): UsageRow | undefined {
-    const entry = loadUsage().find(e => e.requestId === requestId)
+    const entry = loadUsage().entries.find(e => e.requestId === requestId)
     if (entry === undefined) return undefined
     const bodies = loadUsageBody(entry.id as number)
     if (bodies === undefined) return undefined
@@ -316,7 +316,7 @@ function telemetryTests (): void {
             assert.equal(ok.status, 200)
             await ok.text()
             await rowFor('telemetry-routed-ok')
-            assert.equal(loadUsage().length, 1)
+            assert.equal(loadUsage().entries.length, 1)
 
             // invalid JSON body: answered 400 by the proxy gate...
             const bad = await postJson(harness.port, 'not-json', 'telemetry-unrouted-400')
@@ -331,7 +331,7 @@ function telemetryTests (): void {
             // ...but neither is persisted: the gate exits before stamping
             // provider/model onto the log, and logMiddleware drops such
             // requests silently. This pins that decision explicitly.
-            assert.equal(loadUsage().length, 1)
+            assert.equal(loadUsage().entries.length, 1)
             const log = capturedLog(harness)
             assert.ok(log.provider === undefined)
             assert.ok(log.model === undefined)

@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 import type {IncomingMessage, Server, ServerResponse} from 'http'
 import {createServer} from 'http'
 import {sqliteAvailable, openDatabase} from '../lib/db'
-import {initUsage} from '../lib/server/logs/db'
+import {initUsage, recordUsage} from '../lib/server/logs/db'
 import {startServer} from '../lib/server'
 import type {ModelConfig, RuntimeConfig} from '../lib/config'
 
@@ -80,6 +80,14 @@ async function fetchHistory (port: number, key: string): Promise<HistoryEntry[]>
     return payload.entries
 }
 
+async function fetchHistoryPage (port: number, key: string, query: string): Promise<{entries: HistoryEntry[], total: number}> {
+    const res = await fetch(`http://127.0.0.1:${port}/logs${query ? `?${query}` : ''}`, {
+        headers: {accept: 'application/json', authorization: `Bearer ${key}`},
+    })
+    assert.equal(res.status, 200)
+    return res.json() as Promise<{entries: HistoryEntry[], total: number}>
+}
+
 async function fetchDetail (port: number, key: string, id: number): Promise<{requestBody?: string, responseBody?: string}> {
     const res = await fetch(`http://127.0.0.1:${port}/logs/${id}`, {
         headers: {accept: 'application/json', authorization: `Bearer ${key}`},
@@ -135,6 +143,42 @@ function integrationTests (): void {
         } finally {
             await new Promise<void>(r => server.close(() => r()))
             await backend.close()
+        }
+    })
+
+    test('GET /logs pages newest-first and filters server-side', async () => {
+        openDatabase(':memory:')
+        initUsage()
+        for (let i = 1; i <= 5; i++) {
+            recordUsage({
+                requestId: `r${i}`,
+                time: Date.now(),
+                method: 'POST',
+                path: '/v1/chat/completions',
+                provider: i % 2 === 0 ? 'beta' : 'alpha',
+                model: 'm',
+            })
+        }
+        const {server} = startServer(configFor('http://127.0.0.1:1'))
+        const port = await listen(server)
+        try {
+            const page = await fetchHistoryPage(port, 'logkey', 'limit=2&offset=0')
+            assert.equal(page.total, 5)
+            assert.deepEqual(page.entries.map(e => e.requestId), ['r4', 'r5'])
+
+            const second = await fetchHistoryPage(port, 'logkey', 'limit=2&offset=2')
+            assert.deepEqual(second.entries.map(e => e.requestId), ['r2', 'r3'])
+
+            const filtered = await fetchHistoryPage(port, 'logkey', 'q=beta')
+            assert.equal(filtered.total, 2)
+            assert.deepEqual(filtered.entries.map(e => e.requestId), ['r2', 'r4'])
+
+            // no params keeps the pre-pagination contract: last 500, plus a total
+            const all = await fetchHistoryPage(port, 'logkey', '')
+            assert.equal(all.total, 5)
+            assert.deepEqual(all.entries.map(e => e.requestId), ['r1', 'r2', 'r3', 'r4', 'r5'])
+        } finally {
+            await new Promise<void>(r => server.close(() => r()))
         }
     })
 

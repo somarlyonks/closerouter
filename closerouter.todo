@@ -39,6 +39,8 @@ CloseRouter:
                     [x] sanitize the response stripping secrets
             logs:
                 [x] manual refresh against batched GET /logs results and deduplicate by database row/request ID
+                [x] pagination
+                [x] filter by method/path/provider/model/status substring
                 [x] integration tests
             status:
                 [x] server ok
@@ -94,7 +96,9 @@ CloseRouter:
             [x] restart server for port changes
         logs:
             [x] manual GET /logs refresh that deduplicates rows
-            [ ] filter/clear
+            [x] filter
+            [x] refresh
+            [x] pagination
             [x] history on open
             [x] hide when db not running
         analytics:

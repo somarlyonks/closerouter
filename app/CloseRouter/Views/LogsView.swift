@@ -22,6 +22,9 @@ struct LogsView: View {
         .onChange(of: selection) { _, newValue in
             viewModel.loadBodies(for: newValue)
         }
+        .onChange(of: viewModel.filterText) { _, _ in
+            selection = nil
+        }
     }
 
     // MARK: Toolbar
@@ -30,16 +33,18 @@ struct LogsView: View {
         HStack(spacing: 10) {
             Text("Logs")
                 .font(.headline)
+            if viewModel.isLoading {
+                ProgressView()
+                    .controlSize(.small)
+            }
             Spacer()
-            TextField("Filter method, path, status…", text: $viewModel.filterText)
+            TextField("Filter provider, model, path, status…", text: $viewModel.filterText)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 200)
+                .frame(width: 240)
                 .controlSize(.small)
             Button("Refresh") {
+                selection = nil
                 viewModel.refresh()
-            }
-            Button("Clear", role: .destructive) {
-                viewModel.clear()
             }
         }
         .padding(10)
@@ -167,9 +172,30 @@ struct LogsView: View {
                 Text("Updated \(updated.formatted(date: .omitted, time: .standard))")
                     .foregroundStyle(.secondary)
             }
-            Text("\(viewModel.displayedGroups.count) requests")
+            Text(viewModel.rangeDescription)
                 .foregroundStyle(.secondary)
             Spacer()
+            Button {
+                selection = nil
+                viewModel.goPrevious()
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .disabled(!viewModel.canGoPrevious)
+            .help("Newer page")
+            Text("Page \(viewModel.page + 1) of \(viewModel.pageCount)")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+            Button {
+                selection = nil
+                viewModel.goNext()
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .disabled(!viewModel.canGoNext)
+            .help("Older page")
+            Divider()
+                .frame(height: 16)
             Text(serverStateLabel)
                 .font(.caption)
                 .foregroundStyle(.secondary)
