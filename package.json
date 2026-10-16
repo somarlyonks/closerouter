@@ -19,9 +19,9 @@
         "test:plugin": "node --test \"plugin/**/*.test.ts\"",
         "test": "node build.ts && node --import ./test/loader.mjs --test \"test/**/*.test.ts\"",
         "prestart": "node build.ts",
-        "start": "scriptc run lib/cli.ts --ffi native/ffi.json --optimization=dev",
+        "start": "scriptc run lib/cli.ts --ffi native/ffi.json --optimization=dev --detached-exit",
         "prebuild:cli": "node build.ts",
-        "build:cli": "scriptc build lib/cli.ts --ffi native/ffi.json --strip -o dist/closerouter",
+        "build:cli": "scriptc build lib/cli.ts --ffi native/ffi.json --strip --optimization=speed --detached-exit -o dist/closerouter",
         "prebuild:app": "xcodegen generate --spec app/project.yml",
         "build:app": "xcodebuild -project app/CloseRouter.xcodeproj -scheme CloseRouter -configuration Release -derivedDataPath dist/xcodebuild build && rm -rf dist/CloseRouter.app && ditto dist/xcodebuild/Build/Products/Release/CloseRouter.app dist/CloseRouter.app",
         "build:dmg": "bash app/scripts/make-dmg.sh",
@@ -32,10 +32,10 @@
         "@types/node": "^24",
         "@typescript/native": "npm:typescript@7.0.2",
         "eslint": "^10",
-        "scriptc": "0.2.6",
+        "scriptc": "0.3.3",
         "typescript": "npm:@typescript/typescript6@6.0.2"
     },
     "allowScripts": {
-        "scriptc@0.2.6": true
+        "scriptc@0.3.3": true
     }
 }
