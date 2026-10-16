@@ -1,5 +1,5 @@
 import type {IncomingMessage, ServerResponse} from 'http'
-import {randomUUID} from 'crypto'
+import {randomUUIDv7} from 'crypto'
 import {router, needsAuth, withMethod, path, handleHTML, readRequestBody, type RequestContext} from '../../router'
 import {MAX_BODY, applySSEFrame, applyUsageObject} from './helper'
 import type {UsageCounts} from './helper'
@@ -68,7 +68,7 @@ export function logMiddleware (ctx: RequestContext, res: ServerResponse) {
     if (!path('/v1/*').predicate(ctx)) return
     const {req, responseLog} = ctx
 
-    const id = readClientRequestId(req) ?? randomUUID()
+    const id = readClientRequestId(req) ?? randomUUIDv7()
     res.setHeader('x-closerouter-request-id', id)
     const startedAt = Date.now()
     const bodyText = readRequestBody(ctx)
