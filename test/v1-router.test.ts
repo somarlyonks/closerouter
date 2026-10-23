@@ -3,13 +3,14 @@ import assert from 'node:assert/strict'
 import type {RuntimeConfig} from '../lib/config'
 import {v1Router} from '../lib/server/v1'
 import {isGoogleProvider, injectGoogleThoughtSignature} from '../lib/proxy'
-import {startMockBackend, startHandlerServer} from './helpers'
+import {startMockBackend, startHandlerServer, sampleConfig} from './helpers'
 
 function configFor (baseUrl: string): RuntimeConfig {
-    return {
-        port: 6712, key: 'k', dbPath: undefined, retentionDays: 7,
+    return sampleConfig({
+        key: 'k',
+        dbPath: undefined,
         providers: {p: {base_url: baseUrl, api_key: 'bk'}},
-    }
+    })
 }
 
 // v1Router is wrapped in needsAuth, so requests need `Authorization: Bearer k`.

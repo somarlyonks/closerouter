@@ -32,6 +32,7 @@ import {handle} from '../lib/router'
 import type {RequestContext} from '../lib/router'
 import {v1Router} from '../lib/server/v1'
 import type {RuntimeConfig} from '../lib/config'
+import {sampleConfig} from './helpers'
 
 const available = sqliteAvailable()
 
@@ -59,13 +60,12 @@ interface Harness {
 }
 
 function harnessConfig (backendUrl: string): RuntimeConfig {
-    return {
+    return sampleConfig({
         port: 0,
         key: 'logkey',
         dbPath: ':memory:',
-        retentionDays: 7,
         providers: {p: {base_url: backendUrl, api_key: 'bk'}},
-    }
+    })
 }
 
 function listen (server: ReturnType<typeof createServer>, holder: {log?: ResponseLog}): Promise<Harness> {
