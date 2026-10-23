@@ -46,6 +46,15 @@
             "minimum": 0,
             "default": 7
         },
+        "alias": {
+            "description": "Map of \"<provider>/<model>\" to the canonical model id recorded in usage rows, e.g. {\"SCNet/DeepSeek-V4.1-Flash\": \"deepseek-v4.1-flash\"}. Provider and model match case-insensitively; only the recorded model changes. Defaults to {}.",
+            "type": "object",
+            "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+            },
+            "default": {}
+        },
         "providers": {
             "description": "Map of provider name to its configuration. Must contain at least one entry.",
             "type": "object",

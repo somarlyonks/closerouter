@@ -4,7 +4,7 @@ import {spawn} from 'child_process'
 import {startServer} from './server'
 import {loadConfig, parseConfig, printServerConfig, type RuntimeConfig} from './config'
 import {sqliteAvailable, openDatabase, closeDatabase, run, getSqliteVersion} from './db'
-import {closeUsageLog, initUsage, startRetentionSweep} from './server/logs/db'
+import {closeUsageLog, initUsage, applyModelAliases, startRetentionSweep} from './server/logs/db'
 import packageJson from '../package.json' with {type: 'json'}
 
 const DEFAULT_CONFIG = resolve(process.cwd(), 'closerouter.json')
@@ -112,7 +112,7 @@ const FORCE_EXIT_GRACE_MS = 10_000
 /** Close the usage database, returning a teardown that stops the sweep and
  *  disables recording before the handle closes, so a late response 'close'
  *  handler drops its row instead of touching the dead handle. */
-function initStorage ({dbPath, retentionDays}: RuntimeConfig): () => void {
+function initStorage ({dbPath, retentionDays, alias}: RuntimeConfig): () => void {
     if (dbPath === undefined) return () => {}
     if (!sqliteAvailable()) {
         console.log('sqlite unavailable in this build - usage is not persisted')
@@ -121,6 +121,7 @@ function initStorage ({dbPath, retentionDays}: RuntimeConfig): () => void {
     openDatabase(dbPath)
     run('PRAGMA journal_mode=WAL')
     initUsage()
+    applyModelAliases(alias)
     const sweep = startRetentionSweep(retentionDays)
     console.log(`usage log at ${dbPath}`)
     return () => {

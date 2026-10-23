@@ -1,6 +1,7 @@
 import type {ServerResponse} from 'http'
 import {parseConfig, applyConfig, resolveDbPath, mapProviders, hashConfig, type RuntimeConfig, type ProviderConfig} from '../../config'
 import {router, method, needsAuth, withMethod, handleHTML, handleBadRequest, respondError, readRequestBody} from '../../router'
+import {applyModelAliases} from '../logs/db'
 import {html as indexHTML} from './index.html'
 
 /** The config as served to clients: no raw document, no provider api_keys,
@@ -11,6 +12,7 @@ interface PublicConfig {
     key: string
     db: string | false
     retentionDays: number
+    alias: Record<string, string>
     providers: Record<string, Record<string, unknown>>
 }
 
@@ -25,6 +27,7 @@ function stripConfigApiKey (config: RuntimeConfig): PublicConfig {
         key: config.key,
         db: config.dbPath ?? false,
         retentionDays: config.retentionDays,
+        alias: config.alias,
         providers,
     }
 }
@@ -89,6 +92,7 @@ export const handleConfig = router(
                 const previousRetentionDays = ctx.env.config.retentionDays
                 const previousDb = ctx.env.config.dbPath
                 applyConfig(ctx.env.config, config)
+                applyModelAliases(config.alias)
                 ctx.env.modelsCache?.invalidate()
 
                 if (config.port !== previousPort) {

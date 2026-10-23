@@ -17,12 +17,17 @@ export interface ProviderConfig {
     models?: ModelConfig[]
 }
 
+/** Lowercased `"<provider>/<model>"` keys mapped to the canonical model id
+ *  recorded in usage rows. */
+export type ModelAlias = Record<string, string>
+
 export interface Config {
     $schema?: string
     port?: number
     key?: string
     db?: string | false
     retentionDays?: number
+    alias?: Record<string, string>
     providers: Record<string, ProviderConfig>
 }
 
@@ -31,6 +36,7 @@ export interface RuntimeConfig {
     key: string
     dbPath: string | undefined
     retentionDays: number
+    alias: ModelAlias
     providers: Record<string, ProviderConfig>
     /** SHA-256 of the exact config document the runtime was loaded from -
      *  lets a client confirm the running server reflects the config it saved.
@@ -90,8 +96,37 @@ export function parseConfig (raw: string): RuntimeConfig {
         key: config.key as string,
         dbPath: config.db === false ? undefined : config.db as string,
         retentionDays: config.retentionDays as number,
+        alias: parseModelAlias(config.alias as Record<string, string>),
         providers,
     }
+}
+
+/** Lowercase the lookup keys so matching is case-insensitive; the canonical
+ *  value stays verbatim. Malformed entries are ignored with a warning rather
+ *  than rejecting the config, because a wrong alias only affects analytics
+ *  naming and can be fixed later. Key shape is checked here because JSON
+ *  Schema cannot constrain object keys. */
+function parseModelAlias (raw: Record<string, string>): ModelAlias {
+    const alias: ModelAlias = {}
+    const ignored: string[] = []
+    for (const [key, canonical] of Object.entries(raw)) {
+        const slash = key.indexOf('/')
+        const normalized = key.toLowerCase()
+        const usable = slash > 0
+            && slash < key.length - 1
+            && typeof canonical === 'string'
+            && canonical.length > 0
+            && !Object.prototype.hasOwnProperty.call(alias, normalized)
+        if (!usable) {
+            ignored.push(key)
+            continue
+        }
+        alias[normalized] = canonical
+    }
+    if (ignored.length > 0) {
+        console.warn(`ignoring ${ignored.length} invalid model alias(es): ${ignored.join(', ')}`)
+    }
+    return alias
 }
 
 function formatIssues (issues: SchemaIssue[]): string {
@@ -133,6 +168,7 @@ export function loadConfig (configPath: string): RuntimeConfig {
 
 export function applyConfig (store: RuntimeConfig, config: RuntimeConfig): void {
     store.key = config.key
+    store.alias = config.alias
     store.providers = config.providers
     store.hash = config.hash
 }

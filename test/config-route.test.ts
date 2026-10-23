@@ -100,13 +100,78 @@ test('GET /config with accept json returns the running config without provider s
         assert.equal(res.status, 200)
         assert.equal(res.headers.get('content-type'), 'application/json')
         const text = await res.text()
-        const json = JSON.parse(text) as {port: number, key: string, db: string | false, retentionDays: number, providers: {p: Record<string, unknown>}}
+        const json = JSON.parse(text) as {port: number, key: string, db: string | false, retentionDays: number, alias: Record<string, string>, providers: {p: Record<string, unknown>}}
         assert.equal(json.key, API_KEY)
         assert.equal(json.db, join(dirname(s.path), 'closerouter.db'), 'db exposes the resolved dbPath')
         assert.equal(json.retentionDays, 7)
+        assert.deepEqual(json.alias, {})
         assert.ok(json.providers.p, 'response includes the provider')
         assert.ok(!('api_key' in json.providers.p), 'provider api_key is omitted')
         assert.ok(!text.includes('bk'), 'stored secrets do not appear in the response')
+    } finally {
+        await s.close()
+    }
+})
+
+test('GET /config exposes the alias map with lowercased keys', async () => {
+    const port = await getFreePort()
+    const {path, cleanup} = await writeTempConfig({
+        port,
+        key: API_KEY,
+        alias: {'SCNet/DeepSeek-V4.1-Flash': 'deepseek-v4.1-flash'},
+        providers: {p: {base_url: 'http://127.0.0.1:1', api_key: 'bk', models: []}},
+    })
+    const srv = await startCrServer(loadConfig(path))
+    try {
+        const res = await fetch(`http://127.0.0.1:${srv.port}/config`, {
+            headers: {authorization: `Bearer ${API_KEY}`, accept: 'application/json'},
+        })
+        assert.equal(res.status, 200)
+        const json = await res.json() as {alias: Record<string, string>}
+        assert.deepEqual(json.alias, {'scnet/deepseek-v4.1-flash': 'deepseek-v4.1-flash'})
+    } finally {
+        await srv.close()
+        await cleanup()
+    }
+})
+
+test('PUT /config applies the alias map to the running config', async () => {
+    const s = await setup()
+    try {
+        const res = await fetch(`http://127.0.0.1:${s.port}/config`, {
+            method: 'PUT',
+            headers: {'authorization': `Bearer ${API_KEY}`, 'content-type': 'application/json'},
+            body: JSON.stringify({
+                port: s.port,
+                key: API_KEY,
+                alias: {'Ark/DeepSeek-V4.1-Flash': 'deepseek-v4.1-flash'},
+                providers: {p: {base_url: 'http://127.0.0.1:1', api_key: 'bk', models: []}},
+            }),
+        })
+        assert.equal(res.status, 200)
+        const json = await res.json() as {alias: Record<string, string>}
+        assert.deepEqual(json.alias, {'ark/deepseek-v4.1-flash': 'deepseek-v4.1-flash'})
+    } finally {
+        await s.close()
+    }
+})
+
+test('PUT /config ignores an alias key without a provider prefix', async () => {
+    const s = await setup()
+    try {
+        const res = await fetch(`http://127.0.0.1:${s.port}/config`, {
+            method: 'PUT',
+            headers: {'authorization': `Bearer ${API_KEY}`, 'content-type': 'application/json'},
+            body: JSON.stringify({
+                port: s.port,
+                key: API_KEY,
+                alias: {'deepseek-v4.1-flash': 'canonical'},
+                providers: {p: {base_url: 'http://127.0.0.1:1', api_key: 'bk', models: []}},
+            }),
+        })
+        assert.equal(res.status, 200)
+        const json = await res.json() as {alias: Record<string, string>}
+        assert.deepEqual(json.alias, {}, 'malformed entries are dropped instead of failing the config')
     } finally {
         await s.close()
     }

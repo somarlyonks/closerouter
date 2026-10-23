@@ -94,7 +94,7 @@ export function logMiddleware (ctx: RequestContext, res: ServerResponse) {
             generationMs: firstTokenAt !== undefined && lastTokenAt !== undefined ? lastTokenAt - firstTokenAt : undefined,
             requestBody: raw.length > 0 ? raw.slice(0, MAX_BODY) : undefined,
             responseBody: responseLog.body,
-        }))
+        }, ctx.env.config.alias))
     })
 }
 
