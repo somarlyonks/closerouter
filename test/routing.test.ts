@@ -1,9 +1,8 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {once} from 'events'
-import type {RuntimeConfig} from '../lib/config'
 import {startServer} from '../lib/server'
-import {startMockBackend, getFreePort} from './helpers'
+import {startMockBackend, getFreePort, sampleConfig} from './helpers'
 
 const KEY = 'sk-matrix'
 
@@ -15,13 +14,12 @@ test('routing matrix: method x path dispatch is frozen', async () => {
         res.end(JSON.stringify({id: 'x', choices: []}))
     })
     const port = await getFreePort()
-    const config: RuntimeConfig = {
+    const config = sampleConfig({
         dbPath: ':memory:',
-        retentionDays: 7,
         port,
         key: KEY,
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: ['m']}},
-    }
+    })
     const {server} = startServer(config)
     await once(server, 'listening')
 

@@ -5,8 +5,8 @@ import {Agent, get, type IncomingMessage} from 'node:http'
 import {once} from 'events'
 import {resolve, dirname} from 'path'
 import {connect, type AddressInfo} from 'net'
-import type {MockBackend} from './helpers'
-import {hashConfig, loadConfig, type RuntimeConfig} from '../lib/config'
+import type {HandlerServer, MockBackend} from './helpers'
+import {hashConfig, loadConfig} from '../lib/config'
 import {startServer} from '../lib/server'
 import {handle, router, type RequestHandler} from '../lib/router'
 import {startMockBackend, writeTempConfig, writeTempFile, startCrServer, getFreePort, startHandlerServer, sampleConfig, stubConsoleError} from './helpers'
@@ -33,15 +33,10 @@ async function setup (): Promise<{
             res.end()
         }
     })
-    const port = await getFreePort()
-    const config: RuntimeConfig = {
-        dbPath: '',
-        retentionDays: 7,
-        port,
-        key: API_KEY,
+    const srv = await startCrServer(sampleConfig({
+        port: await getFreePort(),
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
-    }
-    const srv = await startCrServer(config)
+    }))
     return {
         port: srv.port,
         backend,
@@ -55,13 +50,10 @@ async function setup (): Promise<{
 test('server binds 127.0.0.1 only and reports it as the bound address', async () => {
     const backend = await startMockBackend()
     const port = await getFreePort()
-    const {server} = startServer({
-        dbPath: '',
-        retentionDays: 7,
+    const {server} = startServer(sampleConfig({
         port,
-        key: API_KEY,
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
-    })
+    }))
     try {
         await once(server, 'listening')
         const addr = server.address() as AddressInfo
@@ -90,18 +82,14 @@ test('server binds 127.0.0.1 only and reports it as the bound address', async ()
 
 test('startServer adds no process-wide signal listeners', async () => {
     const backend = await startMockBackend()
-    const port = await getFreePort()
     const before = {
         sigint: process.listenerCount('SIGINT'),
         sigterm: process.listenerCount('SIGTERM'),
     }
-    const {server} = startServer({
-        dbPath: '',
-        retentionDays: 7,
-        port,
-        key: API_KEY,
+    const {server} = startServer(sampleConfig({
+        port: await getFreePort(),
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
-    })
+    }))
     try {
         await once(server, 'listening')
         // the shutdown sequence lives in the CLI server lifecycle; a reusable
@@ -296,7 +284,7 @@ test('error boundary answers a synchronous throw with a 500 before headers are s
     try {
         srv = await startHandlerServer((() => {
             throw new Error('sync boom')
-        }) as RequestHandler, sampleConfig())
+        }) as RequestHandler, {config: sampleConfig()})
         const res = await fetch(`http://127.0.0.1:${srv.port}/`)
         assert.equal(res.status, 500)
         assert.deepEqual(await res.json(), {
@@ -316,7 +304,7 @@ test('error boundary answers an un-adapted rejected handler promise with a 500',
     try {
         srv = await startHandlerServer(async () => {
             throw new Error('async boom')
-        }, sampleConfig())
+        }, {config: sampleConfig()})
         const res = await fetch(`http://127.0.0.1:${srv.port}/`)
         assert.equal(res.status, 500)
         assert.deepEqual(await res.json(), {
@@ -332,16 +320,16 @@ test('error boundary answers an un-adapted rejected handler promise with a 500',
 
 test('error boundary terminates a started response instead of faking a clean EOF', async () => {
     const stub = stubConsoleError()
-    let srv
+    let srv: HandlerServer | undefined
     try {
         srv = await startHandlerServer(async (_ctx, res) => {
             res.writeHead(200, {'content-type': 'text/plain'})
             res.write('partial')
             await new Promise<void>(r => setTimeout(r, 20))
             throw new Error('mid-stream boom')
-        }, sampleConfig())
+        }, {config: sampleConfig()})
         await assert.rejects(async () => {
-            const res = await fetch(`http://127.0.0.1:${srv.port}/`)
+            const res = await fetch(`http://127.0.0.1:${srv!.port}/`)
             assert.equal(res.status, 200)
             // the truncated body read must fail: the client must not receive a
             // clean EOF after a partial body
@@ -365,7 +353,7 @@ test('error boundary settles an un-adapted async route handler rejection exactly
             router(() => true, async () => {
                 throw new Error('route boom')
             }),
-        ), sampleConfig())
+        ), {config: sampleConfig()})
         const res = await fetch(`http://127.0.0.1:${srv.port}/`)
         assert.equal(res.status, 500)
         assert.deepEqual(await res.json(), {
@@ -480,13 +468,10 @@ function requestStatus (port: number, agent: Agent): Promise<IncomingMessage> {
 test('closeIdleConnections retires a parked keep-alive socket so server.close completes', async () => {
     const backend = await startMockBackend()
     const port = await getFreePort()
-    const {server} = startServer({
-        dbPath: '',
-        retentionDays: 7,
+    const {server} = startServer(sampleConfig({
         port,
-        key: API_KEY,
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
-    })
+    }))
     const agent = new Agent({keepAlive: true})
     try {
         await once(server, 'listening')

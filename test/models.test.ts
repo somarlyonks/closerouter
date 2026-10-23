@@ -1,19 +1,18 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import type {RuntimeConfig} from '../lib/config'
 import {listModelsHandler, normalizeModel} from '../lib/server/v1/models'
 import {createModelsCache} from '../lib/server/helper'
-import {delay, startMockBackend, startHandlerServer} from './helpers'
+import {delay, startMockBackend, startHandlerServer, sampleConfig} from './helpers'
 
 test('listModelsHandler fetches and normalizes models from each provider', async () => {
     const backend = await startMockBackend((_req, res) => {
         res.writeHead(200, {'content-type': 'application/json'})
         res.end(JSON.stringify({data: [{id: 'm1'}, {id: 'm2', owned_by: 'vendor'}]}))
     })
-    const config: RuntimeConfig = {
-        dbPath: '', port: 6712, key: 'k', retentionDays: 7,
+    const config = sampleConfig({
+        key: 'k',
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
-    }
+    })
     const srv = await startHandlerServer(listModelsHandler(), {config})
     try {
         const res = await fetch(`http://127.0.0.1:${srv.port}/v1/models`, {
@@ -40,10 +39,10 @@ test('listModelsHandler falls back to config models when the backend returns a n
         res.writeHead(500)
         res.end('err')
     })
-    const config: RuntimeConfig = {
-        dbPath: '', port: 6712, key: 'k', retentionDays: 7,
+    const config = sampleConfig({
+        key: 'k',
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: ['fallback-a', {id: 'fallback-b'}]}},
-    }
+    })
     const srv = await startHandlerServer(listModelsHandler(), {config})
     try {
         const res = await fetch(`http://127.0.0.1:${srv.port}/v1/models`, {
@@ -66,10 +65,10 @@ test('listModelsHandler falls back to config models when the backend response is
         res.writeHead(200, {'content-type': 'application/json'})
         res.end(JSON.stringify({notdata: 1}))
     })
-    const config: RuntimeConfig = {
-        dbPath: '', port: 6712, key: 'k', retentionDays: 7,
+    const config = sampleConfig({
+        key: 'k',
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: [{id: 'cfg-model'}]}},
-    }
+    })
     const srv = await startHandlerServer(listModelsHandler(), {config})
     try {
         const res = await fetch(`http://127.0.0.1:${srv.port}/v1/models`, {
@@ -88,10 +87,10 @@ test('listModelsHandler bounds a stalled provider with a short timeout and falls
     const backend = await startMockBackend(() => {
         // Hold the request open: only the idle deadline can settle it.
     })
-    const config: RuntimeConfig = {
-        dbPath: '', port: 6712, key: 'k', retentionDays: 7,
+    const config = sampleConfig({
+        key: 'k',
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: ['fallback']}},
-    }
+    })
     const srv = await startHandlerServer(
         listModelsHandler(150),
         {config},
@@ -120,10 +119,10 @@ test('listModelsHandler serves a fresh cache without re-fetching providers', asy
         res.writeHead(200, {'content-type': 'application/json'})
         res.end(JSON.stringify({data: [{id: `m${hits}`}]}))
     })
-    const config: RuntimeConfig = {
-        dbPath: '', port: 6712, key: 'k', retentionDays: 7,
+    const config = sampleConfig({
+        key: 'k',
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
-    }
+    })
     const srv = await startHandlerServer(listModelsHandler(), {config, modelsCache: createModelsCache()})
     try {
         for (let i = 0; i < 2; i += 1) {
@@ -148,10 +147,10 @@ test('listModelsHandler serves a stale cache immediately and refreshes in the ba
         res.writeHead(200, {'content-type': 'application/json'})
         res.end(JSON.stringify({data: [{id: `m${hits}`}]}))
     })
-    const config: RuntimeConfig = {
-        dbPath: '', port: 6712, key: 'k', retentionDays: 7,
+    const config = sampleConfig({
+        key: 'k',
         providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
-    }
+    })
     const srv = await startHandlerServer(listModelsHandler(), {config, modelsCache: createModelsCache(200)})
     try {
         const first = await fetch(`http://127.0.0.1:${srv.port}/v1/models`, {
