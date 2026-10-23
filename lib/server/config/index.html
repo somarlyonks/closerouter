@@ -56,6 +56,20 @@
                 background: var(--color-background);
             }
 
+            & textarea {
+                flex: 1;
+                font: inherit;
+                line-height: 22px;
+                font-family: var(--font-mono);
+                background: var(--color-background);
+                color: currentColor;
+                border: 1px solid var(--color-border);
+                border-radius: 6px;
+                padding: 4px 8px;
+                outline: none;
+                resize: vertical;
+            }
+
             & .models {
                 flex: 1;
                 display: flex;
@@ -186,6 +200,20 @@
             ))
 
             formEl.appendChild(createElement('div', {className: 'section'},
+                createElement('h2', {textContent: 'Model aliases'}),
+                createElement('div', {className: 'field'},
+                    createElement('label', {textContent: 'alias'}),
+                    createElement('textarea', {
+                        id: 'cfg-alias',
+                        rows: 4,
+                        spellcheck: false,
+                        placeholder: '{"<provider>/<model>": "<canonical-model>"}',
+                        value: JSON.stringify(cfg.alias || {}, null, 2),
+                    }),
+                ),
+            ))
+
+            formEl.appendChild(createElement('div', {className: 'section'},
                 createElement('h2', {textContent: 'Providers'}),
                 ...Array.from(Object.entries(cfg.providers || {}), ([name, provider]) => renderProvider(name, provider)),
                 createElement('div', {className: 'actions'},
@@ -300,7 +328,13 @@
 
         async function saveConfig() {
             const key = await promptKey()
-            const body = JSON.stringify(collectConfig())
+            let body
+            try {
+                body = JSON.stringify(collectConfig())
+            } catch (e) {
+                toast({title: 'Error', message: e.message, timeout: 0, type: 'error'})
+                return
+            }
             const closeSaveToast = toast({title: 'saving...', timeout: 0, type: 'warning'})
             try {
                 const res = await fetch('/config', {
@@ -323,6 +357,7 @@
             function collectConfig() {
                 const port = parseInt(document.getElementById('cfg-port').value, 10)
                 const key = document.getElementById('cfg-key').value
+                const alias = parseAlias()
 
                 const providers = {}
                 for (const card of formEl.querySelectorAll('.provider')) {
@@ -340,10 +375,20 @@
                     }
                 }
 
-                const cfg = {providers}
+                const cfg = {providers, alias}
                 if (!isNaN(port)) cfg.port = port
                 if (key) cfg.key = key
                 return cfg
+
+                function parseAlias() {
+                    const text = document.getElementById('cfg-alias').value.trim()
+                    if (!text) return {}
+                    try {
+                        return JSON.parse(text)
+                    } catch {
+                        throw new Error('alias must be valid JSON')
+                    }
+                }
 
                 function parseModel(text) {
                     const trimmed = text.trim()

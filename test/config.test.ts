@@ -2,7 +2,7 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {dirname, resolve, join} from 'node:path'
 import {hashConfig, loadConfig, parseConfig} from '../lib/config'
-import {captureExit, writeTempConfig, writeTempFile} from './helpers'
+import {captureExit, captureWarnings, writeTempConfig, writeTempFile} from './helpers'
 
 test('loadConfig returns config with schema defaults when omitted', async () => {
     const {path, cleanup} = await writeTempConfig({
@@ -287,5 +287,73 @@ test('loadConfig exits when retentionDays is out of range', async () => {
         } finally {
             await cleanup()
         }
+    }
+})
+
+test('loadConfig defaults alias to an empty map', async () => {
+    const {path, cleanup} = await writeTempConfig({
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    try {
+        assert.deepEqual(loadConfig(path).alias, {})
+    } finally {
+        await cleanup()
+    }
+})
+
+test('loadConfig lowercases alias keys and keeps the canonical value', async () => {
+    const {path, cleanup} = await writeTempConfig({
+        alias: {'SCNet/DeepSeek-V4.1-Flash': 'deepseek-v4.1-flash'},
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    try {
+        assert.deepEqual(loadConfig(path).alias, {'scnet/deepseek-v4.1-flash': 'deepseek-v4.1-flash'})
+    } finally {
+        await cleanup()
+    }
+})
+
+test('loadConfig ignores alias keys that are not <provider>/<model>', async () => {
+    const {path, cleanup} = await writeTempConfig({
+        alias: {'deepseek-v4.1-flash': 'a', '/model': 'b', 'provider/': 'c', 'ok/model': 'kept'},
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    const warnings = captureWarnings()
+    try {
+        assert.deepEqual(loadConfig(path).alias, {'ok/model': 'kept'})
+    } finally {
+        warnings.restore()
+        await cleanup()
+    }
+    assert.equal(warnings.messages.length, 1)
+    assert.match(warnings.messages[0]!, /invalid model alias/i)
+})
+
+test('loadConfig keeps the first of case-insensitive duplicate alias keys', async () => {
+    const {path, cleanup} = await writeTempConfig({
+        alias: {'Ark/DeepSeek-V4.1-Flash': 'first', 'ark/deepseek-v4.1-flash': 'second'},
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    const warnings = captureWarnings()
+    try {
+        assert.deepEqual(loadConfig(path).alias, {'ark/deepseek-v4.1-flash': 'first'})
+    } finally {
+        warnings.restore()
+        await cleanup()
+    }
+    assert.equal(warnings.messages.length, 1)
+})
+
+test('loadConfig rejects non-string alias values', async () => {
+    const {path, cleanup} = await writeTempConfig({
+        alias: {'p/m': 1},
+        providers: {p: {base_url: 'http://x', api_key: 'k'}},
+    })
+    try {
+        const res = captureExit(() => loadConfig(path))
+        assert.equal(res.exit?.code, 1)
+        assert.match(res.stderr, /alias/i)
+    } finally {
+        await cleanup()
     }
 })

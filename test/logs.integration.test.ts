@@ -41,13 +41,14 @@ function listen (server: Server): Promise<number> {
     return new Promise(resolve => server.on('listening', () => resolve((server.address() as {port: number}).port)))
 }
 
-function configFor (backend: string): RuntimeConfig {
+function configFor (backend: string, alias: Record<string, string> = {}): RuntimeConfig {
     const models: ModelConfig[] = [{id: 'm'}]
     return {
         port: 0,
         key: 'logkey',
         dbPath: ':memory:',
         retentionDays: 7,
+        alias,
         providers: {
             p: {base_url: backend, api_key: 'bk', models},
         },
@@ -140,6 +141,34 @@ function integrationTests (): void {
             const detail = await fetchDetail(port, 'logkey', entry.id)
             assert.ok(detail.requestBody === body, 'request body is captured verbatim')
             assert.match(detail.responseBody ?? '', /data: \{"choices":\[\]\}/)
+        } finally {
+            await new Promise<void>(r => server.close(() => r()))
+            await backend.close()
+        }
+    })
+
+    test('the recorded model is normalized through the config alias map', async () => {
+        const backend = await startBackend((_req, res) => {
+            res.writeHead(200, {'content-type': 'application/json'})
+            res.end(JSON.stringify({id: 'x', choices: [], usage: {prompt_tokens: 1, completion_tokens: 2}}))
+        })
+        openDatabase(':memory:')
+        initUsage()
+        const {server} = startServer(configFor(backend.baseUrl, {'p/m': 'canonical-m'}))
+        const port = await listen(server)
+        try {
+            const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+                method: 'POST',
+                headers: {'authorization': 'Bearer logkey', 'content-type': 'application/json'},
+                body: JSON.stringify({model: 'p/m', messages: []}),
+            })
+            assert.equal(res.status, 200)
+            await res.text()
+
+            const found = (await fetchHistory(port, 'logkey')).find(e => e.method === 'POST')
+            assert.ok(found, 'history row exists')
+            assert.ok(found!.provider === 'p', 'provider is untouched')
+            assert.ok(found!.model === 'canonical-m', 'model is rewritten through the alias')
         } finally {
             await new Promise<void>(r => server.close(() => r()))
             await backend.close()

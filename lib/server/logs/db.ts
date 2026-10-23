@@ -3,6 +3,7 @@
 // server - a broken storage backend logs and drops the row.
 
 import {sqliteAvailable, all, get, run, withTransaction, type SqlParam, type SqlRow, type SqlValue} from '../../db'
+import type {ModelAlias} from '../../config'
 import type {UsageCounts} from './helper'
 
 export interface UsageEntry extends UsageCounts {
@@ -479,8 +480,9 @@ export function loadUsageHeatmap (filters: UsageFilters = {}): UsageBucket[] {
     }
 }
 
-export function recordUsage (entry: UsageEntry): void {
+export function recordUsage (entry: UsageEntry, alias?: ModelAlias): void {
     if (!initialized) return
+    const model = applyAlias(alias, entry.provider, entry.model)
     try {
         run(
             'INSERT INTO usage (request_id, time, method, path, provider, model, status, duration_ms, ttft_ms, generation_ms, input_tokens, output_tokens, cached_tokens, request_body, response_body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -490,7 +492,7 @@ export function recordUsage (entry: UsageEntry): void {
                 entry.method,
                 entry.path,
                 entry.provider ?? null,
-                entry.model ?? null,
+                model ?? null,
                 entry.status ?? null,
                 entry.durationMs ?? null,
                 entry.ttftMs ?? null,
@@ -508,6 +510,43 @@ export function recordUsage (entry: UsageEntry): void {
 }
 
 const RETENTION_SWEEP_INTERVAL_MS = DAY
+
+/** Canonical model id for a `provider`/`model` pair, or the model unchanged
+ *  when the pair is not aliased. The provider column is never rewritten - it
+ *  records which backend actually served the request. */
+function applyAlias (alias: ModelAlias | undefined, provider: string | undefined, model: string | undefined): string | undefined {
+    if (alias === undefined || provider === undefined || model === undefined) return model
+    return alias[`${provider}/${model}`.toLowerCase()] ?? model
+}
+
+/** Rename recorded models to their canonical alias, matching
+ *  `"<provider>/<model>"` case-insensitively. Idempotent; returns the number
+ *  of rows rewritten. */
+export function applyModelAliases (alias: ModelAlias | undefined): number {
+    if (!initialized || alias === undefined) return 0
+    const pairs = Object.entries(alias)
+    if (pairs.length === 0) return 0
+    try {
+        let changes = 0
+        withTransaction(() => {
+            for (const [key, canonical] of pairs) {
+                const slash = key.indexOf('/')
+                if (slash <= 0) continue
+                const provider = key.slice(0, slash).toLowerCase()
+                const model = key.slice(slash + 1).toLowerCase()
+                changes += run(
+                    'UPDATE usage SET model = ? WHERE lower(provider) = ? AND lower(model) = ? AND model <> ?',
+                    [canonical, provider, model, canonical],
+                ).changes
+            }
+        })
+        if (changes > 0) console.log(`aliased ${changes} usage row(s)`)
+        return changes
+    } catch (e) {
+        console.error('usage model aliasing failed:', e instanceof Error ? e.message : String(e))
+        return 0
+    }
+}
 
 /** Nulled bodies leave their pages on the sqlite freelist, so the file keeps
  *  its size until those pages are returned to the OS. A full VACUUM rewrites

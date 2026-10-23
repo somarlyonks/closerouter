@@ -7,14 +7,14 @@ import {
     sqliteAvailable, openDatabase, closeDatabase, run, all, get, withTransaction,
     messageCollector, encodeParams, decodeValue,
 } from '../lib/db'
-import {initUsage, recordUsage, loadUsage, loadUsageBody, loadUsageStats, loadUsageHeatmap, expireUsageBodies, startRetentionSweep, SCHEMA_VERSION} from '../lib/server/logs/db'
+import {initUsage, recordUsage, applyModelAliases, loadUsage, loadUsageBody, loadUsageStats, loadUsageHeatmap, expireUsageBodies, startRetentionSweep, SCHEMA_VERSION} from '../lib/server/logs/db'
 import {handleStatus} from '../lib/server/status'
 import {handle} from '../lib/router'
 import type {RuntimeConfig} from '../lib/config'
 
 /** Minimal RuntimeConfig for the /status handler test - the handler only reads dbPath. */
 function statusConfig (dbPath: string | undefined): RuntimeConfig {
-    return {port: 0, key: 'k', dbPath, retentionDays: 7, providers: {}}
+    return {port: 0, key: 'k', dbPath, retentionDays: 7, alias: {}, providers: {}}
 }
 
 // The SQL tests need the native SQLite symbols, which only exist when this
@@ -263,6 +263,44 @@ function sqlTests (): void {
         // idempotent schema
         initUsage()
         assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0]!.n as number, 2)
+    })
+
+    test('recordUsage rewrites the model through the alias map and keeps the provider', () => {
+        openDatabase(':memory:')
+        initUsage()
+        const alias = {'scnet/deepseek-v4.1-flash': 'deepseek-v4.1-flash'}
+        recordUsage({
+            requestId: 'aliased', time: 1, method: 'POST', path: '/v1/chat/completions',
+            provider: 'SCNet', model: 'DeepSeek-V4.1-Flash', status: 200,
+        }, alias)
+        recordUsage({
+            requestId: 'unlisted', time: 1, method: 'POST', path: '/v1/chat/completions',
+            provider: 'ark', model: 'deepseek-v4.1-flash', status: 200,
+        }, alias)
+        const rows = all('SELECT request_id, provider, model FROM usage ORDER BY id')
+        assert.equal(rows[0]!.provider as string, 'SCNet')
+        assert.equal(rows[0]!.model as string, 'deepseek-v4.1-flash')
+        assert.equal(rows[1]!.provider as string, 'ark')
+        assert.equal(rows[1]!.model as string, 'deepseek-v4.1-flash')
+    })
+
+    test('applyModelAliases backfills rows strictly and idempotently', () => {
+        openDatabase(':memory:')
+        initUsage()
+        recordUsage({requestId: 'a', time: 1, method: 'POST', path: '/v1/x', provider: 'SCNet', model: 'DeepSeek-V4.1-Flash'})
+        recordUsage({requestId: 'b', time: 1, method: 'POST', path: '/v1/x', provider: 'SCNet', model: 'SCNet/DeepSeek-V4.1-Flash'})
+        recordUsage({requestId: 'c', time: 1, method: 'POST', path: '/v1/x', provider: 'ark', model: 'deepseek-v4.1-flash'})
+        recordUsage({requestId: 'd', time: 1, method: 'POST', path: '/v1/x', provider: 'scnet', model: 'deepseek-v4.1-flash'})
+        const alias = {'scnet/deepseek-v4.1-flash': 'deepseek-v4.1-flash'}
+        assert.equal(applyModelAliases(alias), 1, 'only the case-variant row changes')
+        assert.equal(applyModelAliases(alias), 0, 'second pass is a no-op')
+        assert.equal(applyModelAliases({}), 0)
+        assert.equal(applyModelAliases(undefined), 0)
+        const rows = all('SELECT request_id, provider, model FROM usage ORDER BY id')
+        assert.equal(rows[0]!.model as string, 'deepseek-v4.1-flash')
+        assert.equal(rows[1]!.model as string, 'SCNet/DeepSeek-V4.1-Flash', 'strict match leaves prefixed ids alone')
+        assert.equal(rows[2]!.model as string, 'deepseek-v4.1-flash')
+        assert.equal(rows[3]!.provider as string, 'scnet')
     })
 
     test('loadUsage pages newest-first and counts every filter match', () => {

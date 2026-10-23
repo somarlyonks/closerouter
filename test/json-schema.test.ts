@@ -246,6 +246,7 @@ test('applySchemaDefaults inserts declared defaults for missing properties', () 
         key: 'sk-cr-kee9itsecr1t',
         db: 'closerouter.db',
         retentionDays: 7,
+        alias: {},
         providers: {p: {base_url: 'http://x', api_key: 'k'}},
     })
 })
@@ -258,6 +259,7 @@ test('applySchemaDefaults keeps present values and never invents others', () => 
         key: 'sk-cr-kee9itsecr1t',
         db: false,
         retentionDays: 7,
+        alias: {},
         providers: {p: {base_url: 'http://x', api_key: 'k'}},
     })
     // no in-place mutation of the input
@@ -309,4 +311,12 @@ test('applySchemaDefaults recurses through $ref and preserves falsey defaults', 
         flag: false,
         other: 1,
     })
+})
+
+test('validates alias values as non-empty strings', () => {
+    const base = {providers: {p: {base_url: 'http://x', api_key: 'k'}}}
+    assert.deepEqual(messages(validate({...base, alias: {'p/m': 'canonical'}})), [])
+    assert.deepEqual(messages(validate({...base, alias: {'p/m': ''}})), ['alias.p/m must be at least 1 character long'])
+    assert.deepEqual(messages(validate({...base, alias: {'p/m': 1}})), ['alias.p/m must be a string'])
+    assert.deepEqual(messages(validate({...base, alias: []})), ['alias must be an object'])
 })

@@ -35,10 +35,12 @@ CloseRouter:
                     [x] hot replace runtime config
                     [x] ignore and warn port/retention change
                     [x] handle db change
+                    [x] handle alias changes
                     [x] preserves the stored secret when a known provider's api_key is omitted or empty
                     [x] sanitize the response stripping secrets
             logs:
                 [x] manual refresh against batched GET /logs results and deduplicate by database row/request ID
+                [x] alias model
                 [x] pagination
                 [x] filter by method/path/provider/model/status substring
                 [x] integration tests
@@ -62,6 +64,7 @@ CloseRouter:
         [x] persistent
         [x] age-based retention
         [x] schema migrations
+        [x] apply alias mapping on startup
     test:
         [x] mock provider server
         [x] persistent test.db (test config db)

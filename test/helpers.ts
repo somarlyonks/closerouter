@@ -65,6 +65,19 @@ function stringify (a: unknown): string {
     return typeof a === 'string' ? a : String(a)
 }
 
+/** Collect `console.warn` output for assertions about ignored config entries. */
+export function captureWarnings (): {messages: string[], restore: () => void} {
+    const messages: string[] = []
+    const original = console.warn
+    console.warn = (...args: unknown[]) => {
+        messages.push(args.map(stringify).join(' '))
+    }
+    return {
+        messages,
+        restore: () => {console.warn = original},
+    }
+}
+
 export interface MockBackendRequest {
     method: string
     url: string
@@ -169,6 +182,7 @@ export function sampleConfig (over: Partial<RuntimeConfig> = {}): RuntimeConfig 
     return {
         dbPath: over.dbPath ?? '',
         retentionDays: over.retentionDays ?? 7,
+        alias: over.alias ?? {},
         port: over.port ?? 6712,
         key: over.key ?? 'sk-test',
         providers: over.providers ?? {
