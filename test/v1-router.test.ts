@@ -98,7 +98,7 @@ test('isGoogleProvider detects Google base URLs only', () => {
 })
 
 test('injectGoogleThoughtSignature signs unsigned calls, leaves signed calls alone', () => {
-    const body = JSON.stringify({
+    const parsed = {
         model: 'gpt',
         messages: [
             {role: 'user', content: 'hi'},
@@ -106,34 +106,37 @@ test('injectGoogleThoughtSignature signs unsigned calls, leaves signed calls alo
                 role: 'assistant',
                 tool_calls: [
                     {id: 'a', type: 'function', function: {name: 'read', arguments: '{}'}},
-                    {id: 'b', type: 'function', function: {name: 'read', arguments: '{}'}},
+                    {
+                        id: 'b',
+                        type: 'function',
+                        function: {name: 'read', arguments: '{}'},
+                        extra_content: {google: {thought_signature: 'already-signed'}},
+                    },
                 ],
             },
             {role: 'tool', tool_call_id: 'a', content: 'out'},
         ],
-    })
-    // pre-sign the second call
-    const parsed = JSON.parse(body) as {messages: Array<{role: string, tool_calls?: Array<{id: string, extra_content?: unknown}>}>}
-    parsed.messages[1].tool_calls![1].extra_content = {google: {thought_signature: 'already-signed'}}
+    }
 
-    const out = injectGoogleThoughtSignature(JSON.stringify(parsed))
+    const modified = injectGoogleThoughtSignature(parsed)
+    assert.equal(modified, true)
 
-    const result = JSON.parse(out) as {messages: Array<{role: string, tool_calls?: Array<{id: string, extra_content?: {google: {thought_signature: string}}}>}>}
-    const calls = result.messages.find(m => m.role === 'assistant')!.tool_calls!
+    const calls = (parsed.messages.find(m => m.role === 'assistant') as {tool_calls: Array<{extra_content?: {google?: {thought_signature: string}}}>}).tool_calls
     assert.equal(calls[0].extra_content?.google?.thought_signature, 'skip_thought_signature_validator')
     assert.equal(calls[1].extra_content?.google?.thought_signature, 'already-signed')
 })
 
 test('injectGoogleThoughtSignature ignores non-assistant and non-tool-call messages', () => {
-    const body = JSON.stringify({
+    const parsed = {
         model: 'gpt',
         messages: [
             {role: 'user', content: 'hi'},
             {role: 'assistant', content: 'plain text'},
             {role: 'tool', tool_call_id: 'a', content: 'out'},
         ],
-    })
-    assert.equal(injectGoogleThoughtSignature(body), body)
+    }
+    const modified = injectGoogleThoughtSignature(parsed)
+    assert.equal(modified, false)
 })
 
 test('v1 router only injects the sentinel for Google providers', async () => {

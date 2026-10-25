@@ -413,16 +413,16 @@ export function proxyModelRequest (
     endpoint: string,
 ): void {
     readRequestBody(ctx).then((bodyStr) => {
-        let model: string | undefined
+        let body: Record<string, unknown>
         try {
-            const body = JSON.parse(bodyStr)
-            model = body.model
+            body = JSON.parse(bodyStr) as Record<string, unknown>
         } catch {
             respondError(res, 400, 'invalid_request_error', 'Invalid JSON in request body')
             return
         }
 
-        if (!model) {
+        const model = body?.model
+        if (typeof model !== 'string' || !model) {
             respondError(res, 400, 'invalid_request_error', 'Missing "model" field in request body')
             return
         }
@@ -445,18 +445,11 @@ export function proxyModelRequest (
             ctx.responseLog.model = realModel
         }
 
-        const rewriteBody = (body: string): string => {
-            try {
-                const parsed = JSON.parse(body)
-                parsed.model = realModel
-                if (isGoogleProvider(provider)) return injectGoogleThoughtSignature(JSON.stringify(parsed))
-                return JSON.stringify(parsed)
-            } catch {
-                return body
-            }
+        if (isGoogleProvider(provider)) {
+            injectGoogleThoughtSignature(body)
         }
 
-        proxyRequest(ctx, res, provider.base_url, provider.api_key, endpoint, rewriteBody)
+        proxyRequest(ctx, res, provider.base_url, provider.api_key, endpoint, () => JSON.stringify({...body, model: realModel}))
     })
 
     ctx.req.on('error', (err) => {
@@ -470,17 +463,12 @@ export function isGoogleProvider ({base_url}: Pick<ProviderConfig, 'base_url'>):
         || base_url.includes('aiplatform.googleapis.com')
 }
 
-export function injectGoogleThoughtSignature (body: string): string {
-    let parsed: Record<string, unknown>
-    try {
-        parsed = JSON.parse(body) as Record<string, unknown>
-    } catch {
-        return body
-    }
+export function injectGoogleThoughtSignature (parsed: Record<string, unknown>): boolean {
     const sentinel = 'skip_thought_signature_validator'
     const messages = parsed.messages
-    if (!Array.isArray(messages)) return body
+    if (!Array.isArray(messages)) return false
     const msgs = messages as Array<Record<string, unknown>>
+    let modified = false
     const newMessages: Array<Record<string, unknown>> = []
     for (let i = 0; i < msgs.length; i++) {
         const m = msgs[i]
@@ -510,10 +498,13 @@ export function injectGoogleThoughtSignature (body: string): string {
                 newTcs.push(t)
                 continue
             }
+            modified = true
             newTcs.push({...t, extra_content: {google: {thought_signature: sentinel}}})
         }
         newMessages.push({...m, tool_calls: newTcs})
     }
-    parsed.messages = newMessages
-    return JSON.stringify(parsed)
+    if (modified) {
+        parsed.messages = newMessages
+    }
+    return modified
 }

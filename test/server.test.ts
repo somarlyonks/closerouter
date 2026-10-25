@@ -298,7 +298,7 @@ test('error boundary answers a synchronous throw with a 500 before headers are s
     assert.equal((stub.errors[0]![0] as Error).message, 'sync boom')
 })
 
-test('error boundary answers an un-adapted rejected handler promise with a 500', async () => {
+test('error boundary answers a rejected handler promise with a 500', async () => {
     const stub = stubConsoleError()
     let srv
     try {
@@ -343,12 +343,12 @@ test('error boundary terminates a started response instead of faking a clean EOF
     assert.equal((stub.errors[0]![0] as Error).message, 'mid-stream boom')
 })
 
-test('error boundary settles an un-adapted async route handler rejection exactly once', async () => {
+test('error boundary settles an async route handler rejection exactly once', async () => {
     const stub = stubConsoleError()
     let srv
     try {
-        // the production composition: the boundary wraps the dispatch, the
-        // dispatch settles the route handler's promise
+        // the dispatch settles the route handler's promise; the boundary
+        // around it must not settle it a second time
         srv = await startHandlerServer(handle(
             router(() => true, async () => {
                 throw new Error('route boom')

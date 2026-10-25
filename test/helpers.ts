@@ -4,7 +4,7 @@ import {mkdtemp, writeFile, rm} from 'fs/promises'
 import {tmpdir} from 'os'
 import {join} from 'path'
 import type {RuntimeConfig} from '../lib/config'
-import {handle, routerErrorBoundary, type RequestContext, type RequestHandler, type Route} from '../lib/router'
+import {handle, type RequestContext, type RequestHandler, type Route} from '../lib/router'
 import {startServer} from '../lib/server'
 
 export class ExitError extends Error {
@@ -132,12 +132,12 @@ export function startHandlerServer (
     handler: RequestHandler | Route[],
     env: RequestContext['env'],
 ): Promise<HandlerServer> {
+    // A bare handler rides a catch-all route so dispatch gives it the same
+    // error boundary as production - handler tests see failures as clients do
+    const dispatch = handle(typeof handler === 'function' ? [{predicate: () => true, handler}] : handler)
     const server = createServer((req, res) => {
         const ctx: RequestContext = {req, env}
-        const h = typeof handler === 'function' ? handler : handle(handler)
-        // same error policy as the production server, so handler tests see
-        // failures as clients do
-        routerErrorBoundary(h)(ctx, res)
+        dispatch(ctx, res)
     })
     return new Promise((resolve, reject) => {
         server.on('error', reject)

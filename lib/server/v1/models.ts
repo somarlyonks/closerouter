@@ -14,7 +14,7 @@ export function normalizeModel (provider: string, model: unknown): unknown {
     if (typeof model === 'string') return {id: `${provider}/${model}`}
 
     if (typeof model !== 'object' || !model || !(model as Record<string, unknown>).id) throw new Error('Model config broken')
-    const props = JSON.parse(JSON.stringify(model)) as Record<string, unknown>
+    const props = structuredClone(model as Record<string, unknown>)
     props.id = `${provider}/${props.id}`
     props.owned_by = props.owned_by || provider
     return props
