@@ -438,8 +438,8 @@ function sqlTests (): void {
         assert.equal(all('SELECT request_body FROM usage')[0]!.request_body as string, 'big')
     })
 
-    test('retention vacuum reclaims the file size left by nulled bodies', () => {
-        const path = join(tmpdir(), `closerouter-retention-${process.pid}.db`)
+    test('the retention sweep reclaims the file size left by nulled bodies', () => {
+        const path = join(tmpdir(), `closerouter-retention-${process.pid}-${Date.now()}.db`)
         openDatabase(path)
         try {
             initUsage()
@@ -452,17 +452,65 @@ function sqlTests (): void {
             const grown = get('PRAGMA page_count')?.page_count as number
             assert.ok(grown > 1000, `expected a multi-page db, got ${grown}`)
 
-            // stripping in place leaves the pages on the freelist - the file keeps its size
+            // nulling in place leaves the pages on the freelist - the file keeps its size
             assert.equal(expireUsageBodies(30), 8)
-            const free = get('PRAGMA freelist_count')?.freelist_count as number
-            assert.ok(free > 0, 'expected nulled bodies to land on the freelist')
+            const fragmented = get('PRAGMA page_count')?.page_count as number
+            assert.ok((get('PRAGMA freelist_count')?.freelist_count as number) > 0, 'expected nulled bodies to land on the freelist')
 
-            // the startup sweep vacuums the fragmented file back down
-            const sweep = startRetentionSweep(7)
+            // a sweep with nothing left to clear rewrites nothing
+            const idle = startRetentionSweep(7)
+            idle.stop()
+            assert.equal(get('PRAGMA page_count')?.page_count as number, fragmented)
+
+            // a sweep that clears bodies hands the freed pages back to the OS
+            for (let i = 0; i < 8; i++) {
+                recordUsage({requestId: `older-${i}`, time: now - 90 * DAY, method: 'POST', path: '/v1/chat/completions', status: 200, requestBody: blob, responseBody: blob})
+            }
+            const sweep = startRetentionSweep(30)
             sweep.stop()
             const after = get('PRAGMA page_count')?.page_count as number
             assert.ok(after < grown / 2, `expected the file to shrink, ${grown} -> ${after} pages`)
-            // auto_vacuum now keeps future sweeps reclaimable without a full rewrite
+            // the mode claimed at creation keeps future sweeps reclaimable without a full rewrite
+            assert.equal(get('PRAGMA auto_vacuum')?.auto_vacuum as number, 2)
+        } finally {
+            closeDatabase()
+        }
+    })
+
+    test('the v1 -> v2 migration flips a legacy db so retention sweeps reclaim', () => {
+        const path = join(tmpdir(), `closerouter-legacy-vacuum-${process.pid}-${Date.now()}.db`)
+        openDatabase(path)
+        try {
+            initUsage() // fresh db: mode claimed at creation
+            assert.equal(get('PRAGMA auto_vacuum')?.auto_vacuum as number, 2)
+
+            // regress it to a legacy db: stamped v1, mode NONE
+            run('PRAGMA auto_vacuum = NONE')
+            run('VACUUM')
+            run('PRAGMA user_version = 1')
+            assert.equal(get('PRAGMA auto_vacuum')?.auto_vacuum as number, 0)
+
+            // re-init runs the v1 -> v2 step and flips the mode back once
+            initUsage()
+            assert.equal(get('PRAGMA auto_vacuum')?.auto_vacuum as number, 2)
+            assert.equal(get('PRAGMA user_version')?.user_version as number, SCHEMA_VERSION)
+
+            // and the sweep reclaims on the flipped db
+            const DAY = 86_400_000
+            const now = Date.now()
+            const blob = 'x'.repeat(256 * 1024)
+            for (let i = 0; i < 8; i++) {
+                recordUsage({requestId: `old-${i}`, time: now - 60 * DAY, method: 'POST', path: '/v1/chat/completions', status: 200, requestBody: blob, responseBody: blob})
+            }
+            const grown = get('PRAGMA page_count')?.page_count as number
+            const sweep = startRetentionSweep(7)
+            sweep.stop()
+            const after = get('PRAGMA page_count')?.page_count as number
+            assert.ok(after < grown / 2, `expected the flipped db to reclaim, ${grown} -> ${after} pages`)
+
+            // the flip persists: a reopened db reads incremental, no re-flip
+            closeDatabase()
+            openDatabase(path)
             assert.equal(get('PRAGMA auto_vacuum')?.auto_vacuum as number, 2)
         } finally {
             closeDatabase()
@@ -552,6 +600,8 @@ function sqlTests (): void {
         initUsage()
 
         assert.equal(get('PRAGMA user_version')?.user_version as number, SCHEMA_VERSION)
+        // the v0 path runs the auto_vacuum migration too
+        assert.equal(get('PRAGMA auto_vacuum')?.auto_vacuum as number, 2)
         const rows = all('SELECT request_id, time, status FROM usage')
         assert.equal(rows.length, 1)
         assert.equal(rows[0]!.request_id as string, 'legacy')

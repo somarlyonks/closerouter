@@ -24,10 +24,32 @@ export interface UsageEntry extends UsageCounts {
 
 let initialized = false
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
+
+const MIGRATIONS: Array<(v: number) => void> = [
+    // v0 -> v1: create the schema; the stamp commits in the same transaction,
+    // so a crash can never leave the table without its version
+    (clientVersion) => {
+        withTransaction(() => {
+            createUsageTable()
+            run('CREATE INDEX IF NOT EXISTS usage_time ON usage (time)')
+            run(`PRAGMA user_version = ${clientVersion + 1}`)
+        })
+    },
+    // v1 -> v2: migrate into incremental auto_vacuum mode so the retention
+    // sweep can hand nulled bodies' pages back to the OS. A populated db only
+    // takes the mode through VACUUM, which cannot run inside a transaction;
+    // re-running only re-VACUUMs, so a crash before the stamp resumes safely.
+    (clientVersion) => {
+        console.log('usage db: migrating to incremental auto_vacuum (one-time VACUUM)')
+        run('PRAGMA auto_vacuum = INCREMENTAL')
+        run('VACUUM')
+        run(`PRAGMA user_version = ${clientVersion + 1}`)
+    },
+]
 
 const createUsageTable = (): void => {
-    run(`CREATE TABLE usage (
+    run(`CREATE TABLE IF NOT EXISTS usage (
         id INTEGER PRIMARY KEY,
         request_id TEXT NOT NULL,
         time INTEGER NOT NULL,
@@ -52,10 +74,6 @@ function readSchemaVersion (): number {
     return typeof row?.user_version === 'number' ? row.user_version : 0
 }
 
-function tableExists (name: string): boolean {
-    return get(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`, [name]) !== undefined
-}
-
 /** Create or migrate the usage table if the db is available; safe to call any time. */
 export function initUsage (): void {
     if (!sqliteAvailable()) return
@@ -64,26 +82,8 @@ export function initUsage (): void {
         throw new Error(`usage db schema version ${version} is newer than this build supports (${SCHEMA_VERSION}); upgrade closerouter`)
     }
 
-    if (!tableExists('usage')) {
-        withTransaction(() => {
-            createUsageTable()
-            run('CREATE INDEX usage_time ON usage (time)')
-            run(`PRAGMA user_version = ${SCHEMA_VERSION}`)
-        })
-        initialized = true
-        return
-    }
-
-    // Forward migration steps upgrade a db stamped at version v to v + 1 and
-    // must be idempotent - version 0 predates stamping, so such a db may
-    // already carry any later shape. Each step is stamped after it runs, so a
-    // failed step leaves the db at its last good version and init resumes
-    // there on the next start. (v0 -> v1 is a no-op: the pre-versioning table
-    // already matches the current shape.)
     for (let v = version; v < SCHEMA_VERSION; v++) {
-        withTransaction(() => {
-            run(`PRAGMA user_version = ${v + 1}`)
-        })
+        MIGRATIONS[v]!(v)
     }
     run('CREATE INDEX IF NOT EXISTS usage_time ON usage (time)')
     initialized = true
@@ -549,44 +549,24 @@ export function applyModelAliases (alias: ModelAlias | undefined): number {
     }
 }
 
-/** Nulled bodies leave their pages on the sqlite freelist, so the file keeps
- *  its size until those pages are returned to the OS. A full VACUUM rewrites
- *  the db; enabling auto_vacuum first makes later sweeps able to hand pages
- *  back cheaply via incremental_vacuum instead of another full rewrite. */
-function vacuumUsageDb (): void {
+/** One retention sweep: expire aged bodies and, when the sweep cleared some,
+ *  hand their freed pages back to the OS. incremental_vacuum only reclaims
+ *  on an auto_vacuum db (set up in initUsage); on any other db it is a
+ *  no-op. */
+function sweepAgedBodies (retentionDays: number): void {
+    if (expireUsageBodies(retentionDays) === 0) return
     try {
-        run('PRAGMA auto_vacuum = INCREMENTAL')
-        run('VACUUM')
+        run('PRAGMA incremental_vacuum')
     } catch (e) {
-        console.error('usage db vacuum failed:', e instanceof Error ? e.message : String(e))
-    }
-}
-
-/** Fraction of the db file sitting on the freelist (0 if unreadable). */
-function freelistRatio (): number {
-    try {
-        const pages = get('PRAGMA page_count')?.page_count
-        const free = get('PRAGMA freelist_count')?.freelist_count
-        if (typeof pages !== 'number' || typeof free !== 'number' || pages === 0) return 0
-        return free / pages
-    } catch {
-        return 0
+        console.error('usage db incremental vacuum failed:', e instanceof Error ? e.message : String(e))
     }
 }
 
 export function startRetentionSweep (retentionDays: number, intervalMs: number = RETENTION_SWEEP_INTERVAL_MS): {stop: () => void} {
     // 0 turns retention off - the sweep is never armed
     if (retentionDays < 1) return {stop: () => {}}
-    if (expireUsageBodies(retentionDays) > 0 || freelistRatio() >= 0.1) vacuumUsageDb()
-    const timer = setInterval(() => {
-        if (expireUsageBodies(retentionDays) > 0) {
-            try {
-                run('PRAGMA incremental_vacuum')
-            } catch (e) {
-                console.error('usage db incremental vacuum failed:', e instanceof Error ? e.message : String(e))
-            }
-        }
-    }, intervalMs)
+    sweepAgedBodies(retentionDays)
+    const timer = setInterval(() => sweepAgedBodies(retentionDays), intervalMs)
     timer.unref()
     return {stop: () => clearInterval(timer)}
 }
