@@ -80,13 +80,11 @@ export function applySchemaDefaults (schema: unknown, value: unknown): unknown {
         if (Array.isArray(node.oneOf)) return value
         if (!isRecord(value)) return value
         const properties = isRecord(node.properties) ? node.properties : {}
-        const valueEntries: [string, unknown][] = []
-        for (const [key, present] of Object.entries(value)) valueEntries.push([key, present])
-        let out: Record<string, unknown> = Object.fromEntries(valueEntries)
+        const out: Record<string, unknown> = {...value}
         for (const [key, child] of Object.entries(properties)) {
             if (!isRecord(child)) continue
-            if (hasOwn(out, key)) out = setOwn(out, key, applyNode(root, child, out[key], depth + 1))
-            else if (child.default !== undefined) out = setOwn(out, key, child.default)
+            if (Object.hasOwn(out, key)) out[key] = applyNode(root, child, out[key], depth + 1)
+            else if (child.default !== undefined) defineDataProperty(out, key, child.default)
         }
         return out
     }
@@ -125,7 +123,7 @@ function validateNode (root: SchemaNode, schema: SchemaNode, value: unknown, pat
     }
 
     const enumValues = schema.enum
-    if (Array.isArray(enumValues) && !enumValues.some(candidate => jsonEqual(candidate, value))) {
+    if (Array.isArray(enumValues) && !enumValues.some((candidate: unknown) => jsonEqual(candidate, value))) {
         issues.push({path, message: `must be one of: ${enumValues.map(describeValue).join(', ')}`})
     }
 
@@ -158,7 +156,7 @@ function validateNode (root: SchemaNode, schema: SchemaNode, value: unknown, pat
     if (Array.isArray(value)) {
         const items = schema.items
         if (isRecord(items)) {
-            value.forEach((item, index) => {
+            value.forEach((item: unknown, index: number) => {
                 validateNode(root, items, item, `${path}[${index}]`, depth + 1, issues)
             })
         }
@@ -169,14 +167,14 @@ function validateNode (root: SchemaNode, schema: SchemaNode, value: unknown, pat
         const properties = isRecord(schema.properties) ? schema.properties : {}
         const required = Array.isArray(schema.required) ? schema.required.filter(isString) : []
         for (const key of required) {
-            if (!hasOwn(value, key)) issues.push({path: propPath(path, key), message: 'is required but missing'})
+            if (!Object.hasOwn(value, key)) issues.push({path: propPath(path, key), message: 'is required but missing'})
         }
         for (const [key, child] of Object.entries(properties)) {
-            if (hasOwn(value, key) && isRecord(child)) validateNode(root, child, value[key], propPath(path, key), depth + 1, issues)
+            if (Object.hasOwn(value, key) && isRecord(child)) validateNode(root, child, value[key], propPath(path, key), depth + 1, issues)
         }
         const additional = schema.additionalProperties
         for (const key of Object.keys(value)) {
-            if (hasOwn(properties, key)) continue
+            if (Object.hasOwn(properties, key)) continue
             if (additional === false) issues.push({path: propPath(path, key), message: 'is not an allowed property'})
             else if (isRecord(additional)) validateNode(root, additional, value[key], propPath(path, key), depth + 1, issues)
         }
@@ -220,14 +218,14 @@ function resolveRef (root: SchemaNode, ref: string): SchemaNode | undefined {
     let node: unknown = root
     for (const raw of ref.slice(2).split('/')) {
         const segment = raw.replace(/~1/g, '/').replace(/~0/g, '~')
-        if (!isRecord(node) || !hasOwn(node, segment)) return undefined
+        if (!isRecord(node) || !Object.hasOwn(node, segment)) return undefined
         node = node[segment]
     }
     return isRecord(node) ? node : undefined
 }
 
 function checkType (type: unknown, value: unknown): boolean {
-    if (Array.isArray(type)) return type.some(candidate => checkType(candidate, value))
+    if (Array.isArray(type)) return type.some((candidate: unknown) => checkType(candidate, value))
     switch (type) {
         case 'object': return isRecord(value)
         case 'array': return Array.isArray(value)
@@ -262,7 +260,7 @@ function jsonEqual (a: unknown, b: unknown): boolean {
     const aKeys = Object.keys(a)
     const bKeys = Object.keys(b)
     if (aKeys.length !== bKeys.length) return false
-    return aKeys.every(key => hasOwn(b, key) && jsonEqual(a[key], b[key]))
+    return aKeys.every(key => Object.hasOwn(b, key) && jsonEqual(a[key], b[key]))
 }
 
 function isRecord (value: unknown): value is Record<string, unknown> {
@@ -273,17 +271,11 @@ function isString (value: unknown): value is string {
     return typeof value === 'string'
 }
 
-function hasOwn (value: Record<string, unknown>, key: string): boolean {
-    return Object.keys(value).includes(key)
-}
-
-function setOwn (target: Record<string, unknown>, key: string, value: unknown): Record<string, unknown> {
-    const entries: [string, unknown][] = []
-    for (const [existing, present] of Object.entries(target)) {
-        if (existing !== key) entries.push([existing, present])
-    }
-    entries.push([key, value])
-    return Object.fromEntries(entries)
+/** Insert an own property without running any setter it might name - a plain
+ *  assignment to a `__proto__` key would repoint the object's prototype
+ *  instead of adding the property. */
+function defineDataProperty (target: Record<string, unknown>, key: string, value: unknown): void {
+    Object.defineProperty(target, key, {value, enumerable: true, writable: true, configurable: true})
 }
 
 function isURI (value: string): boolean {

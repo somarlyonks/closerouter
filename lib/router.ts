@@ -19,9 +19,10 @@ export interface RequestContext {
     body?: Promise<string>
 }
 
-/** A route handler. An async handler cannot be mounted directly - scriptc
- *  requires the exact void return - so adapt it with asyncHandler; the
- *  dispatcher still settles a slipped-through rejected promise at runtime. */
+/** A route handler. An async handler must be adapted with asyncHandler: the
+ *  dispatcher calls handlers through this void-typed slot, which drops a
+ *  returned promise, so the rejection would go unhandled; the dispatcher
+ *  settles an adapted handler's rejection instead. */
 export type RequestHandler = (ctx: RequestContext, res: ServerResponse) => void
 
 export interface RoutePredicate {
