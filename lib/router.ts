@@ -19,11 +19,9 @@ export interface RequestContext {
     body?: Promise<string>
 }
 
-/** A route handler. An async handler must be adapted with asyncHandler: the
- *  dispatcher calls handlers through this void-typed slot, which drops a
- *  returned promise, so the rejection would go unhandled; the dispatcher
- *  settles an adapted handler's rejection instead. */
-export type RequestHandler = (ctx: RequestContext, res: ServerResponse) => void
+/** A route handler. Async handlers need no adapter: the dispatcher settles a
+ *  sync throw or a returned promise's rejection with the 500 response. */
+export type RequestHandler = (ctx: RequestContext, res: ServerResponse) => void | Promise<void>
 
 export interface RoutePredicate {
     (ctx: RequestContext): boolean
@@ -67,9 +65,12 @@ export function router (
     return [{predicate: head.predicate, method: head.method, pattern: head.pattern, handler}, ...tail]
 }
 
-/** Execute a router composition as a request handler. */
+/** Execute a router composition as a request handler, settling handler errors
+ *  with the 500 response. */
 export function handle (routes: Route[]): RequestHandler {
-    return (ctx, res) => {
+    return (ctx, res) => invokeHandler(dispatch, ctx, res)
+
+    function dispatch (ctx: RequestContext, res: ServerResponse): void {
         const exhausted = scan(routes, ctx, res)
         if (exhausted !== undefined) answer(ctx, res, exhausted)
     }
@@ -179,10 +180,13 @@ function handleNotFound ({req}: RequestContext, res: ServerResponse): void {
     respondError(res, 404, 'not_found', `Not found: ${req.method} ${req.url}`)
 }
 
+/** The one dispatch boundary: settles a handler's sync throw or returned
+ *  promise's rejection so no route failure escapes as an unhandled
+ *  rejection. */
 function invokeHandler (handler: RequestHandler, ctx: RequestContext, res: ServerResponse): void {
     let pending: void | Promise<void>
     try {
-        pending = handler(ctx, res) as void | Promise<void>
+        pending = handler(ctx, res)
     } catch (e) {
         handleServerError(res, e)
         return
@@ -190,16 +194,6 @@ function invokeHandler (handler: RequestHandler, ctx: RequestContext, res: Serve
     if (typeof pending === 'object' && pending !== null) {
         pending.catch((e: unknown) => handleServerError(res, e))
     }
-}
-
-export function asyncHandler (
-    handler: (ctx: RequestContext, res: ServerResponse) => Promise<void>,
-): RequestHandler {
-    return (ctx, res) => invokeHandler(handler, ctx, res)
-}
-
-export function routerErrorBoundary (handler: RequestHandler): RequestHandler {
-    return (ctx, res) => invokeHandler(handler, ctx, res)
 }
 
 export function handleServerError (res: ServerResponse, e: unknown): void {

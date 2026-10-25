@@ -2,7 +2,7 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {EventEmitter} from 'events'
 import type {IncomingMessage} from 'http'
-import {router, withMethod, needsAuth, handle, method, path, asyncHandler, routerErrorBoundary, handleServerError, readRequestBody} from '../lib/router'
+import {router, withMethod, needsAuth, handle, method, path, handleServerError, readRequestBody} from '../lib/router'
 import type {RequestContext, Route} from '../lib/router'
 import {mockReq, mockRes, sampleConfig, delay, stubConsoleError} from './helpers'
 
@@ -352,18 +352,18 @@ test('path patterns match the pathname: exact, raw-prefix, and subtree', () => {
     assert.equal(path('/usage@*').predicate(ctx({url: '/usage_but_does_not_exist'})), false)
 })
 
-test('dispatch returns before an adapted async route handler answers, then serves its response', async () => {
+test('dispatch returns before an async route handler answers, then serves its response', async () => {
     let release: () => void = () => {}
     const gate = new Promise<void>((resolve) => {
         release = resolve
     })
     const res = mockRes()
 
-    handle(router(path('/'), asyncHandler(async (_c, r) => {
+    handle(router(path('/'), async (_c, r) => {
         await gate
         r.writeHead(200)
         r.end('async body')
-    })))(ctx(), res)
+    }))(ctx(), res)
 
     // the dispatch is synchronous: the handler's response is not sent yet
     assert.equal(res.captured.ended, false)
@@ -373,7 +373,7 @@ test('dispatch returns before an adapted async route handler answers, then serve
     assert.equal(res.captured.body, 'async body')
 })
 
-test('an un-adapted async route handler rejection is answered with a 500 instead of an unhandled rejection', async () => {
+test('an async route handler rejection is answered with a 500 instead of an unhandled rejection', async () => {
     const stub = stubConsoleError()
     const res = mockRes()
     try {
@@ -395,7 +395,7 @@ test('an un-adapted async route handler rejection is answered with a 500 instead
     assert.equal((stub.errors[0]![0] as Error).message, 'boom')
 })
 
-test('an un-adapted async route handler rejection mid-stream destroys the started response', async () => {
+test('an async route handler rejection mid-stream destroys the started response', async () => {
     const stub = stubConsoleError()
     const res = mockRes()
     try {
@@ -416,38 +416,17 @@ test('an un-adapted async route handler rejection mid-stream destroys the starte
     assert.equal(stub.errors.length, 1)
 })
 
-test('the error boundary settles an un-adapted async route handler rejection exactly once', async () => {
+test('the error boundary settles an async route handler rejection exactly once', async () => {
     const stub = stubConsoleError()
     const res = mockRes()
     try {
-        // the production composition: the boundary wraps the dispatch, the
-        // dispatch settles the route handler's promise
-        routerErrorBoundary(handle(
+        // the production composition: handle's boundary wraps the dispatch,
+        // the dispatch settles the route handler's promise
+        handle(
             router(path('/'), async () => {
                 throw new Error('boom')
             }),
-        ))(ctx(), res)
-        await delay(1)
-    } finally {
-        stub.restore()
-    }
-
-    assert.equal(res.captured.statusCode, 500)
-    assert.equal(stub.errors.length, 1)
-    assert.equal((stub.errors[0]![0] as Error).message, 'boom')
-})
-
-test('the error boundary settles an adapted async route handler rejection exactly once', async () => {
-    const stub = stubConsoleError()
-    const res = mockRes()
-    try {
-        // the /v1/models composition: the boundary wraps the dispatch, the
-        // adapter settles its own rejection, the dispatch must not repeat it
-        routerErrorBoundary(handle(
-            router(path('/'), asyncHandler(async () => {
-                throw new Error('boom')
-            })),
-        ))(ctx(), res)
+        )(ctx(), res)
         await delay(1)
     } finally {
         stub.restore()
