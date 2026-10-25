@@ -56,7 +56,7 @@ export function startServer (config: RuntimeConfig): RunningServer {
 
 function handleOptions (ctx: RequestContext, res: ServerResponse) {
     const requestedHeaders = ctx.req.headers['access-control-request-headers']
-    const allowHeaders = typeof requestedHeaders === 'string'
+    const allowHeaders: string = typeof requestedHeaders === 'string'
         ? requestedHeaders
         : 'Content-Type, Authorization'
     res.writeHead(204, {

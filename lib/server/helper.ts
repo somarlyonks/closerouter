@@ -3,8 +3,8 @@ import type {ServerResponse} from 'http'
 /** In-flight upstream provider requests, tracked so shutdown can abort the
  *  stragglers: an endless generation must not hold server.close (and the
  *  process) open, nor keep burning provider resources after the drain period
- *  ends. A Set of identity entries backs the tracker - scriptc Set elements
- *  may be records but not bare functions, and delete-by-reference is O(1). */
+ *  ends. A Set of abort callbacks backs the tracker: identity entries give
+ *  O(1) delete-by-reference. */
 export interface UpstreamTracker {
     /** Track one in-flight upstream request; the returned callback settles it
      *  and must be called exactly once, whatever end it reaches. */
@@ -16,23 +16,22 @@ export interface UpstreamTracker {
 }
 
 export function createUpstreamTracker (): UpstreamTracker {
-    const requests = new Set<{abort: () => void}>()
+    const aborts = new Set<() => void>()
     return {
         track (abort: () => void): () => void {
-            const entry = {abort}
-            requests.add(entry)
+            aborts.add(abort)
             return () => {
-                requests.delete(entry)
+                aborts.delete(abort)
             }
         },
 
         abortAll (): void {
-            for (const entry of requests) entry.abort()
-            requests.clear()
+            for (const abort of aborts) abort()
+            aborts.clear()
         },
 
         size (): number {
-            return requests.size
+            return aborts.size
         },
     }
 }

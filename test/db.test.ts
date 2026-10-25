@@ -106,11 +106,6 @@ test('decodeValue turns {$hex} into bytes and passes scalars through', () => {
     assert.ok(decodeValue(null) === null)
 })
 
-/** scriptc 0.0.32 ICEs on `recordProp === null` directly; a param avoids it. */
-function isNull (value: unknown): boolean {
-    return value === null
-}
-
 function sqlTests (): void {
     test('open, insert, and select round-trip', () => {
         openDatabase(':memory:')
@@ -134,7 +129,7 @@ function sqlTests (): void {
         const rows = all('SELECT id, v, n FROM t ORDER BY id')
         assert.equal(rows.length, 3)
         assert.equal(rows[0]!.v as string, 'a"b\nc🐱')
-        assert.ok(isNull(rows[0]!.n))
+        assert.ok(rows[0]!.n === null)
         assert.equal(rows[1]!.n as number, 1) // true binds as 1
         assert.equal(rows[2]!.n as number, 0) // false binds as 0
     })
@@ -239,14 +234,14 @@ function sqlTests (): void {
         assert.equal(rows[0]!.status as number, 200)
         assert.equal(rows[0]!.duration_ms as number, 42)
         assert.equal(rows[0]!.input_tokens as number, 10)
-        assert.ok(isNull(rows[0]!.cached_tokens) === false)
+        assert.ok(rows[0]!.cached_tokens !== null)
         assert.equal(rows[0]!.cached_tokens as number, 3)
         assert.equal(rows[0]!.request_body as string, '{"model": "p/m"}')
         assert.equal(rows[0]!.response_body as string, '{"choices": []}')
-        assert.ok(isNull(rows[1]!.provider))
-        assert.ok(isNull(rows[1]!.input_tokens))
-        assert.ok(isNull(rows[1]!.request_body))
-        assert.ok(isNull(rows[1]!.response_body))
+        assert.ok(rows[1]!.provider === null)
+        assert.ok(rows[1]!.input_tokens === null)
+        assert.ok(rows[1]!.request_body === null)
+        assert.ok(rows[1]!.response_body === null)
         const entries = loadUsage().entries
         assert.equal(entries.length, 2)
         assert.equal(entries[0]!.requestId as string, 'req-1')
@@ -352,7 +347,7 @@ function sqlTests (): void {
         const after = all('SELECT request_id, request_body, response_body FROM usage ORDER BY id')
         // rows are kept - only successful (200) expired bodies are dropped
         assert.deepEqual(after.map(r => r.request_id as string), ['old', 'old-err', 'mid', 'fresh'])
-        assert.ok(isNull(after[0]!.request_body) && isNull(after[0]!.response_body))
+        assert.ok(after[0]!.request_body === null && after[0]!.response_body === null)
         assert.equal(after[1]!.request_body as string, '{"req":"old-err"}') // 500 bodies kept
         assert.equal(after[1]!.response_body as string, '{"res":"old-err"}')
         assert.equal(after[2]!.request_body as string, '{"req":"mid"}')
@@ -367,7 +362,7 @@ function sqlTests (): void {
         // a stricter policy clears the next-oldest successful row's bodies too
         expireUsageBodies(30)
         const stricter = all('SELECT request_id, request_body FROM usage ORDER BY id')
-        assert.ok(isNull(stricter[2]!.request_body))
+        assert.ok(stricter[2]!.request_body === null)
         assert.equal(stricter[1]!.request_body as string, '{"req":"old-err"}') // 500 still kept
         assert.equal(stricter[3]!.request_body as string, '{"req":"fresh"}')
     })
@@ -405,7 +400,7 @@ function sqlTests (): void {
         const sweep = startRetentionSweep(7, 20)
         // the first run is immediate - the expired successful body is cleared before any tick
         const immediately = all('SELECT request_id, request_body FROM usage ORDER BY id')
-        assert.ok(isNull(immediately[0]!.request_body))
+        assert.ok(immediately[0]!.request_body === null)
         assert.equal(immediately[1]!.request_body as string, 'err-body') // 500 kept
         assert.equal(immediately[2]!.request_body as string, 'small')
         await new Promise(r => setTimeout(r, 80)) // several ticks
@@ -413,7 +408,7 @@ function sqlTests (): void {
 
         const rows = all('SELECT request_id, request_body FROM usage ORDER BY id')
         assert.equal(rows.length, 3)
-        assert.ok(isNull(rows[0]!.request_body)) // expired 200 body cleared by the sweep
+        assert.ok(rows[0]!.request_body === null) // expired 200 body cleared by the sweep
         assert.equal(rows[1]!.request_body as string, 'err-body') // 500 untouched
         assert.equal(rows[2]!.request_body as string, 'small') // fresh body untouched
 

@@ -1,6 +1,5 @@
 import {createServer, IncomingMessage, ServerResponse} from 'http'
 import {createServer as createNetServer, type AddressInfo} from 'net'
-import {once} from 'events'
 import {mkdtemp, writeFile, rm} from 'fs/promises'
 import {tmpdir} from 'os'
 import {join} from 'path'
@@ -173,7 +172,7 @@ export async function writeTempConfig (cfg: unknown): Promise<{path: string, cle
 
 export async function startCrServer (config: RuntimeConfig): Promise<{port: number, close: () => Promise<void>}> {
     const {server} = startServer(config)
-    await once(server, 'listening')
+    await new Promise<void>(resolve => server.once('listening', resolve))
     const port = (server.address() as AddressInfo).port
     return {port, close: () => new Promise<void>(r => server.close(() => r()))}
 }

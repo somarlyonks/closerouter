@@ -516,7 +516,8 @@ const RETENTION_SWEEP_INTERVAL_MS = DAY
  *  records which backend actually served the request. */
 function applyAlias (alias: ModelAlias | undefined, provider: string | undefined, model: string | undefined): string | undefined {
     if (alias === undefined || provider === undefined || model === undefined) return model
-    return alias[`${provider}/${model}`.toLowerCase()] ?? model
+    const key = `${provider}/${model}`.toLowerCase()
+    return Object.hasOwn(alias, key) ? alias[key] : model
 }
 
 /** Rename recorded models to their canonical alias, matching
