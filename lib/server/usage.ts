@@ -1,7 +1,8 @@
 import {needsAuth, withMethod} from '../router'
 import {loadUsageHeatmap, loadUsageStats} from './logs/db'
+import {forwardToRemoteDb} from './logs/helper'
 
-export const handleUsage = withMethod('GET')(needsAuth((ctx, res) => {
+export const handleUsage = withMethod('GET')(needsAuth(forwardToRemoteDb((ctx, res) => {
     const url = new URL('http://localhost' + (ctx.req.url ?? '/'))
     const num = (name: string): number | undefined => {
         const v = url.searchParams.get(name)
@@ -20,4 +21,4 @@ export const handleUsage = withMethod('GET')(needsAuth((ctx, res) => {
         'cache-control': 'no-cache',
     })
     res.end(JSON.stringify({...stats, heatmap}))
-}))
+})))

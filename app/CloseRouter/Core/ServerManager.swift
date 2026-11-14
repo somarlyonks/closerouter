@@ -187,7 +187,9 @@ final class ServerManager: ObservableObject {
         stopHealthMonitoring()
         stopRequested = true
         process.terminate()
-        for _ in 0..<20 {
+        // Outlast the server's drain deadline (lib/cli.ts) so its in-flight work
+        // is dropped and the process exits before the SIGKILL here.
+        for _ in 0..<30 {
             if !process.isRunning { break }
             usleep(100_000) // 0.1s
         }

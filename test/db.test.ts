@@ -7,7 +7,8 @@ import {
     sqliteAvailable, openDatabase, closeDatabase, run, all, get, withTransaction,
     messageCollector, encodeParams, decodeValue,
 } from '../lib/db'
-import {initUsage, recordUsage, applyModelAliases, loadUsage, loadUsageBody, loadUsageStats, loadUsageHeatmap, expireUsageBodies, startRetentionSweep, SCHEMA_VERSION} from '../lib/server/logs/db'
+import {initUsage, closeUsageLog, recordUsage, applyAlias, applyModelAliases, loadUsage, loadUsageBody, loadUsageStats, loadUsageHeatmap, expireUsageBodies, startRetentionSweep, SCHEMA_VERSION} from '../lib/server/logs/db'
+import {recordUsageEntry} from '../lib/server/logs/helper'
 import {handleStatus} from '../lib/server/status'
 import {handle} from '../lib/router'
 import type {RuntimeConfig} from '../lib/config'
@@ -260,23 +261,44 @@ function sqlTests (): void {
         assert.equal(all('SELECT COUNT(*) AS n FROM usage')[0]!.n as number, 2)
     })
 
-    test('recordUsage rewrites the model through the alias map and keeps the provider', () => {
+    test('recordUsage stores the row verbatim; the writer aliases before posting', () => {
         openDatabase(':memory:')
         initUsage()
         const alias = {'scnet/deepseek-v4.1-flash': 'deepseek-v4.1-flash'}
+        assert.equal(applyAlias(alias, 'SCNet', 'DeepSeek-V4.1-Flash'), 'deepseek-v4.1-flash')
+        assert.equal(applyAlias(alias, 'ark', 'other-model'), 'other-model', 'an unlisted pair keeps its model')
         recordUsage({
-            requestId: 'aliased', time: 1, method: 'POST', path: '/v1/chat/completions',
+            requestId: 'raw', time: 1, method: 'POST', path: '/v1/chat/completions',
             provider: 'SCNet', model: 'DeepSeek-V4.1-Flash', status: 200,
-        }, alias)
-        recordUsage({
-            requestId: 'unlisted', time: 1, method: 'POST', path: '/v1/chat/completions',
-            provider: 'ark', model: 'deepseek-v4.1-flash', status: 200,
-        }, alias)
+        })
         const rows = all('SELECT request_id, provider, model FROM usage ORDER BY id')
         assert.equal(rows[0]!.provider as string, 'SCNet')
-        assert.equal(rows[0]!.model as string, 'deepseek-v4.1-flash')
-        assert.equal(rows[1]!.provider as string, 'ark')
-        assert.equal(rows[1]!.model as string, 'deepseek-v4.1-flash')
+        assert.equal(rows[0]!.model as string, 'DeepSeek-V4.1-Flash', 'the owner never rewrites what it receives')
+    })
+
+    test('recordUsageEntry writes an owned db in-process, aliasing the model', () => {
+        openDatabase(':memory:')
+        initUsage()
+        recordUsageEntry(
+            {requestId: 'local', time: 1, method: 'POST', path: '/v1/x', provider: 'SCNet', model: 'DeepSeek-V4.1-Flash', status: 200},
+            {...statusConfig(':memory:'), alias: {'scnet/deepseek-v4.1-flash': 'deepseek-v4.1-flash'}},
+        )
+        const row = get('SELECT provider, model FROM usage WHERE request_id = ?', ['local'])
+        assert.equal(row?.model as string, 'deepseek-v4.1-flash', 'the recording instance applies its own alias map')
+        assert.equal(row?.provider as string, 'SCNet', 'the provider column is never rewritten')
+    })
+
+    test('recordUsage reports whether the row was stored', () => {
+        openDatabase(':memory:')
+        initUsage()
+        assert.equal(recordUsage({requestId: 'stored', time: 1, method: 'POST', path: '/v1/x'}), true)
+
+        closeUsageLog()
+        assert.equal(recordUsage({requestId: 'closed', time: 1, method: 'POST', path: '/v1/x'}), false, 'recording is off after closeUsageLog')
+        initUsage()
+
+        closeDatabase()
+        assert.equal(recordUsage({requestId: 'lost', time: 1, method: 'POST', path: '/v1/x'}), false, 'a failed insert is reported, not swallowed')
     })
 
     test('applyModelAliases backfills rows strictly and idempotently', () => {

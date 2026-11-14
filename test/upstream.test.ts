@@ -21,6 +21,43 @@ test('upstream tracker counts tracked requests until they settle', () => {
     assert.equal(upstream.size(), 0)
 })
 
+test('upstream tracker reports idle once the last tracked request settles', () => {
+    const upstream = createUpstreamTracker()
+    const idle: number[] = []
+
+    upstream.whenIdle(() => idle.push(upstream.size()))
+    assert.deepEqual(idle, [0], 'an empty tracker is idle at once')
+
+    const settleA = upstream.track(() => {})
+    const settleB = upstream.track(() => {})
+    upstream.whenIdle(() => idle.push(upstream.size()))
+    assert.deepEqual(idle, [0], 'a registered waiter does not fire while requests are tracked')
+
+    settleA()
+    assert.equal(idle.length, 1, 'one straggler left: still not idle')
+    settleB()
+    assert.deepEqual(idle, [0, 0], 'the waiter fires once the tracker empties')
+
+    settleB()
+    assert.equal(idle.length, 2, 'a repeated settle is inert')
+})
+
+test('upstream tracker abortAll settles the idle waiters too', () => {
+    const upstream = createUpstreamTracker()
+    const idle: string[] = []
+    let aborted = 0
+
+    upstream.track(() => {
+        aborted++
+    })
+    upstream.whenIdle(() => idle.push('idle'))
+    upstream.abortAll()
+
+    assert.equal(aborted, 1)
+    assert.deepEqual(idle, ['idle'], 'an aborted request counts as settled for the drain wait')
+    assert.equal(upstream.size(), 0)
+})
+
 test('upstream tracker abortAll aborts every unsettled request exactly once', () => {
     const upstream = createUpstreamTracker()
     let abortedA = 0

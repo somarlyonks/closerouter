@@ -1,12 +1,11 @@
 import type {ServerResponse} from 'http'
-import {parseConfig, applyConfig, resolveDbPath, mapProviders, hashConfig, type RuntimeConfig, type ProviderConfig} from '../../config'
-import {router, method, needsAuth, withMethod, handleHTML, handleBadRequest, respondError, readRequestBody} from '../../router'
+import {parseConfig, applyConfig, resolveDbPath, displayDbPath, mapProviders, hashConfig, type RuntimeConfig, type ProviderConfig} from '../../config'
+import {router, method, needsAuth, withMethod, handleBadRequest, respondError, readRequestBody} from '../../router'
 import {applyModelAliases} from '../logs/db'
-import {html as indexHTML} from './index.html'
 
 /** The config as served to clients: no raw document, no provider api_keys,
- *  and db exposed under its config-document name (the resolved path, or false
- *  when persistence is disabled). */
+ *  and db exposed under its config-document name (the resolved path, the
+ *  remote endpoint without its key, or false when persistence is disabled). */
 interface PublicConfig {
     port: number
     key: string
@@ -14,6 +13,16 @@ interface PublicConfig {
     retentionDays: number
     alias: Record<string, string>
     providers: Record<string, Record<string, unknown>>
+}
+
+/** Boot-only fields: a document that changes one takes effect on the next
+ *  boot, so a supervisor has to restart the process. */
+type BootOnlyField = 'port' | 'db' | 'retentionDays'
+
+/** The PUT /config echo: the applied config plus the boot-only fields the
+ *  submitted document changed. */
+interface ConfigUpdate extends PublicConfig {
+    restartRequired: BootOnlyField[]
 }
 
 function stripConfigApiKey (config: RuntimeConfig): PublicConfig {
@@ -25,15 +34,33 @@ function stripConfigApiKey (config: RuntimeConfig): PublicConfig {
     return {
         port: config.port,
         key: config.key,
-        db: config.dbPath ?? false,
+        db: displayDbPath(config.dbPath) ?? false,
         retentionDays: config.retentionDays,
         alias: config.alias,
         providers,
     }
 }
 
-function sendPublicConfig (res: ServerResponse, config: RuntimeConfig): void {
-    res.end(JSON.stringify(stripConfigApiKey(config), null, 2) ?? '')
+function sendConfigResponse (res: ServerResponse, payload: PublicConfig | ConfigUpdate): void {
+    res.writeHead(200, {
+        'content-type': 'application/json',
+        'cache-control': 'no-store',
+    })
+    res.end(JSON.stringify(payload, null, 2))
+}
+
+function bootOnlyChanges (running: RuntimeConfig, next: RuntimeConfig): {field: BootOnlyField, message: string}[] {
+    const changes: {field: BootOnlyField, message: string}[] = []
+    if (next.port !== running.port) {
+        changes.push({field: 'port', message: `config port changed ${running.port} -> ${next.port}; restart for the new port to take effect`})
+    }
+    if (next.dbPath !== running.dbPath) {
+        changes.push({field: 'db', message: `config db changed ${displayDbPath(running.dbPath) ?? '(disabled)'} -> ${displayDbPath(next.dbPath) ?? '(disabled)'}; restart for the new db to take effect`})
+    }
+    if (next.retentionDays !== running.retentionDays) {
+        changes.push({field: 'retentionDays', message: `config retentionDays changed ${running.retentionDays} -> ${next.retentionDays}; restart for the new retention policy to take effect`})
+    }
+    return changes
 }
 
 function mergeProviderSecrets (raw: string, stored: Record<string, ProviderConfig>): string {
@@ -66,16 +93,7 @@ function mergeProviderSecrets (raw: string, stored: Record<string, ProviderConfi
 
 export const handleConfig = router(
     method('GET'),
-    router(
-        c => !!c.req.headers['accept']?.includes('application/json'),
-        needsAuth((ctx, res) => {
-            res.writeHead(200, {
-                'content-type': 'application/json',
-            })
-            sendPublicConfig(res, ctx.env.config)
-        }),
-        handleHTML(indexHTML),
-    ),
+    needsAuth((ctx, res) => sendConfigResponse(res, stripConfigApiKey(ctx.env.config))),
     withMethod('PUT')(needsAuth(
         (ctx, res) => {
             readRequestBody(ctx).then((raw) => {
@@ -88,27 +106,14 @@ export const handleConfig = router(
                     return handleBadRequest(res, e instanceof Error ? e.message : 'Invalid config')
                 }
 
-                const previousPort = ctx.env.config.port
-                const previousRetentionDays = ctx.env.config.retentionDays
-                const previousDb = ctx.env.config.dbPath
+                const changes = bootOnlyChanges(ctx.env.config, config)
                 applyConfig(ctx.env.config, config)
                 applyModelAliases(config.alias)
                 ctx.env.modelsCache?.invalidate()
 
-                if (config.port !== previousPort) {
-                    console.log(`config port changed ${previousPort} -> ${config.port}; restart for the new port to take effect`)
-                }
-                if (config.dbPath !== previousDb) {
-                    console.log(`config db changed ${previousDb ?? '(disabled)'} -> ${config.dbPath ?? '(disabled)'}; restart for the new db to take effect`)
-                }
-                if (config.retentionDays !== previousRetentionDays) {
-                    console.log(`config retentionDays changed ${previousRetentionDays} -> ${config.retentionDays}; restart for the new retention policy to take effect`)
-                }
+                for (const change of changes) console.log(change.message)
 
-                res.writeHead(200, {
-                    'content-type': 'application/json',
-                })
-                sendPublicConfig(res, config)
+                sendConfigResponse(res, {...stripConfigApiKey(config), restartRequired: changes.map(change => change.field)})
             })
             ctx.req.on('error', (err: Error) => {
                 if (!res.headersSent) respondError(res, 400, 'client_error', `Failed to read request: ${err.message}`)

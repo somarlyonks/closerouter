@@ -4,7 +4,7 @@ import {spawn, type ChildProcess} from 'child_process'
 import {Agent, get, type IncomingMessage} from 'node:http'
 import {once} from 'events'
 import {resolve, dirname} from 'path'
-import {connect, type AddressInfo} from 'net'
+import {connect, type AddressInfo, type Socket} from 'net'
 import type {HandlerServer, MockBackend} from './helpers'
 import {hashConfig, loadConfig} from '../lib/config'
 import {startServer} from '../lib/server'
@@ -453,6 +453,78 @@ test('in-flight request drains before graceful shutdown completes', async () => 
     }
 })
 
+test('a pending usage row is posted to the remote db before the process exits', async () => {
+    const backend = await startMockBackend((req, res) => {
+        res.writeHead(200, {'content-type': 'application/json'})
+        res.end(JSON.stringify({id: 'chatcmpl-1', choices: []}))
+    })
+    const owner = await startMockBackend((req, res) => {
+        // Hold the usage write open: the row is genuinely in flight at SIGTERM.
+        setTimeout(() => {
+            res.writeHead(201, {'content-type': 'application/json'})
+            res.end('{"ok":true}')
+        }, 300)
+    })
+    const port = await getFreePort()
+    const {path, cleanup} = await writeTempConfig({
+        port,
+        key: API_KEY,
+        db: `upstream:${owner.baseUrl}#${API_KEY}`,
+        providers: {p: {base_url: backend.baseUrl, api_key: 'bk', models: []}},
+    })
+    const child = spawn(process.execPath, [
+        '--import', resolve(process.cwd(), 'test/loader.mjs'),
+        resolve(process.cwd(), 'lib/cli.ts'),
+    ], {
+        cwd: dirname(path),
+        stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    try {
+        await waitForReady(child)
+        const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+            method: 'POST',
+            headers: {'authorization': `Bearer ${API_KEY}`, 'content-type': 'application/json'},
+            body: JSON.stringify({model: 'p/m', messages: []}),
+        })
+        assert.equal(res.status, 200)
+        await res.text()
+
+        // The row post starts from the response close handler; signal once the
+        // owner holds it so the drain (rather than luck) has to finish it.
+        await waitForUsagePost(owner)
+        const started = Date.now()
+        child.kill('SIGTERM')
+
+        const [code, signal] = await once(child, 'exit')
+        const elapsed = Date.now() - started
+        assert.equal(code, 0)
+        assert.equal(signal, null)
+        // the owner holds the write for 300ms, so a shutdown that ignores the
+        // pending row exits well before that
+        assert.ok(elapsed >= 250, `shutdown took ${elapsed}ms: the pending usage row was not drained`)
+        assert.equal(owner.requests.length, 1, 'the row reached the owner before the process exited')
+        const row = JSON.parse(owner.requests[0]!.body) as {requestId?: string, path?: string}
+        assert.equal(owner.requests[0]!.url, '/logs')
+        assert.equal(row.path, '/v1/chat/completions')
+        assert.ok(typeof row.requestId === 'string' && row.requestId.length > 0, 'the row keeps its request id')
+    } finally {
+        if (child.exitCode === null) child.kill('SIGKILL')
+        await backend.close()
+        await owner.close()
+        await cleanup()
+    }
+})
+
+// Wait until the remote owner has received the usage row the child posts after
+// its proxied response closes.
+async function waitForUsagePost (owner: MockBackend, timeoutMs = 5000): Promise<void> {
+    const start = Date.now()
+    while (owner.requests.length === 0) {
+        if (Date.now() - start > timeoutMs) throw new Error('the usage row was never posted to the owner')
+        await new Promise(r => setTimeout(r, 10))
+    }
+}
+
 // One GET /status over a keep-alive agent; resolves once the response is fully
 // consumed, leaving the socket parked in the agent's pool.
 function requestStatus (port: number, agent: Agent): Promise<IncomingMessage> {
@@ -514,7 +586,7 @@ test('SIGTERM exits 0 promptly with a parked keep-alive client', async () => {
         await requestStatus(port, agent)
         // The keep-alive socket stays parked in the test process; the child must
         // still exit cleanly now instead of waiting out the keep-alive timeout
-        // (or the force-exit grace period).
+        // (or the drain deadline).
         const started = Date.now()
         child.kill('SIGTERM')
         const [code, signal] = await once(child, 'exit')
@@ -524,6 +596,43 @@ test('SIGTERM exits 0 promptly with a parked keep-alive client', async () => {
         assert.ok(elapsed < 5000, `shutdown took ${elapsed}ms: parked socket was not retired`)
     } finally {
         agent.destroy()
+        if (child.exitCode === null) child.kill('SIGKILL')
+        await cleanup()
+    }
+})
+
+test('an active client socket is dropped past the drain deadline so shutdown finishes', async () => {
+    const port = await getFreePort()
+    const {path, cleanup} = await writeTempConfig({
+        port,
+        key: API_KEY,
+        providers: {p: {base_url: 'http://127.0.0.1:1', api_key: 'bk', models: []}},
+    })
+    const child = spawn(process.execPath, [
+        '--import', resolve(process.cwd(), 'test/loader.mjs'),
+        resolve(process.cwd(), 'lib/cli.ts'),
+    ], {
+        cwd: dirname(path),
+        stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let socket: Socket | undefined
+    try {
+        await waitForReady(child)
+        socket = connect(port, '127.0.0.1')
+        await once(socket, 'connect')
+        // A request whose body never arrives keeps the connection active with
+        // nothing tracked upstream, so server.close alone cannot finish.
+        socket.write('POST /v1/chat/completions HTTP/1.1\r\nhost: 127.0.0.1\r\ncontent-length: 64\r\n\r\n{')
+        await new Promise(r => setTimeout(r, 100))
+        const started = Date.now()
+        child.kill('SIGTERM')
+        const [code, signal] = await once(child, 'exit')
+        assert.equal(code, 0)
+        assert.equal(signal, null)
+        const elapsed = Date.now() - started
+        assert.ok(elapsed >= 1900 && elapsed < 4000, `shutdown took ${elapsed}ms: the active socket should be dropped at the 2s deadline`)
+    } finally {
+        socket?.destroy()
         if (child.exitCode === null) child.kill('SIGKILL')
         await cleanup()
     }

@@ -30,7 +30,6 @@ CloseRouter:
                 [x] responses
             config:
                 [x] omit provider api_key in GET responses
-                [x] web config editor never round-trips secrets
                 PUT:
                     [x] hot replace runtime config
                     [x] ignore and warn port/retention change
@@ -65,6 +64,13 @@ CloseRouter:
         [x] age-based retention
         [x] schema migrations
         [x] apply alias mapping on startup
+        remote db:
+            [x] `db: "upstream:<url>#<key>"` parsed on demand from dbPath at runtime
+            [x] remote db keeps no local sqlite and no retention sweep
+            [x] remote db is not a startup dependency
+            [x] GET /logs, GET /logs/:id, GET /usage served from the local db by the instance that owns it
+            [x] each instance applies its own alias map before posting
+            [x] a pending row is drained before the process exits, aborted with a log line past the drain period
     test:
         [x] mock provider server
         [x] persistent test.db (test config db)

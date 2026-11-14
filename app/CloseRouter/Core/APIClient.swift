@@ -47,29 +47,10 @@ enum APIClient {
         let models: [ModelEntry]?
     }
 
-    /// A config `db` field: a resolved path string, or `false` → nil.
-    struct DbField: Decodable {
-        let path: String?
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.singleValueContainer()
-            if let path = try? container.decode(String.self) {
-                self.path = path
-                return
-            }
-            if let enabled = try? container.decode(Bool.self), !enabled {
-                path = nil
-                return
-            }
-            throw DecodingError.dataCorruptedError(
-                in: container,
-                debugDescription: "Expected db to be a path string or false"
-            )
-        }
-    }
-
-    private struct ConfigDbDocument: Decodable {
-        let db: DbField
+    /// The PUT /config echo: the applied document plus the boot-only fields
+    /// that need a restart to take effect.
+    private struct ConfigUpdateDocument: Decodable {
+        let restartRequired: [String]?
     }
 
     /// A config model entry - either a bare id string or an object with an `id`.
@@ -182,8 +163,12 @@ enum APIClient {
         URL(string: "http://127.0.0.1:\(port)/\(path)")!
     }
 
+    /// Push a config document to the running server and return the boot-only
+    /// fields it says need a restart. The server names them itself, so a change
+    /// invisible in the echoed `db` value (a rotated remote db key) is still
+    /// reported.
     @discardableResult
-    static func putConfig(_ raw: String, port: Int, key: String) async throws -> String? {
+    static func putConfig(_ raw: String, port: Int, key: String) async throws -> [String] {
         var req = URLRequest(url: url(port: port, path: "config"))
         req.httpMethod = "PUT"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -196,13 +181,7 @@ enum APIClient {
             let message = extractError(data) ?? "Server rejected the config (HTTP \(http.statusCode))"
             throw APIClientError.server(status: http.statusCode, message: message)
         }
-        return try JSONDecoder().decode(ConfigDbDocument.self, from: data).db.path
-    }
-
-    /// The db the running server is using (resolved by the server itself).
-    static func getConfigDb(port: Int, key: String) async throws -> String? {
-        let document: ConfigDbDocument = try await getJSON(path: "config", port: port, key: key)
-        return document.db.path
+        return try JSONDecoder().decode(ConfigUpdateDocument.self, from: data).restartRequired ?? []
     }
 
     static func getLogEntries(port: Int, key: String, limit: Int, offset: Int, search: String?) async throws -> LogPage {

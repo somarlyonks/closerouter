@@ -45,11 +45,15 @@ test('routing matrix: method x path dispatch is frozen', async () => {
         {method: 'GET', path: '/logs', headers: {accept: 'text/html'}, status: 200},
         {method: 'GET', path: '/logs', headers: json, status: 200},
         {method: 'GET', path: '/logs', headers: {accept: 'application/json'}, status: 401},
-        {method: 'POST', path: '/logs', status: 405, allow: 'GET'},
+        {method: 'POST', path: '/logs', status: 401},
+        {method: 'POST', path: '/logs', headers: auth, status: 400},
+        {method: 'DELETE', path: '/logs', status: 405, allow: 'GET, POST'},
         // /logs/:id: numeric ids are details, others fall to 404
         {method: 'GET', path: '/logs/1', headers: auth, status: 404},
         {method: 'GET', path: '/logs/abc', headers: auth, status: 404},
         {method: 'GET', path: '/logs/1', status: 401},
+        // /logs/<id> is GET-only: other methods are method errors, not misses
+        {method: 'POST', path: '/logs/1', headers: auth, status: 405, allow: 'GET'},
         {method: 'DELETE', path: '/logs/1', headers: auth, status: 405, allow: 'GET'},
         // /usage: exact pathname, all variation is in query params, auth required
         {method: 'GET', path: '/usage', headers: auth, status: 200},
@@ -71,10 +75,11 @@ test('routing matrix: method x path dispatch is frozen', async () => {
         // /v1 without a trailing slash, or with a different prefix, is a 404
         {method: 'POST', path: '/v1', headers: json, body: JSON.stringify({model: 'p/m'}), status: 404},
         {method: 'GET', path: '/v1foo', headers: auth, status: 404},
-        // /config: HTML without auth, JSON GET with auth, PUT with auth
-        {method: 'GET', path: '/config', status: 200},
+        // /config: JSON only, auth for GET and PUT
+        {method: 'GET', path: '/config', status: 401},
+        {method: 'GET', path: '/config', headers: {accept: 'text/html'}, status: 401},
+        {method: 'GET', path: '/config', headers: auth, status: 200},
         {method: 'GET', path: '/config', headers: json, status: 200},
-        {method: 'GET', path: '/config', headers: {accept: 'application/json'}, status: 401},
         {
             method: 'PUT', path: '/config',
             headers: {...auth, 'content-type': 'application/json'},
