@@ -25,7 +25,7 @@
             "default": "sk-cr-kee9itsecr1t"
         },
         "db": {
-            "description": "Where usage is persisted. A path string (relative paths resolve against the config file's directory), or false to disable. Defaults to closerouter.db next to the config file. Only takes effect in FFI builds (npm run build).",
+            "description": "Where usage is persisted: a path string (relative paths resolve against the config file's directory), false to disable, or \"upstream:<url>#<key>\" to store usage through another closerouter's usage API (the key is that instance's API key). Defaults to closerouter.db next to the config file.",
             "oneOf": [
                 {
                     "type": "string",

@@ -21,6 +21,11 @@ export interface ProviderConfig {
  *  recorded in usage rows. */
 export type ModelAlias = Record<string, string>
 
+export interface RemoteUsageDb {
+    url: string
+    key: string
+}
+
 export interface Config {
     $schema?: string
     port?: number
@@ -34,7 +39,9 @@ export interface Config {
 export interface RuntimeConfig {
     port: number
     key: string
-    dbPath: string | undefined
+    /** Local SQLite file, or the remote usage db (see `parseRemoteDb`).
+     *  Absent when storage is disabled. */
+    dbPath?: string
     retentionDays: number
     alias: ModelAlias
     providers: Record<string, ProviderConfig>
@@ -94,11 +101,62 @@ export function parseConfig (raw: string): RuntimeConfig {
     return {
         port: config.port as number,
         key: config.key as string,
-        dbPath: config.db === false ? undefined : config.db as string,
+        dbPath: parseDbPath(config.db),
         retentionDays: config.retentionDays as number,
         alias: parseModelAlias(config.alias as Record<string, string>),
         providers,
     }
+}
+
+const REMOTE_DB_PREFIX = 'upstream:'
+
+function parseDbPath (raw: unknown): string | undefined {
+    if (raw === false) return undefined
+    const dbPath = raw as string
+    parseRemoteDb(dbPath)
+    return dbPath
+}
+
+export function isRemoteDb (dbPath: string | undefined): boolean {
+    return dbPath?.startsWith(REMOTE_DB_PREFIX) === true
+}
+
+/** The remote usage target encoded in a `db` value, or undefined for a local
+ *  path. A value marked remote but malformed throws. */
+export function parseRemoteDb (dbPath: string | undefined): RemoteUsageDb | undefined {
+    if (dbPath === undefined || !isRemoteDb(dbPath)) return undefined
+
+    const rest = dbPath.slice(REMOTE_DB_PREFIX.length)
+    const separator = rest.indexOf('#')
+    if (separator < 1 || separator === rest.length - 1) {
+        throw new Error(`db: upstream storage must be written "upstream:<url>#<key>"`)
+    }
+    const url = rest.slice(0, separator)
+    const key = rest.slice(separator + 1)
+
+    let parsedUrl: URL
+    try {
+        parsedUrl = new URL(url)
+    } catch {
+        throw new Error(`db: "${url}" is not a valid upstream url`)
+    }
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        throw new Error(`db: upstream url "${url}" must be http or https`)
+    }
+    if (parsedUrl.search !== '') {
+        throw new Error(`db: upstream url "${url}" must not carry a query string`)
+    }
+    if (parsedUrl.username !== '' || parsedUrl.password !== '') {
+        throw new Error(`db: upstream url "${url}" must not carry credentials - write the key after "#"`)
+    }
+    return {url, key}
+}
+
+/** The db target with any remote key removed, for public views and logs.
+ *  Undefined when storage is disabled. */
+export function displayDbPath (dbPath: string | undefined): string | undefined {
+    const remote = parseRemoteDb(dbPath)
+    return remote === undefined ? dbPath : REMOTE_DB_PREFIX + remote.url
 }
 
 /** Lowercase the lookup keys so matching is case-insensitive; the canonical
@@ -140,7 +198,7 @@ function formatIssues (issues: SchemaIssue[]): string {
  *  `file:` URIs) pass through unchanged. Shared by boot (loadConfig) and the
  *  PUT /config handler so both produce identical paths. */
 export function resolveDbPath (dbPath: RuntimeConfig['dbPath'], configPath: string | undefined): RuntimeConfig['dbPath'] {
-    if (dbPath === undefined) return dbPath
+    if (dbPath === undefined || isRemoteDb(dbPath)) return dbPath
     if (dbPath === ':memory:' || dbPath.startsWith('file:')) return dbPath
     return resolve(dirname(configPath ?? '.'), dbPath)
 }

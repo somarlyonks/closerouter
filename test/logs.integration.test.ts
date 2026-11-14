@@ -15,6 +15,7 @@ import {sqliteAvailable, openDatabase} from '../lib/db'
 import {initUsage, recordUsage} from '../lib/server/logs/db'
 import {startServer} from '../lib/server'
 import type {ModelConfig, RuntimeConfig} from '../lib/config'
+import {getFreePort} from './helpers'
 
 const available = sqliteAvailable()
 
@@ -41,10 +42,10 @@ function listen (server: Server): Promise<number> {
     return new Promise(resolve => server.on('listening', () => resolve((server.address() as {port: number}).port)))
 }
 
-function configFor (backend: string, alias: Record<string, string> = {}): RuntimeConfig {
+async function configFor (backend: string, alias: Record<string, string> = {}): Promise<RuntimeConfig> {
     const models: ModelConfig[] = [{id: 'm'}]
     return {
-        port: 0,
+        port: await getFreePort(),
         key: 'logkey',
         dbPath: ':memory:',
         retentionDays: 7,
@@ -70,6 +71,21 @@ interface HistoryEntry {
     inputTokens?: number
     outputTokens?: number
     cachedTokens?: number
+}
+
+const settle = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 25))
+
+/** logMiddleware writes the row from the response 'close' handler, which may
+ *  run after the client's last byte arrives, so history reads wait for it
+ *  instead of assuming the insert already happened. */
+async function waitForEntry (port: number, key: string, match: (entry: HistoryEntry) => boolean): Promise<HistoryEntry> {
+    const deadline = Date.now() + 2000
+    for (;;) {
+        const found = (await fetchHistory(port, key)).find(match)
+        if (found !== undefined) return found
+        if (Date.now() >= deadline) throw new Error('history row was not persisted in time')
+        await settle()
+    }
 }
 
 async function fetchHistory (port: number, key: string): Promise<HistoryEntry[]> {
@@ -109,7 +125,7 @@ function integrationTests (): void {
         })
         openDatabase(':memory:')
         initUsage()
-        const {server} = startServer(configFor(backend.baseUrl))
+        const {server} = startServer(await configFor(backend.baseUrl))
         const port = await listen(server)
         try {
             const body = JSON.stringify({model: 'p/m', messages: []})
@@ -126,10 +142,7 @@ function integrationTests (): void {
             assert.equal(res.headers.get('x-closerouter-request-id'), 'client-abc-123')
             await res.text()
 
-            const entries = await fetchHistory(port, 'logkey')
-            const found = entries.find(e => e.requestId === 'client-abc-123')
-            assert.ok(found, 'history row for the request exists')
-            const entry = found!
+            const entry = await waitForEntry(port, 'logkey', e => e.requestId === 'client-abc-123')
             assert.equal(entry.method, 'POST')
             assert.equal(entry.path, '/v1/chat/completions')
             assert.ok(entry.provider === 'p', 'provider is p')
@@ -154,7 +167,7 @@ function integrationTests (): void {
         })
         openDatabase(':memory:')
         initUsage()
-        const {server} = startServer(configFor(backend.baseUrl, {'p/m': 'canonical-m'}))
+        const {server} = startServer(await configFor(backend.baseUrl, {'p/m': 'canonical-m'}))
         const port = await listen(server)
         try {
             const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
@@ -165,13 +178,43 @@ function integrationTests (): void {
             assert.equal(res.status, 200)
             await res.text()
 
-            const found = (await fetchHistory(port, 'logkey')).find(e => e.method === 'POST')
-            assert.ok(found, 'history row exists')
-            assert.ok(found!.provider === 'p', 'provider is untouched')
-            assert.ok(found!.model === 'canonical-m', 'model is rewritten through the alias')
+            const entry = await waitForEntry(port, 'logkey', e => e.method === 'POST')
+            assert.ok(entry.provider === 'p', 'provider is untouched')
+            assert.ok(entry.model === 'canonical-m', 'model is rewritten through the alias')
         } finally {
             await new Promise<void>(r => server.close(() => r()))
             await backend.close()
+        }
+    })
+
+    test('POST /logs stores a posted row and serves it back', async () => {
+        openDatabase(':memory:')
+        initUsage()
+        const {server} = startServer(await configFor('http://127.0.0.1:1'))
+        const port = await listen(server)
+        try {
+            const res = await fetch(`http://127.0.0.1:${port}/logs`, {
+                method: 'POST',
+                headers: {'content-type': 'application/json', 'authorization': 'Bearer logkey'},
+                body: JSON.stringify({
+                    requestId: 'posted-1',
+                    time: Date.now(),
+                    method: 'POST',
+                    path: '/v1/chat/completions',
+                    provider: 'p',
+                    model: 'canonical-m',
+                    status: 200,
+                    inputTokens: 3,
+                }),
+            })
+            assert.equal(res.status, 201)
+            assert.deepEqual(await res.json(), {ok: true})
+
+            const entry = await waitForEntry(port, 'logkey', e => e.requestId === 'posted-1')
+            assert.equal(entry.model, 'canonical-m', 'the owner stores a posted row verbatim')
+            assert.equal(entry.inputTokens, 3)
+        } finally {
+            await new Promise<void>(r => server.close(() => r()))
         }
     })
 
@@ -188,7 +231,7 @@ function integrationTests (): void {
                 model: 'm',
             })
         }
-        const {server} = startServer(configFor('http://127.0.0.1:1'))
+        const {server} = startServer(await configFor('http://127.0.0.1:1'))
         const port = await listen(server)
         try {
             const page = await fetchHistoryPage(port, 'logkey', 'limit=2&offset=0')
@@ -224,7 +267,7 @@ function integrationTests (): void {
         })
         openDatabase(':memory:')
         initUsage()
-        const {server} = startServer(configFor(backend.baseUrl))
+        const {server} = startServer(await configFor(backend.baseUrl))
         const port = await listen(server)
         try {
             const res = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
@@ -238,10 +281,7 @@ function integrationTests (): void {
             assert.equal(res.status, 200)
             await res.text()
 
-            const entries = await fetchHistory(port, 'logkey')
-            const found = entries.find(e => e.path === '/v1/responses')
-            assert.ok(found, 'history row for the responses request exists')
-            const entry = found!
+            const entry = await waitForEntry(port, 'logkey', e => e.path === '/v1/responses')
             assert.ok(entry.status === 200, 'status is 200')
             assert.ok(entry.inputTokens === 125, 'inputTokens is 125')
             assert.ok(entry.outputTokens === 45, 'outputTokens is 45')
@@ -268,7 +308,7 @@ function integrationTests (): void {
         })
         openDatabase(':memory:')
         initUsage()
-        const {server} = startServer(configFor(backend.baseUrl))
+        const {server} = startServer(await configFor(backend.baseUrl))
         const port = await listen(server)
         try {
             const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
@@ -282,10 +322,7 @@ function integrationTests (): void {
             assert.equal(res.status, 200)
             await res.text()
 
-            const entries = await fetchHistory(port, 'logkey')
-            const found = entries.find(e => e.path === '/v1/chat/completions')
-            assert.ok(found, 'history row for the request exists')
-            const entry = found!
+            const entry = await waitForEntry(port, 'logkey', e => e.path === '/v1/chat/completions')
             assert.ok(entry.status === 200, 'status is 200')
             assert.ok(entry.inputTokens === 9, 'inputTokens is 9')
             assert.ok(entry.outputTokens === 12, 'outputTokens is 12')

@@ -40,13 +40,49 @@ test('PUT /config updates the /status config hash to the submitted document', as
         })
         const put = await fetch(`http://127.0.0.1:${s.port}/config`, {
             method: 'PUT',
-            headers: {'content-type': 'application/json', authorization: `Bearer ${API_KEY}`},
+            headers: {'content-type': 'application/json', 'authorization': `Bearer ${API_KEY}`},
             body,
         })
         assert.equal(put.status, 200)
         const status = await fetch(`http://127.0.0.1:${s.port}/status`)
         const json = await status.json() as {config?: string}
         assert.equal(json.config, hashConfig(body))
+    } finally {
+        await s.close()
+    }
+})
+
+test('PUT /config names the boot-only fields that need a restart', async () => {
+    const s = await setup()
+    try {
+        const put = (body: unknown): Promise<Response> => fetch(`http://127.0.0.1:${s.port}/config`, {
+            method: 'PUT',
+            headers: {'content-type': 'application/json', 'authorization': `Bearer ${API_KEY}`},
+            body: JSON.stringify(body),
+        })
+        const hotOnly = await put({
+            port: s.port,
+            key: API_KEY,
+            providers: {p: {base_url: 'http://127.0.0.1:1', api_key: 'new-key', models: []}},
+        })
+        assert.equal(hotOnly.status, 200)
+        const applied = await hotOnly.json() as {restartRequired?: string[]}
+        assert.deepEqual(applied.restartRequired, [], 'providers and key apply without a restart')
+
+        const bootOnlyBody = {
+            port: s.port + 1,
+            key: API_KEY,
+            retentionDays: 3,
+            providers: {p: {base_url: 'http://127.0.0.1:1', api_key: 'new-key', models: []}},
+        }
+        const bootOnly = await put(bootOnlyBody)
+        assert.equal(bootOnly.status, 200)
+        const pending = await bootOnly.json() as {restartRequired?: string[]}
+        assert.deepEqual(pending.restartRequired, ['port', 'retentionDays'])
+
+        const repeated = await put(bootOnlyBody)
+        const stillPending = await repeated.json() as {restartRequired?: string[]}
+        assert.deepEqual(stillPending.restartRequired, ['port', 'retentionDays'], 'a restart-only change stays pending until the restart happens')
     } finally {
         await s.close()
     }
@@ -66,14 +102,20 @@ test('PUT /config requires authentication', async () => {
     }
 })
 
-test('GET /config serves the HTML page', async () => {
+test('GET /config always answers JSON and requires authentication', async () => {
     const s = await setup()
     try {
-        const res = await fetch(`http://127.0.0.1:${s.port}/config`)
+        const anonymous = await fetch(`http://127.0.0.1:${s.port}/config`)
+        assert.equal(anonymous.status, 401, 'no HTML console: the config is a JSON API only')
+        assert.match(anonymous.headers.get('content-type') ?? '', /application\/json/)
+
+        const res = await fetch(`http://127.0.0.1:${s.port}/config`, {
+            headers: {authorization: `Bearer ${API_KEY}`, accept: 'text/html'},
+        })
         assert.equal(res.status, 200)
-        assert.equal(res.headers.get('content-type'), 'text/html; charset=utf-8')
-        const body = await res.text()
-        assert.match(body, /Config/)
+        assert.match(res.headers.get('content-type') ?? '', /application\/json/)
+        const json = await res.json() as {port: number}
+        assert.equal(json.port, s.port)
     } finally {
         await s.close()
     }
@@ -177,7 +219,7 @@ test('PUT /config ignores an alias key without a provider prefix', async () => {
     }
 })
 
-test('GET /config exposes db: false so it survives an editor round-trip', async () => {
+test('GET /config exposes db: false so a client can tell persistence is off', async () => {
     const port = await getFreePort()
     const {path, cleanup} = await writeTempConfig({
         port,

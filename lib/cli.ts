@@ -2,7 +2,7 @@ import {resolve} from 'path'
 import {readFileSync} from 'fs'
 import {spawn} from 'child_process'
 import {startServer} from './server'
-import {loadConfig, parseConfig, printServerConfig, type RuntimeConfig} from './config'
+import {loadConfig, parseConfig, printServerConfig, isRemoteDb, type RuntimeConfig} from './config'
 import {sqliteAvailable, openDatabase, closeDatabase, run, getSqliteVersion} from './db'
 import {closeUsageLog, initUsage, applyModelAliases, startRetentionSweep} from './server/logs/db'
 import packageJson from '../package.json' with {type: 'json'}
@@ -106,14 +106,14 @@ function startDetached (configPath: string): void {
     console.log(`closerouter started in background (pid ${child.pid ?? 'unknown'})`)
 }
 
-const DRAIN_PERIOD_MS = 5_000
-const FORCE_EXIT_GRACE_MS = 10_000
+const DRAIN_PERIOD_MS = 2_000
 
 /** Close the usage database, returning a teardown that stops the sweep and
  *  disables recording before the handle closes, so a late response 'close'
- *  handler drops its row instead of touching the dead handle. */
+ *  handler drops its row instead of touching the dead handle. A remote db owns
+ *  no handle here: its rows go to the owner's usage API instead. */
 function initStorage ({dbPath, retentionDays, alias}: RuntimeConfig): () => void {
-    if (dbPath === undefined) return () => {}
+    if (dbPath === undefined || isRemoteDb(dbPath)) return () => {}
     if (!sqliteAvailable()) {
         console.log('sqlite unavailable in this build - usage is not persisted')
         return () => {}
@@ -123,7 +123,6 @@ function initStorage ({dbPath, retentionDays, alias}: RuntimeConfig): () => void
     initUsage()
     applyModelAliases(alias)
     const sweep = startRetentionSweep(retentionDays)
-    console.log(`usage log at ${dbPath}`)
     return () => {
         sweep.stop()
         closeUsageLog()
@@ -136,13 +135,11 @@ function runServer (config: RuntimeConfig): void {
     const {server, upstream} = startServer(config)
     let shuttingDown = false
 
-    // server.close stops accepting connections and fires its callback once they
-    // all drain; the response 'close' telemetry rows are written by then, so
-    // storage can be closed and the process exited 0. Parked keep-alive sockets
-    // are retired explicitly so that drain can complete; upstream work still
-    // running at the drain deadline is aborted so an endless generation cannot
-    // keep its connection (and the process) open; the force deadline is the
-    // backstop for transports that refuse to unwind even then.
+    const exitWhenDrained = (): void => {
+        closeStorage()
+        process.exit(0)
+    }
+
     const shutdown = (signal: string): void => {
         if (shuttingDown) {
             console.log(`received ${signal} while shutting down, forcing exit`)
@@ -150,22 +147,22 @@ function runServer (config: RuntimeConfig): void {
         }
         shuttingDown = true
         console.log(`received ${signal}, shutting down`)
-        server.close(() => {
-            closeStorage()
-            process.exit(0)
-        })
-        // Retire parked keep-alive sockets with a FIN so server.close can
-        // complete instead of waiting out their keep-alive timeout.
+        // server.close stops accepting connections and fires its callback once the
+        // client connections drain; a remote usage row is posted after its response
+        // closes and no client waits on it, so the exit waits for the tracked set
+        // to empty instead of assuming the write landed. Parked keep-alive sockets
+        // are retired explicitly so the drain can begin. Past the deadline nothing
+        // left is worth waiting for: aborting settles the tracked requests (which
+        // runs the exit above) and closeAllConnections drops whichever client
+        // socket still holds server.close open.
+        server.close(() => upstream.whenIdle(exitWhenDrained))
         server.closeIdleConnections()
         setTimeout(() => {
             const stuck = upstream.size()
-            if (stuck > 0) console.log(`aborting ${stuck} in-flight upstream request(s) past the drain period`)
+            if (stuck > 0) console.log(`aborting ${stuck} in-flight request(s) past the drain period`)
             upstream.abortAll()
+            server.closeAllConnections()
         }, DRAIN_PERIOD_MS).unref()
-        setTimeout(() => {
-            console.log(`forcing shutdown after grace period`)
-            process.exit(1)
-        }, FORCE_EXIT_GRACE_MS).unref()
     }
 
     process.on('SIGTERM', () => shutdown('SIGTERM'))

@@ -11,6 +11,13 @@
 - **JSON config only** - no YAML, TOML, or other formats. Config file is `closerouter.json` by default, overridable via the `-c`/`--config <path>` CLI argument.
 - **Streaming is critical** - `/v1/chat/completions` must support SSE streaming. Proxy responses should stream chunks back to the client without buffering the entire response.
 - **OpenAI-format only** - only proxy providers that speak the OpenAI API format. The router itself only exposes `/v1/chat/completions`, `/v1/responses`, and `/v1/models`.
+- **Usage is an HTTP API** - `GET /logs`, `GET /logs/:id`, `GET /usage` and `POST /logs` are the usage surface. An instance with a local SQLite db serves it; an instance with a remote db forwards those requests to the owner and POSTs its rows there. Recording a request means storing one row through the same path the usage API writes: the db owner inserts it in-process, a remote-db instance POSTs it to the owner, an instance with no db drops it. There is no store object.
+- **Config is a JSON API** - `GET /config` and `PUT /config` answer JSON only. `PUT` reports `restartRequired` for the boot-only fields it could not apply.
+- **Boot-only config** - `PUT /config` hot-applies `providers`, `key` and `alias`; `port`, `db` and `retentionDays` need a restart and are named in `restartRequired` until it happens.
+
+## Remote Usage Db
+
+`db: "upstream:<url>#<key>"` stores usage through another closerouter's usage API. It keeps no local db: it posts one row per request to the owner's `POST /logs`, forwards `/logs`, `/logs/:id` and `/usage`, applies its own `alias`, and drops rows with a log line when the owner is unreachable (`POST /logs` answers 503 when the owner cannot store). The key follows the first `#`, never reaches `GET /config`, and is a write credential - use `https` off loopback.
 
 ## Version Control
 
@@ -37,7 +44,10 @@
 │       ├── status.ts           # GET /status - alive check, versions
 │       ├── usage.ts            # GET /usage - usage stats and heatmap
 │       ├── v1/                 # OpenAI-compatible API, proxied to providers
-│       ├── logs/               # Request log history
+│       ├── logs/               # Request log history (the usage API)
+│       │   ├── db.ts           # SQLite usage queries, migrations, retention
+│       │   ├── helper.ts       # Body capture, token usage, usage API client + forwarder
+│       │   └── index.ts        # /logs routes, telemetry middleware
 │       └── config/             # Runtime config
 ├── assets/                     # Shared web assets and the HTML build
 │   ├── build.ts                # Inlines /* @asset */ markers into lib HTML pages
@@ -60,7 +70,7 @@
 
 ## HTML Pages, Assets, and Build
 
-Due to the limit of `scriptc` runtime file reading, HTML pages and JSON documents are authored as source files under `lib` (e.g. `lib/server/config/index.html`, `lib/config/schema.json`). They are **not** read at runtime - `assets/build.ts` converts each `.html` into a `.html.ts` module and each `.json` into a `.json.ts` module. Every generated module exports a fixed name (`html` for pages, `json` for documents). Import `.json.ts` modules with the explicit extension - scriptc resolves `'./schema.json'` to the raw JSON module, which it cannot compile statically.
+Due to the limit of `scriptc` runtime file reading, HTML pages and JSON documents are authored as source files under `lib` (e.g. `lib/server/logs/index.html`, `lib/config/schema.json`). They are **not** read at runtime - `assets/build.ts` converts each `.html` into a `.html.ts` module and each `.json` into a `.json.ts` module. Every generated module exports a fixed name (`html` for pages, `json` for documents). Import `.json.ts` modules with the explicit extension - scriptc resolves `'./schema.json'` to the raw JSON module, which it cannot compile statically.
 
 - **Run the build:** `node build.ts` orchestrates both build steps - `assets/build.ts` (HTML + JSON; scans `lib/server` and `lib/config` for `*.html` and `*.json`, also accepts a file or dir arg passed through) and `native/build.ts` (compiles the FFI C shims listed in `native/ffi.json` in place). The generated `.html.ts` / `.json.ts` files are **gitignored build artifacts** - always regenerate after editing a source `.html`/`.json`, and don't edit them by hand.
 
@@ -76,7 +86,7 @@ Rules for authored HTML:
 
 ### Page layout
 
-`body` is a `display: flex; flex-direction: column`, and `main` has `flex: 1`, so a footer placed after `</main>` naturally pins to the bottom. Shared styles (including `.app-footer`) go in `assets/index.css`.
+`body` is a `display: flex; flex-direction: column`, and `main` has `flex: 1`, so a footer placed after `</main>` naturally pins to the bottom. Shared styles go in `assets/index.css`.
 
 ## Clean Code
 

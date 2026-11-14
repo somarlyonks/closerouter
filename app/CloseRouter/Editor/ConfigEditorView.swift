@@ -182,14 +182,12 @@ struct ConfigEditorView: View {
             let wasStarting = server.state == .starting
 
             do {
-                var dbChanged = false
+                var restartRequired: [String] = []
                 if server.state.isRunning {
-                    let runningDb = try await APIClient.getConfigDb(port: server.port, key: server.key)
-                    let requestedDb = try await APIClient.putConfig(snapshot, port: server.port, key: server.key)
-                    dbChanged = requestedDb != runningDb
+                    restartRequired = try await APIClient.putConfig(snapshot, port: server.port, key: server.key)
                 }
                 try ConfigStore.save(snapshot)
-                if wasStarting || newPort != oldPort || dbChanged {
+                if wasStarting || newPort != oldPort || !restartRequired.isEmpty {
                     server.restart() // boot-only changes require a fresh child
                 } else {
                     server.refreshConfig() // keep the runtime key in sync with the saved config

@@ -1,5 +1,6 @@
 import {withMethod} from '../router'
 import {getSqliteVersion} from '../db'
+import {isRemoteDb} from '../config'
 import packageJson from '../../package.json' with {type: 'json'}
 
 export const handleStatus = withMethod('GET')((ctx, res) => {
@@ -13,6 +14,7 @@ export const handleStatus = withMethod('GET')((ctx, res) => {
     }))
 
     function sqliteVersion (): string | undefined {
+        if (isRemoteDb(ctx.env.config.dbPath)) return 'remote'
         if (ctx.env.config.dbPath === undefined) return undefined
         try {
             return getSqliteVersion()

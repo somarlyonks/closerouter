@@ -480,9 +480,10 @@ export function loadUsageHeatmap (filters: UsageFilters = {}): UsageBucket[] {
     }
 }
 
-export function recordUsage (entry: UsageEntry, alias?: ModelAlias): void {
-    if (!initialized) return
-    const model = applyAlias(alias, entry.provider, entry.model)
+/** Insert one usage row. Returns false when storage is unavailable or the
+ *  insert failed, so the usage API can tell a writer its row was dropped. */
+export function recordUsage (entry: UsageEntry): boolean {
+    if (!initialized) return false
     try {
         run(
             'INSERT INTO usage (request_id, time, method, path, provider, model, status, duration_ms, ttft_ms, generation_ms, input_tokens, output_tokens, cached_tokens, request_body, response_body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -492,7 +493,7 @@ export function recordUsage (entry: UsageEntry, alias?: ModelAlias): void {
                 entry.method,
                 entry.path,
                 entry.provider ?? null,
-                model ?? null,
+                entry.model ?? null,
                 entry.status ?? null,
                 entry.durationMs ?? null,
                 entry.ttftMs ?? null,
@@ -504,8 +505,10 @@ export function recordUsage (entry: UsageEntry, alias?: ModelAlias): void {
                 entry.responseBody ?? null,
             ],
         )
+        return true
     } catch (e) {
         console.error('usage insert failed:', e instanceof Error ? e.message : String(e))
+        return false
     }
 }
 
@@ -514,7 +517,7 @@ const RETENTION_SWEEP_INTERVAL_MS = DAY
 /** Canonical model id for a `provider`/`model` pair, or the model unchanged
  *  when the pair is not aliased. The provider column is never rewritten - it
  *  records which backend actually served the request. */
-function applyAlias (alias: ModelAlias | undefined, provider: string | undefined, model: string | undefined): string | undefined {
+export function applyAlias (alias: ModelAlias | undefined, provider: string | undefined, model: string | undefined): string | undefined {
     if (alias === undefined || provider === undefined || model === undefined) return model
     const key = `${provider}/${model}`.toLowerCase()
     return Object.hasOwn(alias, key) ? alias[key] : model

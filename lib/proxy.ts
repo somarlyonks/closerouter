@@ -4,7 +4,7 @@ import {ClientRequest, IncomingMessage, ServerResponse} from 'http'
 import {appendResponseBody, feedStreamUsage, logResponse, safeLog} from './server/logs/helper'
 import type {ResponseLog, UsageCounts} from './server/logs/helper'
 import {errorBody, readRequestBody, respondError, type RequestContext} from './router'
-import type {UpstreamTracker} from './server/helper'
+import {resolveTarget, type UpstreamTracker} from './server/helper'
 import type {ProviderConfig} from './config'
 
 // Headers that are hop-by-hop (RFC 7230 §6.1) or owned by the proxy itself are
@@ -105,39 +105,6 @@ function backendRequest (
         return https.request({hostname, port, path, method, headers: headers})
     }
     return http.request({hostname, port, path, method, headers: headers})
-}
-
-interface Target {
-    isHttps: boolean
-    hostname: string
-    port: number
-    urlPath: string
-}
-
-function resolveTarget (baseUrl: string, path: string): Target {
-    const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
-    const targetUrl = new URL(normalizedBaseUrl + path)
-    const isHttps = targetUrl.protocol === 'https:'
-
-    return {
-        isHttps,
-        hostname: getHostname(targetUrl),
-        port: getPort(targetUrl, isHttps),
-        urlPath: targetUrl.pathname + targetUrl.search,
-    }
-
-    function getPort (targetUrl: URL, isHttps: boolean): number {
-        if (targetUrl.port !== '') return Number(targetUrl.port)
-        return isHttps ? 443 : 80
-    }
-
-    // URL.hostname keeps the brackets on an IPv6 literal ("[::1]"), but
-    // http.request's hostname option wants the bare address.
-    function getHostname (targetUrl: URL): string {
-        const hostname = targetUrl.hostname
-        if (hostname.startsWith('[') && hostname.endsWith(']')) return hostname.slice(1, -1)
-        return hostname
-    }
 }
 
 interface ClientState {
@@ -279,7 +246,7 @@ export function proxyRequest (
     const clientReq = ctx.req
     const responseLog = ctx.responseLog
     const upstream = ctx.env.upstream
-    const {isHttps, hostname, port, urlPath} = resolveTarget(baseUrl, path)
+    const {isHttps, hostname, port, path: urlPath} = resolveTarget(baseUrl, path)
     const method = clientReq.method || 'POST'
     const client = createClientState(clientRes)
 
@@ -367,7 +334,7 @@ export function proxyGetRequest (
     upstream?: UpstreamTracker,
     idleTimeoutMs: number = UPSTREAM_IDLE_TIMEOUT_MS,
 ): Promise<{statusCode: number, body: string}> {
-    const {isHttps, hostname, port, urlPath} = resolveTarget(baseUrl, path)
+    const {isHttps, hostname, port, path: urlPath} = resolveTarget(baseUrl, path)
 
     return new Promise((resolve, reject) => {
         const req = backendRequest(

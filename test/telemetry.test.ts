@@ -88,8 +88,8 @@ function startProxiedHarness (backendUrl: string, endpoint: string): Promise<Har
     const holder: {log?: ResponseLog} = {}
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         const responseLog: ResponseLog = {}
-        holder.log = responseLog
         const ctx: RequestContext = {req, env: {config}, responseLog}
+        holder.log = responseLog
         logMiddleware(ctx, res)
         responseLog.provider = 'p'
         responseLog.model = 'm'
@@ -105,8 +105,8 @@ function startRoutedHarness (backendUrl: string): Promise<Harness> {
     const holder: {log?: ResponseLog} = {}
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         const responseLog: ResponseLog = {}
-        holder.log = responseLog
         const ctx: RequestContext = {req, env: {config}, responseLog}
+        holder.log = responseLog
         logMiddleware(ctx, res)
         handle(v1Router)(ctx, res)
     })

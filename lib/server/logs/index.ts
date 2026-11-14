@@ -1,10 +1,12 @@
 import type {IncomingMessage, ServerResponse} from 'http'
 import {randomUUIDv7} from 'crypto'
-import {router, needsAuth, withMethod, path, handleHTML, readRequestBody, type RequestContext} from '../../router'
-import {MAX_BODY, applySSEFrame, applyUsageObject} from './helper'
+import {router, needsAuth, withMethod, path, handleHTML, handleBadRequest, readRequestBody, respondError, type RequestContext} from '../../router'
+import {MAX_BODY, applySSEFrame, applyUsageObject, forwardToRemoteDb, parseUsageEntry, recordUsageEntry, safeLog} from './helper'
 import type {UsageCounts} from './helper'
-import {recordUsage, loadUsage, loadUsageBody, type UsageLogQuery} from './db'
+import {loadUsage, loadUsageBody, recordUsage, type UsageEntry, type UsageLogQuery} from './db'
 import {html as indexHTML} from './index.html'
+
+const MAX_USAGE_ENTRY_BYTES = 8 * 1024 * 1024
 
 function hasUsage (usage: UsageCounts | undefined): boolean {
     return usage !== undefined && (
@@ -14,32 +16,103 @@ function hasUsage (usage: UsageCounts | undefined): boolean {
     )
 }
 
-export const handleLogs = withMethod('GET')(router(
+export const handleLogs = router(
     path('/logs'),
-    router(
-        r => r.req.headers['accept'] === 'application/json',
-        needsAuth((ctx, res) => {
-            const payload = JSON.stringify(loadUsage(parseLogSearchParams(new URL('http://localhost' + (ctx.req.url ?? '/')))))
-            res.writeHead(200, {
-                'content-type': 'application/json',
-                'cache-control': 'no-cache',
-            })
-            res.end(payload)
-        }),
-        handleHTML(indexHTML),
-    ),
-    router(
-        r => !!logDetailId(r.req.url),
-        needsAuth((ctx, res) => {
-            const body = loadUsageBody(logDetailId(ctx.req.url)!)
-            res.writeHead(body ? 200 : 404, {
-                'content-type': 'application/json',
-                'cache-control': 'no-cache',
-            })
-            res.end(JSON.stringify(body ?? {error: {message: 'usage entry not found', type: 'not_found'}}))
-        }),
-    ),
-))
+    [
+        ...withMethod('GET')(router(
+            r => r.req.headers['accept'] === 'application/json',
+            needsAuth(forwardToRemoteDb(listUsage)),
+            handleHTML(indexHTML),
+        )),
+        ...withMethod('POST')(needsAuth(forwardToRemoteDb(appendUsage))),
+    ],
+    withMethod('GET')(needsAuth(forwardToRemoteDb(showUsageBody))),
+)
+
+function listUsage (ctx: RequestContext, res: ServerResponse): void {
+    const query = parseLogSearchParams(new URL('http://localhost' + (ctx.req.url ?? '/')))
+    sendJSON(res, 200, loadUsage(query))
+}
+
+function showUsageBody (ctx: RequestContext, res: ServerResponse): void {
+    const id = logDetailId(ctx.req.url)
+    if (id === undefined) return respondError(res, 404, 'not_found', 'usage entry not found')
+    const body = loadUsageBody(id)
+    if (body === undefined) return respondError(res, 404, 'not_found', 'usage entry not found')
+    sendJSON(res, 200, body)
+}
+
+/** Write endpoint of the usage API: an instance posts the row it recorded here
+ *  and the db owner stores it verbatim - the recording instance already applied
+ *  its own alias map. */
+async function appendUsage (ctx: RequestContext, res: ServerResponse): Promise<void> {
+    if (declaredLength(ctx.req) > MAX_USAGE_ENTRY_BYTES) return rejectOversizedEntry(ctx.req, res)
+
+    const raw = await readBoundedBody(ctx.req, MAX_USAGE_ENTRY_BYTES)
+    if (raw === undefined) return rejectOversizedEntry(ctx.req, res)
+
+    let entry: UsageEntry
+    try {
+        entry = parseUsageEntry(raw)
+    } catch (e) {
+        return handleBadRequest(res, e instanceof Error ? e.message : 'Invalid usage entry')
+    }
+
+    if (!recordUsage(entry)) {
+        return respondError(res, 503, 'storage_unavailable', 'Usage storage is not available on this instance')
+    }
+    sendJSON(res, 201, {ok: true})
+}
+
+function declaredLength (req: IncomingMessage): number {
+    const declared = Number(req.headers['content-length'])
+    return Number.isFinite(declared) ? declared : 0
+}
+
+function rejectOversizedEntry (req: IncomingMessage, res: ServerResponse): void {
+    res.setHeader('connection', 'close')
+    respondError(res, 413, 'payload_too_large', `Usage entry exceeds ${MAX_USAGE_ENTRY_BYTES} bytes`)
+    res.once('finish', () => req.destroy())
+}
+
+function readBoundedBody (req: IncomingMessage, maxBytes: number): Promise<string | undefined> {
+    return new Promise((resolve, reject) => {
+        const chunks: Buffer[] = []
+        let size = 0
+        let settled = false
+
+        function finish (value: string | undefined): void {
+            if (settled) return
+            settled = true
+            resolve(value)
+        }
+
+        req.on('data', (chunk: Buffer) => {
+            if (settled) return
+            size += chunk.length
+            if (size > maxBytes) {
+                chunks.length = 0
+                req.pause()
+                return finish(undefined)
+            }
+            chunks.push(chunk)
+        })
+        req.on('end', () => finish(Buffer.concat(chunks).toString('utf-8')))
+        req.on('error', (e: Error) => {
+            if (settled) return
+            settled = true
+            reject(e)
+        })
+    })
+}
+
+function sendJSON (res: ServerResponse, status: number, payload: unknown): void {
+    res.writeHead(status, {
+        'content-type': 'application/json',
+        'cache-control': 'no-cache',
+    })
+    res.end(JSON.stringify(payload))
+}
 
 function parseLogSearchParams (url: URL): UsageLogQuery {
     const num = (name: string): number | undefined => {
@@ -66,7 +139,7 @@ function logDetailId (url: string | undefined): number | undefined {
 
 export function logMiddleware (ctx: RequestContext, res: ServerResponse) {
     if (!path('/v1/*').predicate(ctx)) return
-    const {req, responseLog} = ctx
+    const {req, responseLog, env} = ctx
 
     const id = readClientRequestId(req) ?? randomUUIDv7()
     res.setHeader('x-closerouter-request-id', id)
@@ -80,7 +153,7 @@ export function logMiddleware (ctx: RequestContext, res: ServerResponse) {
         const firstTokenAt = responseLog.firstTokenAt
         const lastTokenAt = responseLog.lastTokenAt
 
-        bodyText.then(raw => recordUsage({
+        bodyText.then(raw => safeLog('record usage', () => recordUsageEntry({
             ...usage,
             requestId: id,
             time: startedAt,
@@ -94,7 +167,7 @@ export function logMiddleware (ctx: RequestContext, res: ServerResponse) {
             generationMs: firstTokenAt !== undefined && lastTokenAt !== undefined ? lastTokenAt - firstTokenAt : undefined,
             requestBody: raw.length > 0 ? raw.slice(0, MAX_BODY) : undefined,
             responseBody: responseLog.body,
-        }, ctx.env.config.alias))
+        }, env.config, env.upstream)))
     })
 }
 
