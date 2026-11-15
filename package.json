@@ -15,6 +15,7 @@
         "test:db": "node build.ts && scriptc build test/db.test.ts --ffi native/ffi.json --strip -o dist/db-test && ./dist/db-test",
         "test:logs": "node build.ts && scriptc build test/logs.integration.test.ts --ffi native/ffi.json --strip -o dist/logs-test && ./dist/logs-test",
         "test:telemetry": "node build.ts && scriptc build test/telemetry.test.ts --ffi native/ffi.json --strip -o dist/telemetry-test && ./dist/telemetry-test",
+        "test:smoke": "npm run build:cli && bash scripts/smoke-test.sh",
         "test:seed": "node test/seed-usage.js --seed 20 --backfill",
         "test:plugin": "node --test \"plugin/**/*.test.ts\"",
         "test": "node build.ts && node --import ./test/loader.mjs --test \"test/**/*.test.ts\"",
