@@ -1,0 +1,79 @@
+name: ci
+
+on:
+    # Merge-time testing only: releases are started by bump.yml once the
+    # merge lands, so this workflow stays read-only and free of side effects.
+    pull_request:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    NODE_VERSION: "24"
+
+jobs:
+    linux:
+        name: Linux tests and binary
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+
+            # lib/db/shim.c is a native object and ffi.json links -lsqlite3, so the
+            # binary can only be built with the Linux sqlite3 headers present.
+            - name: Install native toolchain
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y --no-install-recommends clang libsqlite3-dev
+
+            - run: npm ci
+
+            - name: Test
+              run: npm test
+
+            - name: Build binary
+              run: npm run build:cli
+
+            # The FFI symbols only bind in a built executable, so "does sqlite work"
+            # needs a running server, not `version`.
+            - name: Smoke test binary
+              run: bash scripts/smoke-test.sh dist/closerouter
+
+    macos:
+        name: macOS binary and app
+        runs-on: macos-26
+        timeout-minutes: 40
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+
+            - name: Install xcodegen
+              run: command -v xcodegen >/dev/null || brew install xcodegen
+
+            - run: npm ci
+
+            - name: Build binary
+              run: npm run build:cli
+
+            # The FFI symbols only bind in a built executable, so "does sqlite work"
+            # needs a running server, not `version`.
+            - name: Smoke test binary
+              run: bash scripts/smoke-test.sh dist/closerouter
+
+            # Swift changes are only caught by a real build; the dmg is release-only.
+            - name: Build app bundle
+              run: npm run build:app
