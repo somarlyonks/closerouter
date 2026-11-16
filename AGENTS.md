@@ -63,7 +63,10 @@
 │   ├── helpers.ts              # Mock req/res, mock backend, server + config helpers
 │   ├── mock-server.js          # Standalone mock provider driven by mock-server.config.json
 │   └── seed-usage.js           # Backfill synthetic usage rows through the mock server
-├── build.ts                    # Build preparation: orchestrates assets/ + native/ builds
+├── scripts/                    # Build and release tooling, run under plain Node
+│   ├── build.ts                # Build preparation: orchestrates assets/ + native/ builds
+│   ├── bump-version.ts         # Version bump, commit and tag for a release
+│   └── smoke-test.sh           # Starts a built binary and drives its HTTP surface
 ├── closerouter.json            # Sample / default config
 └── closerouter.todo            # Development task tracker
 ```
@@ -72,7 +75,7 @@
 
 Due to the limit of `scriptc` runtime file reading, HTML pages and JSON documents are authored as source files under `lib` (e.g. `lib/server/logs/index.html`, `lib/config/schema.json`). They are **not** read at runtime - `assets/build.ts` converts each `.html` into a `.html.ts` module and each `.json` into a `.json.ts` module. Every generated module exports a fixed name (`html` for pages, `json` for documents). Import `.json.ts` modules with the explicit extension - scriptc resolves `'./schema.json'` to the raw JSON module, which it cannot compile statically.
 
-- **Run the build:** `node build.ts` orchestrates both build steps - `assets/build.ts` (HTML + JSON; scans `lib/server` and `lib/config` for `*.html` and `*.json`, also accepts a file or dir arg passed through) and `native/build.ts` (compiles the FFI C shims listed in `native/ffi.json` in place). The generated `.html.ts` / `.json.ts` files are **gitignored build artifacts** - always regenerate after editing a source `.html`/`.json`, and don't edit them by hand.
+- **Run the build:** `node scripts/build.ts` orchestrates both build steps - `assets/build.ts` (HTML + JSON; scans `lib/server` and `lib/config` for `*.html` and `*.json`, also accepts a file or dir arg passed through) and `native/build.ts` (compiles the FFI C shims listed in `native/ffi.json` in place). The generated `.html.ts` / `.json.ts` files are **gitignored build artifacts** - always regenerate after editing a source `.html`/`.json`, and don't edit them by hand.
 
 ### Assets
 
