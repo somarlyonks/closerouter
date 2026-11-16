@@ -1,0 +1,70 @@
+name: bump
+
+on:
+    push:
+        branches: [master]
+        # The version commit only touches these files, so the push that produces
+        # it starts no bump run at all. A skip marker in its message would also
+        # suppress the tag push that starts release.yml.
+        paths-ignore: ["package.json", "package-lock.json", "closerouter.json"]
+    workflow_dispatch:
+        inputs:
+            bump:
+                description: "Bump to force instead of deriving it from commits"
+                type: choice
+                options: [auto, patch, minor, major]
+                default: auto
+
+permissions:
+    contents: read
+
+concurrency:
+    group: bump
+    cancel-in-progress: false
+
+env:
+    NODE_VERSION: "24"
+
+jobs:
+    bump:
+        name: Bump version and tag
+        if: github.ref == 'refs/heads/master'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - name: Check the release token is configured
+              env:
+                  TOKEN: ${{ secrets.RELEASE_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  if [[ -z "$TOKEN" ]]; then
+                    echo "::error::RELEASE_TOKEN is missing - create a fine-grained personal access token with Contents: read and write on this repository and store it as the RELEASE_TOKEN secret" >&2
+                    exit 1
+                  fi
+
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+                  token: ${{ secrets.RELEASE_TOKEN }}
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+
+            # No npm ci: the script only rewrites version fields and uses git.
+            - name: Bump, commit, tag and push
+              id: bump
+              run: |
+                  set +e
+                  node scripts/bump-version.ts "${{ inputs.bump }}"
+                  status=$?
+                  set -e
+                  if [[ $status == 3 ]]; then
+                    echo "nothing to release - no tag pushed"
+                    exit 0
+                  fi
+                  exit $status
+
+            - name: Report the released tag
+              if: steps.bump.outputs.tag != ''
+              run: echo "released ${{ steps.bump.outputs.tag }} - release.yml builds it from the tag push"

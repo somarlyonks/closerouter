@@ -1,0 +1,169 @@
+name: release
+
+on:
+    push:
+        tags: ["v[0-9]*"]
+    release:
+        types: [published]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+env:
+    NODE_VERSION: "24"
+
+jobs:
+    verify:
+        name: Tag is on the default branch
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Check the tag commit is contained in the default branch
+              if: github.ref_type == 'tag'
+              env:
+                  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+              run: |
+                  set -euo pipefail
+                  git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+                  if ! git merge-base --is-ancestor HEAD "origin/$DEFAULT_BRANCH"; then
+                    echo "::error::${{ github.ref_name }} points at $(git rev-parse --short HEAD), which $DEFAULT_BRANCH does not contain" >&2
+                    exit 1
+                  fi
+                  echo "ok: $(git rev-parse --short HEAD) is contained in $DEFAULT_BRANCH"
+
+            - name: Check the tag matches the package version
+              if: github.ref_type == 'tag'
+              run: |
+                  set -euo pipefail
+                  version=$(jq -r .version package.json)
+                  if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+                    echo "::error::$GITHUB_REF_NAME does not match v$version from package.json" >&2
+                    exit 1
+                  fi
+                  echo "ok: $GITHUB_REF_NAME matches package.json"
+
+    linux:
+        name: Linux x86_64 binary
+        runs-on: ubuntu-24.04
+        needs: [verify]
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+
+            - name: Install native toolchain
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y --no-install-recommends clang libsqlite3-dev
+
+            - run: npm ci
+
+            - name: Build binary
+              run: npm run build:cli
+
+            - name: Smoke test binary
+              run: bash scripts/smoke-test.sh dist/closerouter
+
+            - name: Name artifact
+              run: |
+                  version=$(node -p "require('./package.json').version")
+                  cp dist/closerouter "closerouter-${version}-linux-x86_64"
+
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: closerouter-linux-x86_64
+                  path: closerouter-*-linux-x86_64
+                  if-no-files-found: error
+
+    macos:
+        name: macOS arm64 binary and dmg
+        runs-on: macos-26
+        needs: [verify]
+        timeout-minutes: 60
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+
+            - name: Install xcodegen
+              run: command -v xcodegen >/dev/null || brew install xcodegen
+
+            - run: npm ci
+
+            - name: Build binary
+              run: npm run build:cli
+
+            - name: Smoke test binary
+              run: bash scripts/smoke-test.sh dist/closerouter
+
+            - name: Name artifact
+              run: |
+                  version=$(node -p "require('./package.json').version")
+                  cp dist/closerouter "closerouter-${version}-macos-arm64"
+
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: closerouter-macos-arm64
+                  path: closerouter-*-macos-arm64
+                  if-no-files-found: error
+
+            - name: Build app bundle and dmg
+              run: npm run build
+
+            - name: Check dmg
+              run: |
+                  set -euo pipefail
+                  hdiutil verify dist/CloseRouter.dmg
+                  version=$(jq -r .version package.json)
+                  app_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' dist/CloseRouter.app/Contents/Info.plist)
+                  if [[ "$app_version" != "$version" ]]; then
+                    echo "::error::app reports $app_version, package.json says $version" >&2
+                    exit 1
+                  fi
+                  bash scripts/smoke-test.sh dist/CloseRouter.app/Contents/Resources/closerouter
+
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: CloseRouter.dmg
+                  path: dist/CloseRouter.dmg
+                  if-no-files-found: error
+
+    release:
+        name: Attach to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        needs: [linux, macos]
+        runs-on: ubuntu-24.04
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/download-artifact@v8
+              with:
+                  path: assets
+                  merge-multiple: true
+
+            - name: Upload to the tag's release
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAG: ${{ github.ref_name }}
+              run: |
+                  set -euo pipefail
+                  ls -l assets
+                  gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes
+                  gh release upload "$TAG" assets/* --clobber

@@ -28,7 +28,9 @@ targets:
             base:
                 PRODUCT_BUNDLE_IDENTIFIER: com.somarlyonks.closerouter
                 PRODUCT_NAME: "$(TARGET_NAME)"
-                MARKETING_VERSION: 0.9.0
+                # Filled in from package.json by `npm run prebuild:app`, so the
+                # app version only ever comes from one place.
+                MARKETING_VERSION: "${CR_VERSION}"
                 CURRENT_PROJECT_VERSION: 1
                 SWIFT_VERSION: "6.0"
                 CODE_SIGN_STYLE: Manual
